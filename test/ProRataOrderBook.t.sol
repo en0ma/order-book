@@ -794,6 +794,72 @@ contract ProRataOrderBookTest is TestBase {
         assertEq(int256(settled), 0, "trailing stop did not close long");
     }
 
+    function testLiquidationCanAtomicallyCancelTrailingOrder() public {
+        MockERC20 token = new MockERC20();
+        MockExtremaOracle oracle = new MockExtremaOracle(100);
+
+        book.configureSettlement(address(token), address(oracle));
+        book.configureExtremaOracle(address(oracle));
+        book.configureRisk(100, 40, 2_000);
+        book.configureLiquidation(1_000);
+
+        token.mint(ALICE, 3_000);
+        token.mint(BOB, 100_000);
+        token.mint(CAROL, 100_000);
+
+        vm.prank(ALICE);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(ALICE);
+        book.depositCollateral(3_000);
+
+        vm.prank(BOB);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(CAROL);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(CAROL);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        vm.prank(ALICE);
+        book.take(ProRataOrderBook.Side.Bid, 100, 100, ProRataOrderBook.FillPolicy.IOC);
+
+        vm.prank(ALICE);
+        uint64 trailingId = book.placeTrailingOrder(
+            ProRataOrderBook.Side.Ask,
+            10,
+            50,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(CAROL);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 70, 100);
+
+        oracle.setMarkTick(70);
+        assertTrue(!book.isLiquidatable(ALICE), "active trailing order should require cleanup");
+
+        ProRataOrderBook.Side[] memory sides = new ProRataOrderBook.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](1);
+        trailings[0] = trailingId;
+
+        uint96 closed =
+            book.liquidateWithTrailing(ALICE, sides, ticks, conditionals, trailings);
+
+        assertEq(closed, 100, "liquidation did not close after trailing cleanup");
+        assertEq(book.activeTrailingCount(ALICE), 0, "trailing order not cancelled");
+
+        (int80 settled,,) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "liquidation left position open");
+    }
+
     function testRiskRejectsUndercollateralizedQuote() public {
         book.configureRisk(100, 10, 1_000);
 
