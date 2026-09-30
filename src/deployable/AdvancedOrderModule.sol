@@ -643,6 +643,10 @@ contract AdvancedOrderModule {
         );
 
         if (currentClaim == 0) {
+            // A fully consumed resting parent must materialize its maker fill before
+            // the link is retired. Otherwise activated reduce-only OTO exits can
+            // observe a stale active core quote and fail ReduceOnlyViolation.
+            core.moduleSettle(parent.owner, parent.side, parent.limitTick);
             core.moduleUnlockShares(
                 parent.owner,
                 parent.side,
