@@ -548,7 +548,6 @@ contract ProRataOrderBook {
         }
 
         Side makerSide = takerSide == Side.Bid ? Side.Ask : Side.Bid;
-
         if (
             policy == FillPolicy.FOK
                 && _availableThrough(makerSide, limitTick, executableLots) < executableLots
@@ -556,41 +555,7 @@ contract ProRataOrderBook {
             revert InsufficientLiquidity();
         }
 
-        uint96 remaining = executableLots;
-        while (remaining != 0) {
-            (bool ok, uint16 tick) = _bestExecutableTick(makerSide);
-            if (!ok) break;
-            if (!_withinLimit(makerSide, tick, limitTick)) break;
-
-            TickPool storage p = pools[makerSide][tick];
-            uint96 fill = remaining < p.remainingLots ? remaining : p.remainingLots;
-
-            _recordFundingEntry(makerSide, tick, p.totalShares, fill);
-            p.remainingLots -= fill;
-
-            unchecked {
-                remaining -= fill;
-                filledLots += fill;
-            }
-            totalExecutedLots += fill;
-
-            if (p.remainingLots == 0) {
-                uint32 oldGeneration = p.generation;
-                closedFundingEntryPerShareX96[makerSide][tick][oldGeneration] =
-                    fundingEntryPerShareX96[makerSide][tick];
-                closedFundingOutstandingShares[makerSide][tick][oldGeneration] = p.totalShares;
-                fundingEntryPerShareX96[makerSide][tick] = 0;
-
-                p.totalShares = 0;
-                delete poolRiskCeilingTick[makerSide][tick];
-                unchecked {
-                    ++p.generation;
-                }
-                _setOccupied(makerSide, tick, false);
-            }
-
-            emit Trade(account, takerSide, tick, fill);
-        }
+        filledLots = _match(account, takerSide, makerSide, limitTick, executableLots);
 
         if (policy == FillPolicy.FOK && filledLots != executableLots) {
             revert InsufficientLiquidity();
@@ -599,6 +564,56 @@ contract ProRataOrderBook {
         if (filledLots != 0) {
             _applyImmediateTakerFill(account, takerSide, filledLots, preReserved);
         }
+    }
+
+    function _match(
+        address account,
+        Side takerSide,
+        Side makerSide,
+        uint16 limitTick,
+        uint96 executableLots
+    ) internal returns (uint96 filledLots) {
+        uint96 remaining = executableLots;
+
+        while (remaining != 0) {
+            (bool ok, uint16 tick) = _bestExecutableTick(makerSide);
+            if (!ok || !_withinLimit(makerSide, tick, limitTick)) break;
+
+            uint96 fill = _consumeTick(makerSide, tick, remaining);
+            unchecked {
+                remaining -= fill;
+                filledLots += fill;
+            }
+
+            emit Trade(account, takerSide, tick, fill);
+        }
+    }
+
+    function _consumeTick(Side makerSide, uint16 tick, uint96 requested)
+        internal
+        returns (uint96 fill)
+    {
+        TickPool storage p = pools[makerSide][tick];
+        fill = requested < p.remainingLots ? requested : p.remainingLots;
+
+        _recordFundingEntry(makerSide, tick, p.totalShares, fill);
+        p.remainingLots -= fill;
+        totalExecutedLots += fill;
+
+        if (p.remainingLots != 0) return fill;
+
+        uint32 oldGeneration = p.generation;
+        closedFundingEntryPerShareX96[makerSide][tick][oldGeneration] =
+            fundingEntryPerShareX96[makerSide][tick];
+        closedFundingOutstandingShares[makerSide][tick][oldGeneration] = p.totalShares;
+        fundingEntryPerShareX96[makerSide][tick] = 0;
+
+        p.totalShares = 0;
+        delete poolRiskCeilingTick[makerSide][tick];
+        unchecked {
+            ++p.generation;
+        }
+        _setOccupied(makerSide, tick, false);
     }
 
     function quoteState(address maker, Side side, uint16 tick)
