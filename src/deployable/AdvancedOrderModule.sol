@@ -880,6 +880,17 @@ contract AdvancedOrderModule {
             order.sibling = 0;
         }
 
+        uint64 parentId = otoParent[orderId];
+        if (parentId != 0) {
+            if (otoChildOne[parentId] == orderId) {
+                otoChildOne[parentId] = 0;
+            } else if (otoChildTwo[parentId] == orderId) {
+                otoChildTwo[parentId] = 0;
+            }
+            delete otoParent[orderId];
+            delete otoChildMaxLots[orderId];
+        }
+
         if (otoChildOne[orderId] != 0 || otoChildTwo[orderId] != 0) {
             _cancelOTOChildren(orderId);
         }
