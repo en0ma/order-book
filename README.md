@@ -82,6 +82,9 @@ The deployable path is split into:
 - `OrderBookMath`: shared pure side/tick/share/risk arithmetic used by the deployable contracts.
 - `SegmentTreeExtremaOracle`: bounded on-chain range high/low observations for trailing triggers.
 
-Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 21,491 bytes for the core, 19,651 bytes for the advanced module, and 1,877 bytes for the extrema oracle.
+Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 21,059 bytes for the core, 19,482 bytes for the advanced module, and 1,877 bytes for the extrema oracle.
 
 CI enforces both EIP-170 and stricter project budgets: 22,000 bytes for the core, 21,000 bytes for the advanced module, and 4,000 bytes for the extrema oracle. New order-type or execution-policy logic should normally be added to modules rather than expanding the matching core.
+
+
+The advanced-order module is constructor-bound to the same oracle contract used by the core. Trailing-history verification therefore cannot silently use a different price source from execution.
