@@ -463,3 +463,33 @@ The fixed-width 16-byte quote codec intentionally stops short of an on-chain del
 A denser sorted-tick format could reduce the raw record width further, but for a representative 16-level batch the current packed function already uses 324 total calldata bytes. Because dynamic bytes are ABI-padded to 32-byte boundaries, modest sub-16-byte record reductions often save only one additional 32-byte calldata word at this batch size.
 
 MarketMakerModule is currently about 4,434 bytes against a 5,000-byte project budget. Spending most of the remaining module budget on another decoder is therefore a poor trade relative to the incremental calldata reduction. Future delta/grid compression should preferably live in an SDK or a separately budgeted codec path unless measurements show a materially better end-to-end result.
+
+
+## Adversarial deployable state-machine testing
+
+The deployable contracts now have a dedicated randomized sequence harness in addition to focused unit tests.
+
+Each fuzz seed runs a sequence mixing:
+- managed quote create/resize/cancel;
+- ordinary maker add/remove;
+- IOC taker fills;
+- maker settlement;
+- funding-index changes;
+- oracle moves;
+- two-level managed quote batches.
+
+Expected operation reverts are tolerated. Canonical invariants are checked after every attempted transition, so a reverting action cannot hide partial state corruption.
+
+Current state-machine invariants include:
+- minPosition <= settledPosition <= maxPosition for every tracked account;
+- reserved margin <= collateral;
+- activeQuoteCount exactly matches tracked nonzero maker quotes;
+- pool totalShares is zero iff remainingLots is zero;
+- pool generation never regresses;
+- maker quote generation never exceeds pool generation;
+- current-generation maker shares never exceed pool totalShares;
+- the sum of all tracked current-generation maker shares exactly equals pool totalShares.
+
+The fuzz configuration runs 5,000 independently seeded 12-step sequences. A separate deterministic corpus adds longer 32-step sequences while staying below Forge's single-test gas ceiling.
+
+This harness intentionally mixes ordinary maker shares and MarketMakerModule-managed shares at the same ticks, because generation rollover and locked-share ownership are high-risk composition boundaries.
