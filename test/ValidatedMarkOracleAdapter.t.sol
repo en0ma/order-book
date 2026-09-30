@@ -45,6 +45,62 @@ contract ValidatedMarkOracleAdapterTest is TestBase {
         assertEq(oracle.markTick(), 10_025, "normalized tick mismatch");
     }
 
+    function testRejectsDuplicateSourceObservationReplay() public {
+        uint48 sourceTime = uint48(block.timestamp);
+        adapter.publish();
+
+        uint64 beforeId = oracle.currentObservationId();
+        uint48 beforeRelayTime = oracle.lastObservationTime();
+
+        vm.warp(block.timestamp + 30);
+        source.set(101_00000000, 0, sourceTime);
+
+        (bool ok,) = address(adapter).call(abi.encodeCall(adapter.publish, ()));
+        assertTrue(!ok, "duplicate source time refreshed canonical oracle");
+        assertEq(
+            uint256(oracle.currentObservationId()),
+            uint256(beforeId),
+            "duplicate replay appended observation"
+        );
+        assertEq(
+            uint256(oracle.lastObservationTime()),
+            uint256(beforeRelayTime),
+            "duplicate replay refreshed canonical timestamp"
+        );
+    }
+
+    function testRejectsOlderSourceObservationEvenIfStillFresh() public {
+        vm.warp(block.timestamp + 10);
+        source.set(100_00000000, 0, uint48(block.timestamp));
+        adapter.publish();
+
+        source.set(101_00000000, 0, uint48(block.timestamp - 1));
+
+        (bool ok,) = address(adapter).call(abi.encodeCall(adapter.publish, ()));
+        assertTrue(!ok, "older source observation accepted");
+        assertEq(oracle.markTick(), 10_000, "older source observation changed mark");
+    }
+
+    function testAcceptsStrictlyNewerSourceObservation() public {
+        adapter.publish();
+
+        vm.warp(block.timestamp + 1);
+        source.set(101_00000000, 0, uint48(block.timestamp));
+        uint64 nextId = adapter.publish();
+
+        assertEq(oracle.markTick(), 10_100, "newer source observation rejected");
+        assertEq(
+            uint256(adapter.lastSourcePublishTime()),
+            block.timestamp,
+            "source publish time checkpoint not advanced"
+        );
+        assertEq(
+            uint256(nextId),
+            uint256(oracle.currentObservationId()),
+            "newer observation id mismatch"
+        );
+    }
+
     function testRejectsStalePrice() public {
         vm.warp(block.timestamp + 61);
 
