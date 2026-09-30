@@ -2242,6 +2242,7 @@ contract AdvancedOrderModuleTest is TestBase {
         );
 
         _fund(trader, 5_000);
+        oracle.record(100);
 
         // If liquidation leaves stale managed metadata, this refresh sees the
         // deleted old shares as a live 1-lot slice and adds nothing.
