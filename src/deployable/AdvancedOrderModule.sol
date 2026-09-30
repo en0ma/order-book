@@ -84,7 +84,7 @@ contract AdvancedOrderModule {
 
     mapping(uint64 => ConditionalOrder) public conditionalOrders;
     mapping(uint64 => TrailingOrder) public trailingOrders;
-    mapping(uint64 => RestingLink) public restingLinks;
+    mapping(uint64 => RestingLink) internal restingLinks;
 
     mapping(uint64 => uint64) internal otoChildOne;
     mapping(uint64 => uint64) internal otoChildTwo;
