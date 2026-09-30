@@ -123,6 +123,7 @@ Implemented:
 - per-pool risk ceilings
 - ERC-20 collateral custody
 - pluggable mark-oracle adapter
+- extrema-oracle trailing stops
 - lazy funding-entry accumulators
 - active-quote withdrawal safety
 - fuzz/property tests
@@ -131,9 +132,8 @@ Implemented:
 
 Not yet implemented:
 - fees
-- trailing stops
-- OTO / full bracket composition
-- minimum-fill and minimum-first-fill policies
+- settlement-driven bracket resize for later maker fills
+- maker-side per-order minimum-first-fill / all-or-none pools
 - portfolio margin / cross-market netting
 - permissionless oracle adapters and stale-price validation
 - production-grade token decimal normalization
@@ -159,6 +159,7 @@ Account metadata is separately packed into one slot:
 - funding checkpoint: int128;
 - active maker quote count: uint32;
 - active conditional count: uint32;
+- active trailing count: uint32;
 - risk ceiling tick: uint16.
 
 This reduces the number of independent mapping slots touched by quote placement, conditional placement/cancellation, funding settlement, and risk checks.
@@ -271,16 +272,27 @@ If the parent fills zero, its dormant children are cancelled. Cancelling the par
 
 The first bracket implementation deliberately tracks only the quantity filled during the parent's aggressive conditional execution. If a triggered-limit parent rests a remainder and that maker liquidity fills later, its bracket children do not automatically expand yet. Supporting that correctly requires a settlement-driven child-resize accumulator or another lazy linkage mechanism.
 
-## Trailing-stop design boundary
+## Trailing stops
 
-Trailing stops are not implemented yet because a trustworthy fully-on-chain trailing watermark requires more than the current mark-price interface.
+Trailing stops use a separate extrema-capable on-chain oracle interface.
 
-A correct long trailing stop needs proof of the highest oracle observation since activation; a short trailing stop needs the lowest. Updating every trailing order whenever the mark changes would be prohibitively expensive, while letting an off-chain keeper assert the high/low would reintroduce trusted trigger evaluation.
-
-The intended next design is an extrema-capable oracle adapter that can prove high/low since an observation identifier. A trailing order would store only:
+A trailing order stores:
 - activation observation ID;
-- trail distance;
+- trail distance in ticks;
 - side;
-- quantity / execution policy.
+- limit tick;
+- quantity;
+- IOC/FOK policy;
+- reduce-only flag.
 
-At execution, the contract would derive the watermark from the oracle's on-chain observation history rather than maintaining per-order watermark writes.
+The order itself does not receive watermark updates. At execution the contract asks the extrema oracle for the highest and lowest observed ticks since the stored observation ID.
+
+For a trailing sell, execution is allowed when currentTick + trailTicks <= highSinceActivation.
+
+For a trailing buy, execution is allowed when currentTick >= lowSinceActivation + trailTicks.
+
+This keeps trigger truth on-chain without one storage write per trailing order whenever the market moves.
+
+The included MockExtremaOracle is test-only and performs a linear scan over observations. A production adapter should use an efficient on-chain range-extrema structure and must share the same mark source as the execution oracle.
+
+Trailing orders participate in withdrawal safety and liquidation cleanup. liquidateWithTrailing can atomically cancel supplied trailing IDs before the maintenance-health check; if the account is healthy the entire transaction, including those cancellations, reverts.
