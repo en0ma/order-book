@@ -21,11 +21,9 @@ contract AdvancedOrderModuleTest is TestBase {
     function setUp() public {
         token = new MockERC20();
         oracle = new SegmentTreeExtremaOracle(address(this), 100);
-        core = new OrderBookCore();
+        core = new OrderBookCore(address(token), address(oracle), 40, 1_000);
         module = new AdvancedOrderModule(address(core), address(oracle));
 
-        core.configureSettlement(address(token), address(oracle));
-        core.configureRisk(100, 40, 1_000);
         core.configureAdvancedModule(address(module));
 
         _fund(ALICE, 1_000_000);
