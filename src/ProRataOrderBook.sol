@@ -51,6 +51,20 @@ contract ProRataOrderBook {
         bool enabled;
     }
 
+    /// @dev Triggered orders are stored fully on-chain and executed permissionlessly.
+    /// flags: bit0 active, bit1 triggerAboveOrEqual, bit2 reduceOnly.
+    struct ConditionalOrder {
+        address owner;
+        uint96 lots;
+        uint64 sibling;
+        uint16 triggerTick;
+        uint16 limitTick;
+        uint16 riskCeilingTick;
+        Side side;
+        FillPolicy policy;
+        uint8 flags;
+    }
+
     error ZeroAmount();
     error CrossesBook();
     error InsufficientLiquidity();
@@ -65,6 +79,10 @@ contract ProRataOrderBook {
     error SettlementAlreadyConfigured();
     error UnsettledQuotes();
     error ReduceOnlyViolation();
+    error ConditionalOrderNotFound();
+    error ConditionalOrderInactive();
+    error TriggerNotSatisfied();
+    error InvalidOCO();
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
@@ -84,6 +102,9 @@ contract ProRataOrderBook {
     mapping(address => int256) public fundingCashflow;
     mapping(address => uint32) public activeQuoteCount;
     mapping(Side => mapping(uint16 => mapping(uint32 => uint128))) public closedFundingOutstandingShares;
+
+    uint64 public nextConditionalOrderId = 1;
+    mapping(uint64 => ConditionalOrder) public conditionalOrders;
     RiskConfig public riskConfig;
     IERC20Minimal public collateralToken;
     IMarkOracle public markOracle;
@@ -136,6 +157,19 @@ contract ProRataOrderBook {
     event SettlementConfigured(address indexed collateralToken, address indexed markOracle);
     event FundingIndexUpdated(int128 fundingIndexX18);
     event FundingSettled(address indexed account, int256 cashflowDelta);
+    event ConditionalOrderPlaced(
+        uint64 indexed orderId,
+        address indexed owner,
+        Side side,
+        uint16 triggerTick,
+        uint16 limitTick,
+        uint96 lots,
+        bool triggerAboveOrEqual,
+        bool reduceOnly
+    );
+    event ConditionalOrderCancelled(uint64 indexed orderId);
+    event ConditionalOrderExecuted(uint64 indexed orderId, uint96 filledLots);
+    event OCOLinked(uint64 indexed firstOrderId, uint64 indexed secondOrderId);
 
     function configureSettlement(address token, address oracle) external {
         if (msg.sender != owner) revert Unauthorized();
@@ -216,6 +250,135 @@ contract ProRataOrderBook {
         }
 
         emit CollateralDebited(msg.sender, amount);
+    }
+
+    function placeConditionalOrder(
+        Side side,
+        bool triggerAboveOrEqual,
+        uint16 triggerTick,
+        uint16 limitTick,
+        uint96 lots,
+        FillPolicy policy,
+        bool reduceOnly
+    ) external returns (uint64 orderId) {
+        if (lots == 0) revert ZeroAmount();
+
+        uint16 riskCeiling;
+        if (!reduceOnly && riskConfig.enabled) {
+            uint256 ceiling =
+                uint256(_currentMarkTick()) + uint256(riskConfig.executionBandTicks);
+            if (ceiling > type(uint16).max) ceiling = type(uint16).max;
+            riskCeiling = uint16(ceiling);
+
+            if (riskCeiling > accountRiskCeilingTick[msg.sender]) {
+                accountRiskCeilingTick[msg.sender] = riskCeiling;
+            }
+
+            _expandRisk(msg.sender, side, lots);
+            _refreshReservedMargin(msg.sender);
+        }
+
+        orderId = nextConditionalOrderId++;
+        uint8 flags = 1;
+        if (triggerAboveOrEqual) flags |= 2;
+        if (reduceOnly) flags |= 4;
+
+        conditionalOrders[orderId] = ConditionalOrder({
+            owner: msg.sender,
+            lots: lots,
+            sibling: 0,
+            triggerTick: triggerTick,
+            limitTick: limitTick,
+            riskCeilingTick: riskCeiling,
+            side: side,
+            policy: policy,
+            flags: flags
+        });
+
+        emit ConditionalOrderPlaced(
+            orderId,
+            msg.sender,
+            side,
+            triggerTick,
+            limitTick,
+            lots,
+            triggerAboveOrEqual,
+            reduceOnly
+        );
+    }
+
+    function cancelConditionalOrder(uint64 orderId) external {
+        ConditionalOrder storage order = conditionalOrders[orderId];
+        if (order.owner == address(0)) revert ConditionalOrderNotFound();
+        if (order.owner != msg.sender) revert Unauthorized();
+        _cancelConditional(orderId, true);
+    }
+
+    function linkOCO(uint64 firstOrderId, uint64 secondOrderId) external {
+        if (firstOrderId == secondOrderId) revert InvalidOCO();
+
+        ConditionalOrder storage first = conditionalOrders[firstOrderId];
+        ConditionalOrder storage second = conditionalOrders[secondOrderId];
+
+        if (first.owner == address(0) || second.owner == address(0)) {
+            revert ConditionalOrderNotFound();
+        }
+        if (first.owner != msg.sender || second.owner != msg.sender) revert Unauthorized();
+        if (!_conditionalActive(first) || !_conditionalActive(second)) revert ConditionalOrderInactive();
+        if (first.sibling != 0 || second.sibling != 0) revert InvalidOCO();
+
+        first.sibling = secondOrderId;
+        second.sibling = firstOrderId;
+
+        emit OCOLinked(firstOrderId, secondOrderId);
+    }
+
+    function executeConditionalOrder(uint64 orderId) external returns (uint96 filledLots) {
+        ConditionalOrder storage stored = conditionalOrders[orderId];
+        if (stored.owner == address(0)) revert ConditionalOrderNotFound();
+        if (!_conditionalActive(stored)) revert ConditionalOrderInactive();
+
+        ConditionalOrder memory order = stored;
+        uint16 mark = _currentMarkTick();
+        bool triggerAboveOrEqual = (order.flags & 2) != 0;
+        if (triggerAboveOrEqual ? mark < order.triggerTick : mark > order.triggerTick) {
+            revert TriggerNotSatisfied();
+        }
+
+        bool reduceOnly = (order.flags & 4) != 0;
+        if (reduceOnly) {
+            if (activeQuoteCount[order.owner] != 0) revert UnsettledQuotes();
+        } else if (order.riskCeilingTick != 0 && mark > order.riskCeilingTick) {
+            revert InvalidRiskConfig();
+        }
+
+        stored.flags &= ~uint8(1);
+
+        filledLots = _takeFor(
+            order.owner,
+            order.side,
+            order.limitTick,
+            order.lots,
+            order.policy,
+            reduceOnly,
+            !reduceOnly
+        );
+
+        if (!reduceOnly) {
+            uint96 unfilled = order.lots - filledLots;
+            if (unfilled != 0) _shrinkRisk(order.owner, order.side, unfilled);
+            _refreshReservedMargin(order.owner);
+        }
+
+        uint64 sibling = order.sibling;
+        if (sibling != 0) _cancelConditional(sibling, true);
+
+        emit ConditionalOrderExecuted(orderId, filledLots);
+    }
+
+    function conditionalOrderActive(uint64 orderId) external view returns (bool) {
+        ConditionalOrder storage order = conditionalOrders[orderId];
+        return order.owner != address(0) && _conditionalActive(order);
     }
 
     function addLiquidity(Side side, uint16 tick, uint96 lots)
@@ -630,6 +793,35 @@ contract ProRataOrderBook {
         int256 half = denominator / 2;
         if (numerator >= 0) return (numerator + half) / denominator;
         return -((-numerator + half) / denominator);
+    }
+
+    function _conditionalActive(ConditionalOrder storage order) internal view returns (bool) {
+        return (order.flags & 1) != 0;
+    }
+
+    function _cancelConditional(uint64 orderId, bool releaseRisk) internal {
+        ConditionalOrder storage order = conditionalOrders[orderId];
+        if (order.owner == address(0)) revert ConditionalOrderNotFound();
+        if (!_conditionalActive(order)) return;
+
+        order.flags &= ~uint8(1);
+
+        bool reduceOnly = (order.flags & 4) != 0;
+        if (releaseRisk && !reduceOnly) {
+            _shrinkRisk(order.owner, order.side, order.lots);
+            _refreshReservedMargin(order.owner);
+        }
+
+        uint64 sibling = order.sibling;
+        if (sibling != 0) {
+            ConditionalOrder storage other = conditionalOrders[sibling];
+            if (other.owner != address(0) && other.sibling == orderId) {
+                other.sibling = 0;
+            }
+            order.sibling = 0;
+        }
+
+        emit ConditionalOrderCancelled(orderId);
     }
 
     function _reduceOnlyLots(address account, Side side, uint96 requested)
