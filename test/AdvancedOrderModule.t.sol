@@ -1845,6 +1845,139 @@ contract AdvancedOrderModuleTest is TestBase {
         );
     }
 
+    function testZeroCloseLiquidationPaysNoRewardAndConsumesNoInsurance() public {
+        MockERC20 feeToken = new MockERC20();
+        SegmentTreeExtremaOracle feeOracle =
+            new SegmentTreeExtremaOracle(address(this), 100, 3_600);
+        OrderBookCore feeCore =
+            new OrderBookCore(address(feeToken), address(feeOracle), 40, 1_000, 100, 0);
+        AdvancedOrderModule feeModule =
+            new AdvancedOrderModule(address(feeCore), address(feeOracle));
+        LiquidationModule feeLiquidation =
+            new LiquidationModule(address(feeCore), address(feeModule), 500);
+
+        feeCore.configureAdvancedModule(address(feeModule));
+        feeModule.configureLiquidationModule(address(feeLiquidation));
+        feeLiquidation.configureLiquidatorReward(100);
+
+        address trader = address(0xF001);
+        address askMaker = address(0xF002);
+        address liquidator = address(0xF003);
+
+        _fundOn(feeCore, feeToken, trader, 3_000);
+        _fundOn(feeCore, feeToken, askMaker, 100_000);
+
+        feeToken.mint(address(this), 10_000);
+        feeToken.approve(address(feeCore), type(uint256).max);
+        feeCore.fundInsurance(10_000);
+
+        vm.prank(askMaker);
+        feeCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(trader);
+        feeCore.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        // Taker fee accrues protocol funds, but no executable close liquidity exists.
+        feeOracle.record(50);
+
+        uint256 protocolBefore = feeCore.protocolFeesAccrued();
+        uint256 insuranceBefore = feeCore.insuranceReserves();
+        uint256 liquidatorBefore = feeToken.balanceOf(liquidator);
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](0);
+
+        vm.prank(liquidator);
+        uint96 closed =
+            feeLiquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+
+        assertEq(closed, 0, "zero-depth liquidation unexpectedly closed");
+        assertEq(feeCore.protocolFeesAccrued(), protocolBefore, "zero close consumed protocol fees");
+        assertEq(feeCore.insuranceReserves(), insuranceBefore, "zero close consumed insurance");
+        assertEq(feeToken.balanceOf(liquidator), liquidatorBefore, "zero close paid reward");
+        assertEq(int256(_positionOn(feeCore, trader)), 100, "zero close changed position");
+    }
+
+    function testPartialLiquidationRewardAndRetryAreProportionalToClosedLots() public {
+        MockERC20 feeToken = new MockERC20();
+        SegmentTreeExtremaOracle feeOracle =
+            new SegmentTreeExtremaOracle(address(this), 100, 3_600);
+        OrderBookCore feeCore =
+            new OrderBookCore(address(feeToken), address(feeOracle), 40, 1_000, 100, 0);
+        AdvancedOrderModule feeModule =
+            new AdvancedOrderModule(address(feeCore), address(feeOracle));
+        LiquidationModule feeLiquidation =
+            new LiquidationModule(address(feeCore), address(feeModule), 500);
+
+        feeCore.configureAdvancedModule(address(feeModule));
+        feeModule.configureLiquidationModule(address(feeLiquidation));
+        feeLiquidation.configureLiquidatorReward(100);
+
+        address trader = address(0xF011);
+        address askMaker = address(0xF012);
+        address bidMaker = address(0xF013);
+        address liquidator = address(0xF014);
+
+        _fundOn(feeCore, feeToken, trader, 3_000);
+        _fundOn(feeCore, feeToken, askMaker, 100_000);
+        _fundOn(feeCore, feeToken, bidMaker, 100_000);
+
+        feeToken.mint(address(this), 20_000);
+        feeToken.approve(address(feeCore), type(uint256).max);
+        feeCore.fundInsurance(20_000);
+
+        vm.prank(askMaker);
+        feeCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(trader);
+        feeCore.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        feeOracle.record(50);
+
+        vm.prank(bidMaker);
+        feeCore.addLiquidity(IOrderBookCore.Side.Bid, 50, 40);
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](0);
+
+        uint256 insuranceBefore = feeCore.insuranceReserves();
+
+        vm.prank(liquidator);
+        uint96 firstClosed =
+            feeLiquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+
+        assertEq(firstClosed, 40, "first partial close mismatch");
+        assertEq(int256(_positionOn(feeCore, trader)), 60, "first residual position mismatch");
+        assertEq(feeCore.insuranceReserves(), insuranceBefore, "partial close consumed insurance");
+        assertEq(feeToken.balanceOf(liquidator), 20, "first reward not proportional to closed lots");
+
+        vm.prank(bidMaker);
+        feeCore.addLiquidity(IOrderBookCore.Side.Bid, 50, 60);
+
+        vm.prank(liquidator);
+        uint96 secondClosed =
+            feeLiquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+
+        assertEq(secondClosed, 60, "second close mismatch");
+        assertEq(int256(_positionOn(feeCore, trader)), 0, "retry did not flatten position");
+        assertEq(feeToken.balanceOf(liquidator), 50, "cumulative reward mismatch");
+        assertTrue(feeCore.insuranceReserves() < insuranceBefore, "terminal loss did not use insurance");
+        assertEq(feeLiquidation.terminalBadDebt(trader), 0, "retry left terminal debt");
+    }
+
     function testModuleTrailingUsesSegmentTreeOracle() public {
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 60);
@@ -1886,6 +2019,14 @@ contract AdvancedOrderModuleTest is TestBase {
                     | (uint128(uint8(update.side)) << 112);
             packed = bytes.concat(packed, bytes16(word));
         }
+    }
+
+    function _positionOn(OrderBookCore target, address account)
+        internal
+        view
+        returns (int80 position)
+    {
+        (position,,) = target.accountRisk(account);
     }
 
     function _corePosition(address account) internal view returns (int80 position) {
