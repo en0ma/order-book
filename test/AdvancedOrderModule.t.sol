@@ -1786,6 +1786,78 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(int256(maxPosition), 30, "failed liquidation released reservation");
     }
 
+    function testLiquidationForceCancelCrystallizesRoundingBoundaryMakerFill() public {
+        address trader = address(0xFC01);
+        address counterparty = address(0xFC02);
+        _fund(trader, 3_000);
+        _fund(counterparty, 100_000);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(trader);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(trader);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 95, 1);
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 95, 2);
+
+        vm.prank(counterparty);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            95,
+            1,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        // Trader owns one third of the bid shares. One of three lots has traded,
+        // leaving a ceil claim of 1 but floor redemption of 0 for the trader slice.
+        oracle.record(50);
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 10, 101);
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](1);
+        sides[0] = IOrderBookCore.Side.Bid;
+        uint16[] memory ticks = new uint16[](1);
+        ticks[0] = 95;
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](0);
+
+        uint96 closed =
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+
+        assertEq(
+            closed,
+            101,
+            "forced cancel discarded burn-attributed maker fill"
+        );
+        assertEq(
+            core.activeQuoteCount(trader),
+            0,
+            "forced cancel left maker quote active"
+        );
+
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(trader);
+        assertEq(int256(settled), 0, "liquidation did not flatten crystallized position");
+        assertEq(int256(minPosition), 0, "forced cancel left min reservation");
+        assertEq(int256(maxPosition), 0, "forced cancel left max reservation");
+
+        (, uint96 neighborRemaining,) =
+            core.pools(IOrderBookCore.Side.Bid, 95);
+        assertEq(
+            neighborRemaining,
+            2,
+            "forced cancel removed neighboring maker liquidity"
+        );
+    }
+
     function testLiquidationCleansReservedExposureBeforeClosingPosition() public {
         address trader = address(0xA11E);
         _fund(trader, 3_000);
