@@ -26,6 +26,7 @@ contract ValidatedMarkOracleAdapter {
     error FuturePrice();
     error ConfidenceTooWide();
     error TickOverflow();
+    error NonMonotonicSourceTime();
 
     IExternalPriceSource public immutable source;
     ITickObservationSink public immutable sink;
@@ -33,6 +34,7 @@ contract ValidatedMarkOracleAdapter {
     uint256 public immutable ticksPerUnit;
     uint32 public immutable maxAge;
     uint16 public immutable maxConfidenceBps;
+    uint48 public lastSourcePublishTime;
 
     event PricePublished(
         uint64 indexed observationId,
@@ -93,6 +95,11 @@ contract ValidatedMarkOracleAdapter {
     /// @dev The sink must configure this adapter as its updater.
     function publish() external returns (uint64 observationId) {
         (uint16 tick, uint48 publishTime) = validatedTick();
+        if (publishTime <= lastSourcePublishTime) {
+            revert NonMonotonicSourceTime();
+        }
+
+        lastSourcePublishTime = publishTime;
         observationId = sink.record(tick);
         emit PricePublished(observationId, tick, publishTime);
     }
