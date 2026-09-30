@@ -3,7 +3,6 @@ pragma solidity ^0.8.24;
 
 import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {IExtremaOracle} from "../interfaces/IExtremaOracle.sol";
-import {OrderBookMath} from "./OrderBookMath.sol";
 
 /// @title AdvancedOrderModule
 /// @notice Fully-on-chain conditional, triggered-limit, OCO/OTO, bracket and trailing logic.
@@ -769,10 +768,6 @@ contract AdvancedOrderModule {
         }
 
         emit TrailingOrderExecuted(orderId, filledLots, highTick, lowTick);
-    }
-
-    function _settledPosition(address account) internal view returns (int80 position) {
-        (position,,) = core.accountRisk(account);
     }
 
     function _resizeOTOChildren(uint64 parentOrderId, address owner_, uint96 filledLots)
