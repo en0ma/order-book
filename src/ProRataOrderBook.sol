@@ -554,35 +554,9 @@ contract ProRataOrderBook {
         bool wasEmpty = p.remainingLots == 0;
         bool isNewMakerQuote = q.shares == 0;
 
-        uint16 riskCeiling;
-        if (riskConfig.enabled) {
-            uint16 mark = _currentMarkTick();
-
-            if (wasEmpty) {
-                if (preReserved) {
-                    if (reservedRiskCeiling == 0 || mark > reservedRiskCeiling) {
-                        revert InvalidRiskConfig();
-                    }
-                    riskCeiling = reservedRiskCeiling;
-                } else {
-                    uint256 ceiling =
-                        uint256(mark) + uint256(riskConfig.executionBandTicks);
-                    if (ceiling > type(uint16).max) ceiling = type(uint16).max;
-                    riskCeiling = uint16(ceiling);
-                }
-                poolRiskCeilingTick[side][tick] = riskCeiling;
-            } else {
-                riskCeiling = poolRiskCeilingTick[side][tick];
-                if (mark > riskCeiling) revert InvalidRiskConfig();
-                if (preReserved && riskCeiling > reservedRiskCeiling) {
-                    revert InvalidRiskConfig();
-                }
-            }
-
-            if (riskCeiling > accountRiskCeilingTick[maker]) {
-                accountRiskCeilingTick[maker] = riskCeiling;
-            }
-        }
+        _preparePoolRiskCeiling(
+            maker, side, tick, wasEmpty, preReserved, reservedRiskCeiling
+        );
 
         if (p.totalShares == 0) {
             uint256 raw = uint256(lots) * INITIAL_SHARE_SCALE;
@@ -623,6 +597,45 @@ contract ProRataOrderBook {
         if (wasEmpty) _setOccupied(side, tick, true);
 
         emit LiquidityAdded(maker, side, tick, lots, mintedShares, p.generation);
+    }
+
+    function _preparePoolRiskCeiling(
+        address maker,
+        Side side,
+        uint16 tick,
+        bool wasEmpty,
+        bool preReserved,
+        uint16 reservedRiskCeiling
+    ) internal {
+        if (!riskConfig.enabled) return;
+
+        uint16 mark = _currentMarkTick();
+        uint16 riskCeiling;
+
+        if (wasEmpty) {
+            if (preReserved) {
+                if (reservedRiskCeiling == 0 || mark > reservedRiskCeiling) {
+                    revert InvalidRiskConfig();
+                }
+                riskCeiling = reservedRiskCeiling;
+            } else {
+                uint256 ceiling =
+                    uint256(mark) + uint256(riskConfig.executionBandTicks);
+                if (ceiling > type(uint16).max) ceiling = type(uint16).max;
+                riskCeiling = uint16(ceiling);
+            }
+            poolRiskCeilingTick[side][tick] = riskCeiling;
+        } else {
+            riskCeiling = poolRiskCeilingTick[side][tick];
+            if (mark > riskCeiling) revert InvalidRiskConfig();
+            if (preReserved && riskCeiling > reservedRiskCeiling) {
+                revert InvalidRiskConfig();
+            }
+        }
+
+        if (riskCeiling > accountRiskCeilingTick[maker]) {
+            accountRiskCeilingTick[maker] = riskCeiling;
+        }
     }
 
     function removeShares(Side side, uint16 tick, uint128 sharesToBurn)
