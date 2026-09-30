@@ -153,34 +153,44 @@ contract MarketMakerModule {
         for (uint256 i; i < length; ) {
             uint96 addLots = additions[i];
             if (addLots != 0) {
-                uint128 word = words[i];
-                IOrderBookCore.Side side = _side(word);
-                uint16 tick = _tick(word);
-                uint16 ceiling =
-                    side == IOrderBookCore.Side.Bid ? bidCeiling : askCeiling;
-
-                uint128 shares = gateway.marketMakerAddLiquidity(
+                _addManagedLots(
                     maker,
-                    side,
-                    tick,
+                    words[i],
                     addLots,
-                    ceiling
+                    bidCeiling,
+                    askCeiling
                 );
-
-                (,, uint32 generation) = core.pools(side, tick);
-                ManagedQuote storage managed = managedQuotes[maker][side][tick];
-
-                if (managed.shares == 0 || managed.generation != generation) {
-                    managed.generation = generation;
-                    managed.shares = shares;
-                } else {
-                    managed.shares += shares;
-                }
             }
 
             unchecked {
                 ++i;
             }
+        }
+    }
+
+    function _addManagedLots(
+        address maker,
+        uint128 word,
+        uint96 addLots,
+        uint16 bidCeiling,
+        uint16 askCeiling
+    ) internal {
+        IOrderBookCore.Side side = _side(word);
+        uint16 tick = _tick(word);
+        uint16 ceiling =
+            side == IOrderBookCore.Side.Bid ? bidCeiling : askCeiling;
+
+        uint128 shares =
+            gateway.marketMakerAddLiquidity(maker, side, tick, addLots, ceiling);
+
+        (,, uint32 generation) = core.pools(side, tick);
+        ManagedQuote storage managed = managedQuotes[maker][side][tick];
+
+        if (managed.shares == 0 || managed.generation != generation) {
+            managed.generation = generation;
+            managed.shares = shares;
+        } else {
+            managed.shares += shares;
         }
     }
 
