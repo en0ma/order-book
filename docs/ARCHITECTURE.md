@@ -78,3 +78,22 @@ Not yet implemented:
 - multi-market portfolio margin
 
 The next milestone should add collateral reservation and an oracle-bounded execution rule while preserving zero maker writes on the taker path.
+
+
+## Collateral reservation and oracle execution bounds
+
+The risk layer is optional until configured. Once enabled:
+
+- makers credit accounting collateral before placing quotes;
+- resting bids expand maxPosition and resting asks expand minPosition;
+- required initial margin is reserved against the worst absolute endpoint of that reachable interval;
+- each newly activated tick pool receives a fixed risk-ceiling tick derived from the mark plus the configured execution band;
+- maker account reserve uses the highest pool risk ceiling the account has touched;
+- taker matching only considers ticks inside the current oracle execution band;
+- if the mark rises above a pool's reserved risk ceiling, that pool remains on-chain but becomes non-executable until makers cancel/requote under a fresh ceiling.
+
+The last rule is important: changing the oracle mark must not silently make previously reserved maker liquidity executable under a more expensive risk regime.
+
+Taker fills still do not write maker collateral, maker reserved margin, or maker position state. Maker state is only materialized on settlement or quote mutation.
+
+The current collateral functions are accounting-only and do not yet transfer ERC-20 tokens. Production custody remains a separate layer.
