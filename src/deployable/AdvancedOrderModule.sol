@@ -46,6 +46,17 @@ contract AdvancedOrderModule {
         bool active;
     }
 
+    struct ManagedQuote {
+        uint128 shares;
+        uint32 generation;
+    }
+
+    struct QuoteUpdate {
+        IOrderBookCore.Side side;
+        uint16 tick;
+        uint96 lots;
+    }
+
     error Unauthorized();
     error ZeroAmount();
     error OrderNotFound();
@@ -79,6 +90,8 @@ contract AdvancedOrderModule {
     mapping(uint64 => uint64) public otoChildTwo;
     mapping(uint64 => uint64) public otoParent;
     mapping(uint64 => uint96) public otoChildMaxLots;
+    mapping(address => mapping(IOrderBookCore.Side => mapping(uint16 => ManagedQuote)))
+        internal managedQuotes;
 
     event ConditionalOrderPlaced(
         uint64 indexed orderId,
@@ -195,6 +208,64 @@ contract AdvancedOrderModule {
 
         // Reverting here atomically rolls back all core fills when the threshold is missed.
         if (filledLots < minFillLots) revert MinimumFillNotMet();
+    }
+
+    /// @notice Atomically replace/cancel module-managed maker quotes.
+    /// @dev lots == 0 cancels the managed slice at that maker/side/tick.
+    function batchReplaceQuotes(QuoteUpdate[] calldata updates) external {
+        uint256 length = updates.length;
+        if (length == 0) revert ZeroAmount();
+
+        for (uint256 i; i < length; ) {
+            QuoteUpdate calldata update = updates[i];
+            _replaceManagedQuote(msg.sender, update.side, update.tick, update.lots);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _replaceManagedQuote(
+        address maker,
+        IOrderBookCore.Side side,
+        uint16 tick,
+        uint96 targetLots
+    ) internal {
+        ManagedQuote memory managed = managedQuotes[maker][side][tick];
+
+        if (managed.shares != 0) {
+            (,, uint32 currentGeneration) = core.pools(side, tick);
+
+            if (currentGeneration == managed.generation) {
+                core.moduleRemoveLockedShares(
+                    maker,
+                    side,
+                    tick,
+                    managed.generation,
+                    managed.shares
+                );
+            } else {
+                core.moduleUnlockShares(
+                    maker,
+                    side,
+                    tick,
+                    managed.generation,
+                    managed.shares
+                );
+            }
+
+            delete managedQuotes[maker][side][tick];
+        }
+
+        if (targetLots == 0) return;
+
+        uint16 ceiling = core.moduleReserveExposure(maker, side, targetLots);
+        uint128 shares =
+            core.moduleAddLiquidity(maker, side, tick, targetLots, ceiling);
+        (,, uint32 generation) = core.pools(side, tick);
+
+        managedQuotes[maker][side][tick] =
+            ManagedQuote({shares: shares, generation: generation});
     }
 
     function placeConditionalOrder(
