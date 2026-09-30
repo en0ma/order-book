@@ -13,6 +13,7 @@ contract DeployableGasTest is TestBase {
     event BatchGasMeasured(uint256 batchGas, uint256 separateGas);
     event BatchCancelGasMeasured(uint256 batchCancelGas);
     event BatchScaleGasMeasured(uint256 levels, uint256 gasUsed);
+    event PackedBatchMeasured(uint256 typedCalldataBytes, uint256 packedCalldataBytes, uint256 gasUsed);
     OrderBookCore internal core;
     AdvancedOrderModule internal module;
     MarketMakerModule internal marketMaker;
@@ -146,6 +147,42 @@ contract DeployableGasTest is TestBase {
         assertTrue(used < 3_000_000, "sixteen-level refresh gas ceiling exceeded");
     }
 
+    function testGas_PackedSixteenLevelRefreshAndCalldataSize() public {
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](16);
+
+        for (uint256 i; i < 16; ++i) {
+            bool bid = i < 8;
+            updates[i] = _update(
+                bid ? IOrderBookCore.Side.Bid : IOrderBookCore.Side.Ask,
+                bid ? uint16(99 - i) : uint16(101 + (i - 8)),
+                uint96(20 + i)
+            );
+        }
+
+        marketMaker.batchReplaceQuotes(updates);
+
+        for (uint256 i; i < 16; ++i) updates[i].lots += 1;
+
+        bytes memory packed = _packUpdates(updates);
+        bytes memory typedCall =
+            abi.encodeCall(marketMaker.batchReplaceQuotes, (updates));
+        bytes memory packedCall =
+            abi.encodeCall(marketMaker.batchReplaceQuotesPacked, (packed));
+
+        uint256 g0 = gasleft();
+        marketMaker.batchReplaceQuotesPacked(packed);
+        uint256 used = g0 - gasleft();
+
+        emit PackedBatchMeasured(typedCall.length, packedCall.length, used);
+
+        assertTrue(
+            packedCall.length * 4 < typedCall.length,
+            "packed calldata did not shrink by at least 75%"
+        );
+        assertTrue(used < 2_500_000, "packed sixteen-level refresh gas ceiling exceeded");
+    }
+
     function testGas_BatchCancelFourManagedQuotesIsBounded() public {
         MarketMakerModule.QuoteUpdate[] memory updates =
             new MarketMakerModule.QuoteUpdate[](4);
@@ -193,6 +230,21 @@ contract DeployableGasTest is TestBase {
         uint256 g0 = gasleft();
         marketMaker.batchReplaceQuotes(updates);
         used = g0 - gasleft();
+    }
+
+    function _packUpdates(MarketMakerModule.QuoteUpdate[] memory updates)
+        internal
+        pure
+        returns (bytes memory packed)
+    {
+        for (uint256 i; i < updates.length; ++i) {
+            MarketMakerModule.QuoteUpdate memory update = updates[i];
+            uint128 word =
+                uint128(update.lots)
+                    | (uint128(update.tick) << 96)
+                    | (uint128(uint8(update.side)) << 112);
+            packed = bytes.concat(packed, bytes16(word));
+        }
     }
 
     function _update(IOrderBookCore.Side side, uint16 tick, uint96 lots)
