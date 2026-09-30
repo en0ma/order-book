@@ -88,10 +88,13 @@ contract DeployableCoreTest is TestBase {
         );
         assertTrue(!genericCancel, "generic cancel burned module-owned shares");
 
+        (,, uint32 generation) = core.pools(IOrderBookCore.Side.Bid, 99);
+
         uint96 removed = core.moduleRemoveLockedShares(
             ALICE,
             IOrderBookCore.Side.Bid,
             99,
+            generation,
             shares
         );
 
