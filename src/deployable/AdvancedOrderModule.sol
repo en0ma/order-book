@@ -268,6 +268,14 @@ contract AdvancedOrderModule {
         covered = core.moduleCoverBadDebt(account, requested);
     }
 
+    function liquidationPayReward(address liquidator, uint256 requested)
+        external
+        onlyLiquidationModule
+        returns (uint256 paid)
+    {
+        paid = core.modulePayLiquidationReward(liquidator, requested);
+    }
+
     function takeReduceOnly(
         IOrderBookCore.Side side,
         uint16 limitTick,

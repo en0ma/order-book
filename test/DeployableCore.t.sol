@@ -263,6 +263,32 @@ contract DeployableCoreTest is TestBase {
         assertEq(token.balanceOf(address(core)), 305_000, "insurance custody mismatch");
     }
 
+    function testLiquidationRewardPaymentIsCappedByProtocolFees() public {
+        MockERC20 feeToken = new MockERC20();
+        MockMarkOracle feeOracle = new MockMarkOracle(100);
+        OrderBookCore feeCore =
+            new OrderBookCore(address(feeToken), address(feeOracle), 20, 1_000, 10, 5);
+
+        feeCore.configureAdvancedModule(address(this));
+        _fundOn(feeCore, feeToken, ALICE, 100_000);
+        _fundOn(feeCore, feeToken, BOB, 100_000);
+
+        vm.prank(ALICE);
+        feeCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(BOB);
+        feeCore.take(IOrderBookCore.Side.Bid, 100, 40, IOrderBookCore.FillPolicy.IOC);
+
+        assertEq(feeCore.protocolFeesAccrued(), 2, "protocol fee setup mismatch");
+
+        address liquidator = address(0x1A2B);
+        uint256 paid = feeCore.modulePayLiquidationReward(liquidator, 10);
+
+        assertEq(paid, 2, "reward not capped by protocol fees");
+        assertEq(feeCore.protocolFeesAccrued(), 0, "protocol fees not debited");
+        assertEq(feeToken.balanceOf(liquidator), 2, "liquidator did not receive reward");
+    }
+
     function testFundingUpdaterCanBeRotatedWithoutChangingOwner() public {
         address updater = address(0xF00D);
 

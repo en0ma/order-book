@@ -130,6 +130,7 @@ contract OrderBookCore is IOrderBookCore {
     event InsuranceFunded(address indexed funder, uint256 amount);
     event ProtocolFeesAllocatedToInsurance(uint256 amount);
     event BadDebtCovered(address indexed account, uint256 amount);
+    event LiquidationRewardPaid(address indexed liquidator, uint256 amount);
 
     constructor(
         address collateralToken_,
@@ -458,6 +459,24 @@ contract OrderBookCore is IOrderBookCore {
         collateralBalance[account] += covered;
 
         emit BadDebtCovered(account, covered);
+    }
+
+    function modulePayLiquidationReward(address liquidator, uint256 requested)
+        external
+        override
+        onlyModule
+        returns (uint256 paid)
+    {
+        if (liquidator == address(0) || requested == 0) return 0;
+
+        uint256 accrued = protocolFeesAccrued;
+        paid = requested < accrued ? requested : accrued;
+        if (paid == 0) return 0;
+
+        protocolFeesAccrued = accrued - paid;
+        if (!collateralToken.transfer(liquidator, paid)) revert TokenTransferFailed();
+
+        emit LiquidationRewardPaid(liquidator, paid);
     }
 
     function accountEquity(address account) public view override returns (int256 equity) {

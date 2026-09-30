@@ -84,4 +84,8 @@ interface IOrderBookCore {
     function moduleCoverBadDebt(address account, uint256 requested)
         external
         returns (uint256 covered);
+
+    function modulePayLiquidationReward(address liquidator, uint256 requested)
+        external
+        returns (uint256 paid);
 }

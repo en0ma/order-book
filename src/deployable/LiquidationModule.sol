@@ -29,6 +29,10 @@ interface IAdvancedLiquidationGateway {
     function liquidationCoverBadDebt(address account, uint256 requested)
         external
         returns (uint256 covered);
+
+    function liquidationPayReward(address liquidator, uint256 requested)
+        external
+        returns (uint256 paid);
 }
 
 /// @title LiquidationModule
@@ -38,10 +42,15 @@ contract LiquidationModule {
     error InvalidLiquidationConfig();
     error NotLiquidatable();
     error UnsettledOrders();
+    error RewardAlreadyConfigured();
+    error Unauthorized();
 
     IOrderBookCore public immutable core;
     IAdvancedLiquidationGateway public immutable gateway;
     uint16 public immutable maintenanceMarginBps;
+    address internal immutable owner;
+    uint16 public liquidatorRewardBps;
+    bool public liquidatorRewardConfigured;
 
     event Liquidated(
         address indexed liquidator,
@@ -58,6 +67,8 @@ contract LiquidationModule {
         uint256 insuranceCovered,
         uint256 terminalBadDebt
     );
+    event LiquidatorRewardConfigured(uint16 rewardBps);
+    event LiquidatorRewardPaid(address indexed liquidator, uint256 amount);
 
     constructor(address core_, address gateway_, uint16 maintenanceBps_) {
         if (
@@ -68,6 +79,17 @@ contract LiquidationModule {
         core = IOrderBookCore(core_);
         gateway = IAdvancedLiquidationGateway(gateway_);
         maintenanceMarginBps = maintenanceBps_;
+        owner = msg.sender;
+    }
+
+    function configureLiquidatorReward(uint16 rewardBps) external {
+        if (msg.sender != owner) revert Unauthorized();
+        if (liquidatorRewardConfigured) revert RewardAlreadyConfigured();
+        if (rewardBps > 1_000) revert InvalidLiquidationConfig();
+
+        liquidatorRewardConfigured = true;
+        liquidatorRewardBps = rewardBps;
+        emit LiquidatorRewardConfigured(rewardBps);
     }
 
     function maintenanceRequirement(address account) public view returns (uint256) {
@@ -175,5 +197,15 @@ contract LiquidationModule {
             insuranceCovered,
             badDebt
         );
+
+        uint16 rewardBps = liquidatorRewardBps;
+        if (closedLots != 0 && rewardBps != 0) {
+            uint256 requestedReward =
+                uint256(closedLots) * uint256(core.currentMarkTick())
+                    * uint256(rewardBps) / 10_000;
+            uint256 paid =
+                gateway.liquidationPayReward(msg.sender, requestedReward);
+            if (paid != 0) emit LiquidatorRewardPaid(msg.sender, paid);
+        }
     }
 }
