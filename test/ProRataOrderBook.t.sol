@@ -179,6 +179,27 @@ contract ProRataOrderBookTest is TestBase {
         assertEq(filled, 100, "quote did not reactivate inside oracle band");
     }
 
+    function testOracleRisePastPoolRiskCeilingFreezesOldLiquidity() public {
+        book.configureRisk(100, 5, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 104, 100);
+
+        assertEq(book.poolRiskCeilingTick(ProRataOrderBook.Side.Ask, 104), 105, "wrong pool ceiling");
+
+        book.setMarkTick(106);
+
+        uint96 filled =
+            book.take(ProRataOrderBook.Side.Bid, 200, 100, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 0, "stale risk pool executed above reserved ceiling");
+
+        (, uint96 remaining,) = book.pools(ProRataOrderBook.Side.Ask, 104);
+        assertEq(remaining, 100, "stale risk pool was mutated");
+    }
+
     function testMakerRiskStateDoesNotChangeOnTakerFill() public {
         book.configureRisk(100, 10, 1_000);
 
