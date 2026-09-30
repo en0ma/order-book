@@ -64,6 +64,7 @@ contract ProRataOrderBook {
     error UnsupportedTokenBehavior();
     error SettlementAlreadyConfigured();
     error UnsettledQuotes();
+    error ReduceOnlyViolation();
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
@@ -351,15 +352,45 @@ contract ProRataOrderBook {
         external
         returns (uint96 filledLots)
     {
+        filledLots = _takeFor(msg.sender, takerSide, limitTick, lots, policy, false, false);
+    }
+
+    function takeReduceOnly(Side takerSide, uint16 limitTick, uint96 lots, FillPolicy policy)
+        external
+        returns (uint96 filledLots)
+    {
+        if (activeQuoteCount[msg.sender] != 0) revert UnsettledQuotes();
+        filledLots = _takeFor(msg.sender, takerSide, limitTick, lots, policy, true, false);
+    }
+
+    function _takeFor(
+        address account,
+        Side takerSide,
+        uint16 limitTick,
+        uint96 lots,
+        FillPolicy policy,
+        bool reduceOnly,
+        bool preReserved
+    ) internal returns (uint96 filledLots) {
         if (lots == 0) revert ZeroAmount();
+
+        uint96 executableLots = lots;
+        if (reduceOnly) {
+            executableLots = _reduceOnlyLots(account, takerSide, lots);
+            if (executableLots == 0) revert ReduceOnlyViolation();
+            if (policy == FillPolicy.FOK && executableLots != lots) revert ReduceOnlyViolation();
+        }
 
         Side makerSide = takerSide == Side.Bid ? Side.Ask : Side.Bid;
 
-        if (policy == FillPolicy.FOK && _availableThrough(makerSide, limitTick, lots) < lots) {
+        if (
+            policy == FillPolicy.FOK
+                && _availableThrough(makerSide, limitTick, executableLots) < executableLots
+        ) {
             revert InsufficientLiquidity();
         }
 
-        uint96 remaining = lots;
+        uint96 remaining = executableLots;
         while (remaining != 0) {
             (bool ok, uint16 tick) = _bestExecutableTick(makerSide);
             if (!ok) break;
@@ -392,10 +423,16 @@ contract ProRataOrderBook {
                 _setOccupied(makerSide, tick, false);
             }
 
-            emit Trade(msg.sender, takerSide, tick, fill);
+            emit Trade(account, takerSide, tick, fill);
         }
 
-        if (policy == FillPolicy.FOK && filledLots != lots) revert InsufficientLiquidity();
+        if (policy == FillPolicy.FOK && filledLots != executableLots) {
+            revert InsufficientLiquidity();
+        }
+
+        if (filledLots != 0) {
+            _applyImmediateTakerFill(account, takerSide, filledLots, preReserved);
+        }
     }
 
     function quoteState(address maker, Side side, uint16 tick)
@@ -593,6 +630,47 @@ contract ProRataOrderBook {
         int256 half = denominator / 2;
         if (numerator >= 0) return (numerator + half) / denominator;
         return -((-numerator + half) / denominator);
+    }
+
+    function _reduceOnlyLots(address account, Side side, uint96 requested)
+        internal
+        view
+        returns (uint96)
+    {
+        int128 position = accountRisk[account].settledPosition;
+        if (side == Side.Bid) {
+            if (position >= 0) return 0;
+            uint128 reducible = uint128(-position);
+            return requested < reducible ? requested : uint96(reducible);
+        }
+
+        if (position <= 0) return 0;
+        uint128 reducible = uint128(position);
+        return requested < reducible ? requested : uint96(reducible);
+    }
+
+    function _applyImmediateTakerFill(
+        address account,
+        Side side,
+        uint96 filledLots,
+        bool preReserved
+    ) internal {
+        _settleExistingPositionFunding(account);
+
+        AccountRisk storage a = accountRisk[account];
+        int128 amount = int128(uint128(filledLots));
+
+        if (side == Side.Bid) {
+            a.settledPosition += amount;
+            a.minPosition += amount;
+            if (!preReserved) a.maxPosition += amount;
+        } else {
+            a.settledPosition -= amount;
+            a.maxPosition -= amount;
+            if (!preReserved) a.minPosition -= amount;
+        }
+
+        _refreshReservedMargin(account);
     }
 
     function _applyFillToRisk(address maker, Side side, uint96 filledLots) internal {
