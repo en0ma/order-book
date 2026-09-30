@@ -38,6 +38,9 @@ jobs:
           echo "::warning::Configured ETH_RPC could not create a Foundry fork; retrying public mainnet fallback"
           ETH_RPC="https://ethereum-rpc.publicnode.com" forge test --match-contract MainnetForkTest -vvv
 
+      - name: Contract sizes
+        run: forge build --sizes | tee contract-sizes.txt
+
       - name: Gas report
         run: forge test --no-match-contract MainnetForkTest --gas-report | tee gas-report.txt
 
@@ -50,4 +53,5 @@ jobs:
           name: gas-results
           path: |
             gas-report.txt
+            contract-sizes.txt
             .gas-snapshot
