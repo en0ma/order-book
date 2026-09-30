@@ -40,6 +40,22 @@ contract AdvancedOrderModuleTest is TestBase {
         core.depositCollateral(amount);
     }
 
+    function testModuleRejectsDifferentExtremaOracle() public {
+        SegmentTreeExtremaOracle otherOracle =
+            new SegmentTreeExtremaOracle(address(this), 100);
+
+        bool reverted;
+        try new AdvancedOrderModule(address(core), address(otherOracle)) returns (
+            AdvancedOrderModule
+        ) {
+            reverted = false;
+        } catch {
+            reverted = true;
+        }
+
+        assertTrue(reverted, "module accepted a different trailing oracle");
+    }
+
     function testModuleMinimumFillIsAtomic() public {
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 40);
