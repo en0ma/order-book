@@ -148,7 +148,7 @@ contract AdvancedOrderModuleTest is TestBase {
         );
         assertTrue(!ok, "insufficient conditional FOK unexpectedly succeeded");
 
-        (address ownerAfter,,,,,,, uint8 flagsAfter) =
+        (address ownerAfter,,,,,,,, uint8 flagsAfter) =
             module.conditionalOrders(orderId);
         assertTrue(ownerAfter == ALICE, "failed FOK lost conditional owner");
         assertTrue((flagsAfter & 1) != 0, "failed FOK did not restore active flag");
