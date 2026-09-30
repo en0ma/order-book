@@ -333,8 +333,11 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
         assertTrue(minPosition <= settled, "advanced risk min above settled");
         assertTrue(settled <= maxPosition, "advanced risk settled above max");
 
-        (uint256 collateral, uint256 reserved) = core.marginStateTest(owner_);
-        assertTrue(reserved <= collateral, "advanced reserved margin exceeds collateral");
+        (, uint256 reserved) = core.marginStateTest(owner_);
+        assertTrue(
+            core.accountEquity(owner_) >= int256(reserved),
+            "advanced reserved margin exceeds account equity"
+        );
     }
 
     function _fund(address account, uint256 amount) internal {
