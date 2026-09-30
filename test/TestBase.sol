@@ -6,6 +6,7 @@ interface Vm {
     function envString(string calldata) external returns (string memory);
     function createSelectFork(string calldata) external returns (uint256);
     function deal(address account, uint256 newBalance) external;
+    function warp(uint256 newTimestamp) external;
 }
 
 abstract contract TestBase {
