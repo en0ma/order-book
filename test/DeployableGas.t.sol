@@ -79,6 +79,44 @@ contract DeployableGasTest is TestBase {
         assertTrue(batchGas < 1_000_000, "four-level batch replacement gas ceiling exceeded");
     }
 
+    function testGas_ProfileFourSeparateManagedQuoteReplaces() public {
+        AdvancedOrderModule.QuoteUpdate[] memory initial =
+            new AdvancedOrderModule.QuoteUpdate[](4);
+        initial[0] = _update(IOrderBookCore.Side.Bid, 94, 40);
+        initial[1] = _update(IOrderBookCore.Side.Bid, 95, 50);
+        initial[2] = _update(IOrderBookCore.Side.Ask, 105, 60);
+        initial[3] = _update(IOrderBookCore.Side.Ask, 106, 70);
+        module.batchReplaceQuotes(initial);
+
+        AdvancedOrderModule.QuoteUpdate[] memory one =
+            new AdvancedOrderModule.QuoteUpdate[](1);
+
+        one[0] = _update(IOrderBookCore.Side.Bid, 94, 42);
+        module.batchReplaceQuotes(one);
+        one[0] = _update(IOrderBookCore.Side.Bid, 95, 52);
+        module.batchReplaceQuotes(one);
+        one[0] = _update(IOrderBookCore.Side.Ask, 105, 62);
+        module.batchReplaceQuotes(one);
+        one[0] = _update(IOrderBookCore.Side.Ask, 106, 72);
+        module.batchReplaceQuotes(one);
+    }
+
+    function testGas_ProfileOneBatchFourManagedQuoteReplaces() public {
+        AdvancedOrderModule.QuoteUpdate[] memory updates =
+            new AdvancedOrderModule.QuoteUpdate[](4);
+        updates[0] = _update(IOrderBookCore.Side.Bid, 94, 40);
+        updates[1] = _update(IOrderBookCore.Side.Bid, 95, 50);
+        updates[2] = _update(IOrderBookCore.Side.Ask, 105, 60);
+        updates[3] = _update(IOrderBookCore.Side.Ask, 106, 70);
+        module.batchReplaceQuotes(updates);
+
+        updates[0].lots = 42;
+        updates[1].lots = 52;
+        updates[2].lots = 62;
+        updates[3].lots = 72;
+        module.batchReplaceQuotes(updates);
+    }
+
     function testGas_BatchCancelFourManagedQuotesIsBounded() public {
         AdvancedOrderModule.QuoteUpdate[] memory updates =
             new AdvancedOrderModule.QuoteUpdate[](4);
