@@ -649,10 +649,6 @@ contract AdvancedOrderModule {
         if (maintenanceMarginBps == 0) revert InvalidLiquidationConfig();
         if (makerSides.length != makerTicks.length) revert UnsettledAdvancedOrders();
 
-        for (uint256 i; i < makerTicks.length; ++i) {
-            core.moduleForceCancelQuote(account, makerSides[i], makerTicks[i]);
-        }
-
         for (uint256 i; i < conditionalIds.length; ++i) {
             uint64 id = conditionalIds[i];
             ConditionalOrder storage order = conditionalOrders[id];
@@ -671,6 +667,10 @@ contract AdvancedOrderModule {
             if (order.owner == account && (order.flags & 1) != 0) {
                 _cancelTrailing(id, true);
             }
+        }
+
+        for (uint256 i; i < makerTicks.length; ++i) {
+            core.moduleForceCancelQuote(account, makerSides[i], makerTicks[i]);
         }
 
         if (core.activeQuoteCount(account) != 0 || activeAdvancedCount[account] != 0) {
