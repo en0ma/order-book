@@ -54,6 +54,7 @@ contract AdvancedOrderModule {
     error InvalidLiquidationConfig();
     error NotLiquidatable();
     error UnsettledAdvancedOrders();
+    error MinimumFillNotMet();
 
     IOrderBookCore public immutable core;
     IExtremaOracle public immutable extremaOracle;
@@ -145,6 +146,46 @@ contract AdvancedOrderModule {
 
         maintenanceMarginBps = maintenanceBps;
         emit LiquidationConfigured(maintenanceBps);
+    }
+
+    function takeReduceOnly(
+        IOrderBookCore.Side side,
+        uint16 limitTick,
+        uint96 lots,
+        IOrderBookCore.FillPolicy policy
+    ) external returns (uint96 filledLots) {
+        filledLots = core.moduleTake(
+            msg.sender,
+            side,
+            limitTick,
+            lots,
+            policy,
+            true,
+            false
+        );
+    }
+
+    function takeMinFill(
+        IOrderBookCore.Side side,
+        uint16 limitTick,
+        uint96 lots,
+        uint96 minFillLots,
+        bool reduceOnly
+    ) external returns (uint96 filledLots) {
+        if (minFillLots == 0 || minFillLots > lots) revert MinimumFillNotMet();
+
+        filledLots = core.moduleTake(
+            msg.sender,
+            side,
+            limitTick,
+            lots,
+            IOrderBookCore.FillPolicy.IOC,
+            reduceOnly,
+            false
+        );
+
+        // Reverting here atomically rolls back all core fills when the threshold is missed.
+        if (filledLots < minFillLots) revert MinimumFillNotMet();
     }
 
     function placeConditionalOrder(
