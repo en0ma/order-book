@@ -191,30 +191,6 @@ contract OrderBookCore is IOrderBookCore {
         return address(oracle) == address(0) ? riskConfig.markTick : oracle.markTick();
     }
 
-    function accountPosition(address account) external view override returns (int80) {
-        return accountRisk[account].settledPosition;
-    }
-
-    function poolState(Side side, uint16 tick)
-        external
-        view
-        override
-        returns (uint128 totalShares, uint96 remainingLots, uint32 generation)
-    {
-        TickPool memory p = pools[side][tick];
-        return (p.totalShares, p.remainingLots, p.generation);
-    }
-
-    function quoteStateRaw(address account, Side side, uint16 tick)
-        external
-        view
-        override
-        returns (uint128 shares, uint96 claimLots, uint32 generation)
-    {
-        MakerQuote memory q = quotes[account][side][tick];
-        return (q.shares, q.claimLots, q.generation);
-    }
-
     function activeQuoteCount(address account) external view override returns (uint32) {
         return _accountMeta[account].activeQuoteCount;
     }
