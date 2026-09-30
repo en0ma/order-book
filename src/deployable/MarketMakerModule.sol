@@ -54,6 +54,7 @@ contract MarketMakerModule {
     error ZeroAmount();
     error InvalidPackedQuotes();
     error QuotesNotStrictlySorted();
+    error Unauthorized();
 
     IOrderBookCore public immutable core;
     IAdvancedQuoteGateway public immutable gateway;
@@ -65,6 +66,15 @@ contract MarketMakerModule {
         if (core_ == address(0) || gateway_ == address(0)) revert ZeroAmount();
         core = IOrderBookCore(core_);
         gateway = IAdvancedQuoteGateway(gateway_);
+    }
+
+    function liquidationForgetManagedQuote(
+        address maker,
+        IOrderBookCore.Side side,
+        uint16 tick
+    ) external {
+        if (msg.sender != address(gateway)) revert Unauthorized();
+        delete managedQuotes[maker][side][tick];
     }
 
     /// @notice Atomically replace/cancel module-managed maker quotes.
