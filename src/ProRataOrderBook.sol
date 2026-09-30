@@ -39,16 +39,30 @@ contract ProRataOrderBook {
         int128 maxPosition;
     }
 
+    struct RiskConfig {
+        uint16 markTick;
+        uint16 executionBandTicks;
+        uint16 initialMarginBps;
+        bool enabled;
+    }
+
     error ZeroAmount();
     error CrossesBook();
     error InsufficientLiquidity();
     error InvalidShareAmount();
     error StaleQuote();
     error Overflow();
+    error Unauthorized();
+    error InvalidRiskConfig();
+    error InsufficientCollateral();
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
     mapping(address => AccountRisk) public accountRisk;
+    mapping(address => uint256) public collateralBalance;
+    mapping(address => uint256) public reservedMargin;
+    RiskConfig public riskConfig;
+    address public immutable owner;
 
     // 65,536 ticks => 256 words of 256 ticks.
     mapping(Side => mapping(uint8 => uint256)) internal _tickWords;
@@ -57,6 +71,10 @@ contract ProRataOrderBook {
     uint256 public totalAddedLots;
     uint256 public totalRemovedLots;
     uint256 public totalExecutedLots;
+
+    constructor() {
+        owner = msg.sender;
+    }
 
     event LiquidityAdded(
         address indexed maker,
@@ -87,6 +105,48 @@ contract ProRataOrderBook {
         uint16 indexed tick,
         uint96 lots
     );
+    event RiskConfigured(uint16 markTick, uint16 executionBandTicks, uint16 initialMarginBps);
+    event CollateralCredited(address indexed account, uint256 amount);
+    event CollateralDebited(address indexed account, uint256 amount);
+
+    function configureRisk(uint16 markTick, uint16 executionBandTicks, uint16 initialMarginBps)
+        external
+    {
+        if (msg.sender != owner) revert Unauthorized();
+        if (initialMarginBps == 0 || initialMarginBps > 10_000) revert InvalidRiskConfig();
+        riskConfig = RiskConfig({
+            markTick: markTick,
+            executionBandTicks: executionBandTicks,
+            initialMarginBps: initialMarginBps,
+            enabled: true
+        });
+        emit RiskConfigured(markTick, executionBandTicks, initialMarginBps);
+    }
+
+    function setMarkTick(uint16 markTick) external {
+        if (msg.sender != owner) revert Unauthorized();
+        RiskConfig storage r = riskConfig;
+        if (!r.enabled) revert InvalidRiskConfig();
+        r.markTick = markTick;
+    }
+
+    /// @notice Accounting-only collateral credit for the research kernel.
+    /// @dev Replace with token custody in the production settlement layer.
+    function depositCollateral(uint256 amount) external {
+        if (amount == 0) revert ZeroAmount();
+        collateralBalance[msg.sender] += amount;
+        emit CollateralCredited(msg.sender, amount);
+    }
+
+    function withdrawCollateral(uint256 amount) external {
+        if (amount == 0) revert ZeroAmount();
+        uint256 balance = collateralBalance[msg.sender];
+        if (amount > balance) revert InsufficientCollateral();
+        uint256 next = balance - amount;
+        if (next < reservedMargin[msg.sender]) revert InsufficientCollateral();
+        collateralBalance[msg.sender] = next;
+        emit CollateralDebited(msg.sender, amount);
+    }
 
     function addLiquidity(Side side, uint16 tick, uint96 lots)
         external
@@ -128,6 +188,7 @@ contract ProRataOrderBook {
         q.claimLots += lots;
 
         _expandRisk(msg.sender, side, lots);
+        _refreshReservedMargin(msg.sender);
         totalAddedLots += lots;
 
         if (wasEmpty) _setOccupied(side, tick, true);
@@ -162,6 +223,7 @@ contract ProRataOrderBook {
         q.claimLots -= removedLots;
 
         _shrinkRisk(msg.sender, side, removedLots);
+        _refreshReservedMargin(msg.sender);
         totalRemovedLots += removedLots;
 
         if (q.shares == 0) {
@@ -201,7 +263,7 @@ contract ProRataOrderBook {
 
         uint96 remaining = lots;
         while (remaining != 0) {
-            (bool ok, uint16 tick) = _bestTick(makerSide);
+            (bool ok, uint16 tick) = _bestExecutableTick(makerSide);
             if (!ok) break;
             if (!_withinLimit(makerSide, tick, limitTick)) break;
 
@@ -335,6 +397,50 @@ contract ProRataOrderBook {
         }
     }
 
+    function _refreshReservedMargin(address maker) internal {
+        RiskConfig memory r = riskConfig;
+        if (!r.enabled) return;
+
+        AccountRisk memory a = accountRisk[maker];
+        uint256 absMin = a.minPosition < 0 ? uint256(uint128(-a.minPosition)) : uint256(uint128(a.minPosition));
+        uint256 absMax = a.maxPosition < 0 ? uint256(uint128(-a.maxPosition)) : uint256(uint128(a.maxPosition));
+        uint256 worstLots = absMin > absMax ? absMin : absMax;
+
+        uint256 worstPrice = uint256(r.markTick) + uint256(r.executionBandTicks);
+        uint256 required = worstLots * worstPrice * uint256(r.initialMarginBps) / 10_000;
+
+        if (required > collateralBalance[maker]) revert InsufficientCollateral();
+        reservedMargin[maker] = required;
+    }
+
+    function _bestExecutableTick(Side side) internal view returns (bool ok, uint16 tick) {
+        RiskConfig memory r = riskConfig;
+        if (!r.enabled) return _bestTick(side);
+
+        uint256 lowerRaw =
+            uint256(r.markTick) > uint256(r.executionBandTicks)
+                ? uint256(r.markTick) - uint256(r.executionBandTicks)
+                : 0;
+        uint256 upperRaw = uint256(r.markTick) + uint256(r.executionBandTicks);
+        if (upperRaw > type(uint16).max) upperRaw = type(uint16).max;
+
+        uint16 lower = uint16(lowerRaw);
+        uint16 upper = uint16(upperRaw);
+
+        (ok, tick) = _bestTick(side);
+        while (ok) {
+            if (tick >= lower && tick <= upper) return (true, tick);
+
+            if (side == Side.Ask) {
+                if (tick > upper) return (false, 0);
+            } else {
+                if (tick < lower) return (false, 0);
+            }
+
+            (ok, tick) = _nextTick(side, tick);
+        }
+    }
+
     function _expandRisk(address maker, Side side, uint96 lots) internal {
         AccountRisk storage a = accountRisk[maker];
         int128 amount = int128(uint128(lots));
@@ -378,7 +484,7 @@ contract ProRataOrderBook {
         view
         returns (uint256 available)
     {
-        (bool ok, uint16 tick) = _bestTick(makerSide);
+        (bool ok, uint16 tick) = _bestExecutableTick(makerSide);
         while (ok && _withinLimit(makerSide, tick, limitTick)) {
             available += pools[makerSide][tick].remainingLots;
             if (available >= stopAt) return available;
