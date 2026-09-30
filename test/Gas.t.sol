@@ -109,6 +109,37 @@ contract GasTest is TestBase {
         assertTrue(used < 350_000, "liquidation gas ceiling exceeded");
     }
 
+    function testGas_TriggeredLimitActivationIsBounded() public {
+        ProRataOrderBook book = new ProRataOrderBook();
+        address owner = address(0xA11CE);
+
+        book.configureRisk(10_000, 100, 1_000);
+
+        vm.prank(owner);
+        book.depositCollateral(10_000_000);
+
+        vm.prank(address(0xB0B));
+        book.depositCollateral(10_000_000);
+        vm.prank(address(0xB0B));
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 10_020, 250);
+
+        vm.prank(owner);
+        uint64 orderId = book.placeTriggeredLimitOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            10_000,
+            10_030,
+            500
+        );
+
+        uint256 g0 = gasleft();
+        uint96 filled = book.executeConditionalOrder(orderId);
+        uint256 used = g0 - gasleft();
+
+        assertEq(filled, 250, "triggered-limit fixture aggressive fill mismatch");
+        assertTrue(used < 450_000, "triggered-limit activation gas ceiling exceeded");
+    }
+
     function testGas_AddAtExistingTickIsBounded() public {
         ProRataOrderBook book = new ProRataOrderBook();
 
