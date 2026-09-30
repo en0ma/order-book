@@ -14,6 +14,7 @@ contract DeployableGasTest is TestBase {
     event BatchCancelGasMeasured(uint256 batchCancelGas);
     event BatchScaleGasMeasured(uint256 levels, uint256 gasUsed);
     event PackedBatchMeasured(uint256 typedCalldataBytes, uint256 packedCalldataBytes, uint256 gasUsed);
+    event FeeGasMeasured(uint256 zeroFeeGas, uint256 feeGas, uint256 overhead);
     OrderBookCore internal core;
     AdvancedOrderModule internal module;
     MarketMakerModule internal marketMaker;
@@ -32,6 +33,58 @@ contract DeployableGasTest is TestBase {
         token.mint(address(this), 1_000_000);
         token.approve(address(core), type(uint256).max);
         core.depositCollateral(1_000_000);
+    }
+
+    function testGas_FeeEnabledTakeOverheadIsBounded() public {
+        MockERC20 zeroToken = new MockERC20();
+        MockERC20 feeToken = new MockERC20();
+
+        OrderBookCore zeroFeeCore =
+            new OrderBookCore(address(zeroToken), address(oracle), 40, 1_000, 0, 0);
+        OrderBookCore feeCore =
+            new OrderBookCore(address(feeToken), address(oracle), 40, 1_000, 10, 5);
+
+        address maker = address(0xB0B);
+        address taker = address(0xA11CE);
+
+        _fundCore(zeroFeeCore, zeroToken, maker, 1_000_000);
+        _fundCore(zeroFeeCore, zeroToken, taker, 1_000_000);
+        _fundCore(feeCore, feeToken, maker, 1_000_000);
+        _fundCore(feeCore, feeToken, taker, 1_000_000);
+
+        vm.prank(maker);
+        zeroFeeCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(maker);
+        feeCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        // Warm the protocol-fee accrual slot so the measured path is recurring cost.
+        vm.prank(taker);
+        zeroFeeCore.take(
+            IOrderBookCore.Side.Bid, 100, 10, IOrderBookCore.FillPolicy.IOC
+        );
+        vm.prank(taker);
+        feeCore.take(
+            IOrderBookCore.Side.Bid, 100, 10, IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(taker);
+        uint256 g0 = gasleft();
+        zeroFeeCore.take(
+            IOrderBookCore.Side.Bid, 100, 40, IOrderBookCore.FillPolicy.IOC
+        );
+        uint256 zeroFeeGas = g0 - gasleft();
+
+        vm.prank(taker);
+        g0 = gasleft();
+        feeCore.take(
+            IOrderBookCore.Side.Bid, 100, 40, IOrderBookCore.FillPolicy.IOC
+        );
+        uint256 feeGas = g0 - gasleft();
+
+        uint256 overhead = feeGas > zeroFeeGas ? feeGas - zeroFeeGas : 0;
+        emit FeeGasMeasured(zeroFeeGas, feeGas, overhead);
+
+        assertTrue(feeGas < zeroFeeGas + 20_000, "recurring fee overhead too high");
     }
 
     function testGas_BatchReplaceFourManagedQuotesIsBoundedAndCheaperThanSeparateCalls()
@@ -232,6 +285,19 @@ contract DeployableGasTest is TestBase {
         uint256 g0 = gasleft();
         marketMaker.batchReplaceQuotes(updates);
         used = g0 - gasleft();
+    }
+
+    function _fundCore(
+        OrderBookCore target,
+        MockERC20 targetToken,
+        address account,
+        uint256 amount
+    ) internal {
+        targetToken.mint(account, amount);
+        vm.prank(account);
+        targetToken.approve(address(target), type(uint256).max);
+        vm.prank(account);
+        target.depositCollateral(amount);
     }
 
     function _packUpdates(MarketMakerModule.QuoteUpdate[] memory updates)
