@@ -10,6 +10,8 @@ import {IMarkOracle} from "./interfaces/IMarkOracle.sol";
 ///      This prototype intentionally excludes custody, fees, liquidation and oracle wiring.
 contract ProRataOrderBook {
     uint256 public constant INITIAL_SHARE_SCALE = 1_000_000;
+    uint256 public constant ACCUMULATOR_SCALE = 1 << 96;
+    int256 public constant FUNDING_SCALE = 1e18;
 
     enum Side {
         Bid,
@@ -69,6 +71,15 @@ contract ProRataOrderBook {
     mapping(address => uint256) public reservedMargin;
     mapping(address => uint16) public accountRiskCeilingTick;
     mapping(Side => mapping(uint16 => uint16)) public poolRiskCeilingTick;
+
+    // Lazy funding attribution. These mappings intentionally sit outside TickPool/MakerQuote
+    // so the hot liquidity structs remain one slot each.
+    int128 public fundingIndexX18;
+    mapping(Side => mapping(uint16 => int256)) public fundingEntryPerShareX96;
+    mapping(Side => mapping(uint16 => mapping(uint32 => int256))) public closedFundingEntryPerShareX96;
+    mapping(address => mapping(Side => mapping(uint16 => int256))) public quoteFundingCheckpointX96;
+    mapping(address => int128) public accountFundingCheckpointX18;
+    mapping(address => int256) public fundingCashflow;
     RiskConfig public riskConfig;
     IERC20Minimal public collateralToken;
     IMarkOracle public markOracle;
@@ -119,6 +130,8 @@ contract ProRataOrderBook {
     event CollateralCredited(address indexed account, uint256 amount);
     event CollateralDebited(address indexed account, uint256 amount);
     event SettlementConfigured(address indexed collateralToken, address indexed markOracle);
+    event FundingIndexUpdated(int128 fundingIndexX18);
+    event FundingSettled(address indexed account, int256 cashflowDelta);
 
     function configureSettlement(address token, address oracle) external {
         if (msg.sender != owner) revert Unauthorized();
@@ -145,6 +158,12 @@ contract ProRataOrderBook {
             enabled: true
         });
         emit RiskConfigured(markTick, executionBandTicks, initialMarginBps);
+    }
+
+    function setFundingIndex(int128 nextFundingIndexX18) external {
+        if (msg.sender != owner) revert Unauthorized();
+        fundingIndexX18 = nextFundingIndexX18;
+        emit FundingIndexUpdated(nextFundingIndexX18);
     }
 
     function setMarkTick(uint16 markTick) external {
@@ -237,6 +256,7 @@ contract ProRataOrderBook {
 
         if (q.shares == 0) {
             q.generation = p.generation;
+            quoteFundingCheckpointX96[msg.sender][side][tick] = fundingEntryPerShareX96[side][tick];
         } else if (q.generation != p.generation) {
             revert StaleQuote();
         }
@@ -285,6 +305,7 @@ contract ProRataOrderBook {
 
         if (q.shares == 0) {
             delete quotes[msg.sender][side][tick];
+            delete quoteFundingCheckpointX96[msg.sender][side][tick];
         }
 
         if (p.totalShares == 0) {
@@ -328,6 +349,7 @@ contract ProRataOrderBook {
             TickPool storage p = pools[makerSide][tick];
             uint96 fill = remaining < p.remainingLots ? remaining : p.remainingLots;
 
+            _recordFundingEntry(makerSide, tick, p.totalShares, fill);
             p.remainingLots -= fill;
 
             unchecked {
@@ -337,6 +359,11 @@ contract ProRataOrderBook {
             totalExecutedLots += fill;
 
             if (p.remainingLots == 0) {
+                uint32 oldGeneration = p.generation;
+                closedFundingEntryPerShareX96[makerSide][tick][oldGeneration] =
+                    fundingEntryPerShareX96[makerSide][tick];
+                fundingEntryPerShareX96[makerSide][tick] = 0;
+
                 p.totalShares = 0;
                 delete poolRiskCeilingTick[makerSide][tick];
                 unchecked {
@@ -412,8 +439,12 @@ contract ProRataOrderBook {
             // so the maker's full last materialized claim has filled.
             filledLots = q.claimLots;
             uint32 oldGeneration = q.generation;
+            int256 finalFundingEntry =
+                closedFundingEntryPerShareX96[side][tick][oldGeneration];
+            _settleFundingForQuote(maker, side, tick, q.shares, filledLots, finalFundingEntry);
             _applyFillToRisk(maker, side, filledLots);
             delete quotes[maker][side][tick];
+            delete quoteFundingCheckpointX96[maker][side][tick];
             emit MakerSettled(maker, side, tick, filledLots, oldGeneration);
             return filledLots;
         }
@@ -430,6 +461,10 @@ contract ProRataOrderBook {
         filledLots = q.claimLots - currentClaim;
         q.claimLots = currentClaim;
 
+        int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
+        _settleFundingForQuote(maker, side, tick, q.shares, filledLots, currentFundingEntry);
+        quoteFundingCheckpointX96[maker][side][tick] = currentFundingEntry;
+
         _applyFillToRisk(maker, side, filledLots);
         emit MakerSettled(maker, side, tick, filledLots, q.generation);
     }
@@ -443,6 +478,62 @@ contract ProRataOrderBook {
         uint256 lots = uint256(shares) * uint256(remainingLots) / uint256(totalShares);
         if (lots > type(uint96).max) revert Overflow();
         return uint96(lots);
+    }
+
+    function _recordFundingEntry(Side side, uint16 tick, uint128 totalShares, uint96 fillLots)
+        internal
+    {
+        if (fillLots == 0 || totalShares == 0) return;
+
+        uint256 fillPerShareX96 =
+            uint256(fillLots) * ACCUMULATOR_SCALE / uint256(totalShares);
+        int256 weighted =
+            int256(fillPerShareX96) * int256(fundingIndexX18) / FUNDING_SCALE;
+
+        fundingEntryPerShareX96[side][tick] += weighted;
+    }
+
+    function _settleFundingForQuote(
+        address maker,
+        Side side,
+        uint16 tick,
+        uint128 shares,
+        uint96 filledLots,
+        int256 finalFundingEntryPerShareX96
+    ) internal {
+        _settleExistingPositionFunding(maker);
+
+        int256 checkpoint = quoteFundingCheckpointX96[maker][side][tick];
+        int256 deltaPerShare = finalFundingEntryPerShareX96 - checkpoint;
+
+        int256 weightedEntryX18 =
+            int256(uint256(shares)) * deltaPerShare / int256(ACCUMULATOR_SCALE);
+
+        int256 direction = side == Side.Bid ? int256(1) : int256(-1);
+        int256 currentFundingOnFill =
+            direction * int256(uint256(filledLots)) * int256(fundingIndexX18) / FUNDING_SCALE;
+        int256 entryFundingOnFill = direction * weightedEntryX18;
+
+        int256 cashflowDelta = entryFundingOnFill - currentFundingOnFill;
+        fundingCashflow[maker] += cashflowDelta;
+        accountFundingCheckpointX18[maker] = fundingIndexX18;
+
+        if (cashflowDelta != 0) emit FundingSettled(maker, cashflowDelta);
+    }
+
+    function _settleExistingPositionFunding(address maker) internal {
+        AccountRisk memory a = accountRisk[maker];
+        int256 position = int256(a.settledPosition);
+        int256 deltaIndex =
+            int256(fundingIndexX18) - int256(accountFundingCheckpointX18[maker]);
+
+        if (position != 0 && deltaIndex != 0) {
+            int256 cashflowDelta = -(position * deltaIndex / FUNDING_SCALE);
+            fundingCashflow[maker] += cashflowDelta;
+            emit FundingSettled(maker, cashflowDelta);
+        }
+
+        accountFundingCheckpointX18[maker] = fundingIndexX18;
     }
 
     function _applyFillToRisk(address maker, Side side, uint96 filledLots) internal {
