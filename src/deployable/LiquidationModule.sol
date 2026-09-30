@@ -25,6 +25,10 @@ interface IAdvancedLiquidationGateway {
         uint16 limitTick,
         uint96 lots
     ) external returns (uint96 filledLots);
+
+    function liquidationCoverBadDebt(address account, uint256 requested)
+        external
+        returns (uint256 covered);
 }
 
 /// @title LiquidationModule
@@ -51,6 +55,7 @@ contract LiquidationModule {
         int80 remainingPosition,
         int256 equityAfter,
         uint256 maintenanceRequirementAfter,
+        uint256 insuranceCovered,
         uint256 terminalBadDebt
     );
 
@@ -153,11 +158,21 @@ contract LiquidationModule {
         uint256 badDebt =
             remainingPosition == 0 && equityAfter < 0 ? uint256(-equityAfter) : 0;
 
+        uint256 insuranceCovered;
+        if (badDebt != 0) {
+            insuranceCovered = gateway.liquidationCoverBadDebt(account, badDebt);
+            if (insuranceCovered != 0) {
+                equityAfter = core.accountEquity(account);
+                badDebt = equityAfter < 0 ? uint256(-equityAfter) : 0;
+            }
+        }
+
         emit LiquidationStatus(
             account,
             remainingPosition,
             equityAfter,
             maintenanceAfter,
+            insuranceCovered,
             badDebt
         );
     }

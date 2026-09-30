@@ -83,6 +83,7 @@ contract OrderBookCore is IOrderBookCore {
     int128 internal fundingIndexX18;
     uint32 internal immutable feeSchedulePacked;
     uint256 public protocolFeesAccrued;
+    uint256 public insuranceReserves;
     mapping(Side => mapping(uint16 => int256)) internal fundingEntryPerShareX96;
     mapping(Side => mapping(uint16 => mapping(uint32 => int256)))
         internal closedFundingEntryPerShareX96;
@@ -126,6 +127,9 @@ contract OrderBookCore is IOrderBookCore {
     );
     event Trade(address indexed taker, Side indexed takerSide, uint16 indexed tick, uint96 lots);
     event FundingSettled(address indexed account, int256 cashflowDelta);
+    event InsuranceFunded(address indexed funder, uint256 amount);
+    event ProtocolFeesAllocatedToInsurance(uint256 amount);
+    event BadDebtCovered(address indexed account, uint256 amount);
 
     constructor(
         address collateralToken_,
@@ -200,6 +204,26 @@ contract OrderBookCore is IOrderBookCore {
 
         collateralBalance[msg.sender] += amount;
         emit CollateralCredited(msg.sender, amount);
+    }
+
+    function fundInsurance(uint256 amount) external {
+        if (amount == 0) revert ZeroAmount();
+
+        IERC20Minimal token = collateralToken;
+        uint256 beforeBalance = token.balanceOf(address(this));
+        if (!token.transferFrom(msg.sender, address(this), amount)) revert TokenTransferFailed();
+        uint256 received = token.balanceOf(address(this)) - beforeBalance;
+        if (received != amount) revert UnsupportedTokenBehavior();
+
+        insuranceReserves += amount;
+        emit InsuranceFunded(msg.sender, amount);
+    }
+
+    function allocateProtocolFeesToInsurance(uint256 amount) external onlyOwner {
+        if (amount == 0 || amount > protocolFeesAccrued) revert InsufficientCollateral();
+        protocolFeesAccrued -= amount;
+        insuranceReserves += amount;
+        emit ProtocolFeesAllocatedToInsurance(amount);
     }
 
     function withdrawCollateral(uint256 amount) external {
@@ -406,6 +430,34 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         emit LiquidityRemoved(account, side, tick, removedLots, shares, p.generation);
+    }
+
+    function moduleCoverBadDebt(address account, uint256 requested)
+        external
+        override
+        onlyModule
+        returns (uint256 covered)
+    {
+        if (requested == 0) return 0;
+        if (_accountMeta[account].activeQuoteCount != 0) revert Unauthorized();
+
+        (int80 position,,) = accountRisk[account];
+        if (position != 0) revert ReduceOnlyViolation();
+
+        int256 equity = accountEquity(account);
+        if (equity >= 0) return 0;
+
+        uint256 debt = uint256(-equity);
+        covered = requested < debt ? requested : debt;
+
+        uint256 reserves = insuranceReserves;
+        if (covered > reserves) covered = reserves;
+        if (covered == 0) return 0;
+
+        insuranceReserves = reserves - covered;
+        collateralBalance[account] += covered;
+
+        emit BadDebtCovered(account, covered);
     }
 
     function accountEquity(address account) public view override returns (int256 equity) {

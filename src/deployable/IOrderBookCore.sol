@@ -80,4 +80,8 @@ interface IOrderBookCore {
     function moduleForceCancelQuote(address account, Side side, uint16 tick)
         external
         returns (uint96 removedLots);
+
+    function moduleCoverBadDebt(address account, uint256 requested)
+        external
+        returns (uint256 covered);
 }

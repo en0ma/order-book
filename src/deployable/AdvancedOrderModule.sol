@@ -260,6 +260,14 @@ contract AdvancedOrderModule {
         );
     }
 
+    function liquidationCoverBadDebt(address account, uint256 requested)
+        external
+        onlyLiquidationModule
+        returns (uint256 covered)
+    {
+        covered = core.moduleCoverBadDebt(account, requested);
+    }
+
     function takeReduceOnly(
         IOrderBookCore.Side side,
         uint16 limitTick,
