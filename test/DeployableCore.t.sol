@@ -45,6 +45,24 @@ contract DeployableCoreTest is TestBase {
         assertEq(int256(_corePosition(address(this))), 40, "taker position mismatch");
     }
 
+    function testDirectAskTakerShiftsEntireRiskEnvelope() public {
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 100, 20);
+
+        vm.prank(BOB);
+        uint96 filled =
+            core.take(IOrderBookCore.Side.Ask, 100, 13, IOrderBookCore.FillPolicy.IOC);
+
+        assertEq(filled, 13, "ask fill mismatch");
+
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(BOB);
+
+        assertEq(int256(settled), -13, "ask settled position");
+        assertEq(int256(minPosition), -13, "ask min envelope");
+        assertEq(int256(maxPosition), -13, "ask max envelope");
+    }
+
     function testFeesChargeTakerImmediatelyAndRebateMakerLazily() public {
         MockERC20 feeToken = new MockERC20();
         MockMarkOracle feeOracle = new MockMarkOracle(100);
