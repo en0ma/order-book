@@ -264,17 +264,20 @@ contract ProRataOrderBook {
         if (lots == 0) revert ZeroAmount();
 
         uint16 riskCeiling;
-        if (!reduceOnly && riskConfig.enabled) {
-            uint256 ceiling =
-                uint256(_currentMarkTick()) + uint256(riskConfig.executionBandTicks);
-            if (ceiling > type(uint16).max) ceiling = type(uint16).max;
-            riskCeiling = uint16(ceiling);
+        if (!reduceOnly) {
+            _expandRisk(msg.sender, side, lots);
 
-            if (riskCeiling > accountRiskCeilingTick[msg.sender]) {
-                accountRiskCeilingTick[msg.sender] = riskCeiling;
+            if (riskConfig.enabled) {
+                uint256 ceiling =
+                    uint256(_currentMarkTick()) + uint256(riskConfig.executionBandTicks);
+                if (ceiling > type(uint16).max) ceiling = type(uint16).max;
+                riskCeiling = uint16(ceiling);
+
+                if (riskCeiling > accountRiskCeilingTick[msg.sender]) {
+                    accountRiskCeilingTick[msg.sender] = riskCeiling;
+                }
             }
 
-            _expandRisk(msg.sender, side, lots);
             _refreshReservedMargin(msg.sender);
         }
 
