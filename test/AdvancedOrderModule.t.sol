@@ -2522,24 +2522,49 @@ contract AdvancedOrderModuleTest is TestBase {
         // Taker fee accrues protocol funds, but no executable close liquidity exists.
         feeOracle.record(50);
 
-        uint256 protocolBefore = feeCore.protocolFeesAccrued();
-        uint256 insuranceBefore = feeCore.insuranceReserves();
-        uint256 liquidatorBefore = feeToken.balanceOf(liquidator);
+        bytes32 stateBefore =
+            _zeroCloseState(feeCore, feeToken, trader, liquidator);
 
+        uint96 closed =
+            _liquidateWithoutCleanup(feeLiquidation, trader, liquidator);
+
+        assertEq(closed, 0, "zero-depth liquidation unexpectedly closed");
+        assertEq(
+            uint256(_zeroCloseState(feeCore, feeToken, trader, liquidator)),
+            uint256(stateBefore),
+            "zero close mutated protected state"
+        );
+    }
+
+    function _liquidateWithoutCleanup(
+        LiquidationModule target,
+        address trader,
+        address liquidator
+    ) internal returns (uint96 closed) {
         IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
         uint16[] memory ticks = new uint16[](0);
         uint64[] memory conditionals = new uint64[](0);
         uint64[] memory trailings = new uint64[](0);
 
         vm.prank(liquidator);
-        uint96 closed =
-            feeLiquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+        closed =
+            target.liquidate(trader, sides, ticks, conditionals, trailings);
+    }
 
-        assertEq(closed, 0, "zero-depth liquidation unexpectedly closed");
-        assertEq(feeCore.protocolFeesAccrued(), protocolBefore, "zero close consumed protocol fees");
-        assertEq(feeCore.insuranceReserves(), insuranceBefore, "zero close consumed insurance");
-        assertEq(feeToken.balanceOf(liquidator), liquidatorBefore, "zero close paid reward");
-        assertEq(int256(_positionOn(feeCore, trader)), 100, "zero close changed position");
+    function _zeroCloseState(
+        OrderBookCore target,
+        MockERC20 targetToken,
+        address trader,
+        address liquidator
+    ) internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                target.protocolFeesAccrued(),
+                target.insuranceReserves(),
+                targetToken.balanceOf(liquidator),
+                _positionOn(target, trader)
+            )
+        );
     }
 
     function testPartialLiquidationRewardAndRetryAreProportionalToClosedLots() public {
