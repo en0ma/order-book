@@ -1734,6 +1734,117 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(int256(maxPosition), 0, "max envelope retained cancelled reservation");
     }
 
+    function testLiquidationExecutesAtLowerBandBoundary() public {
+        address trader = address(0xBAA1);
+        _fund(trader, 3_000);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(trader);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        oracle.record(50);
+
+        // executionBandTicks = 40, so the lower executable boundary is 10.
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 10, 100);
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](0);
+
+        uint96 closed =
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+
+        assertEq(closed, 100, "lower band boundary was not executable");
+        assertEq(int256(_corePosition(trader)), 0, "boundary liquidation did not flatten");
+    }
+
+    function testLiquidationSkipsLiquidityBelowExecutionBand() public {
+        address trader = address(0xBAA2);
+        _fund(trader, 3_000);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(trader);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        oracle.record(50);
+
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 9, 100);
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](0);
+
+        uint96 closed =
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+
+        assertEq(closed, 0, "liquidation crossed below execution band");
+        assertEq(int256(_corePosition(trader)), 100, "out-of-band liquidity changed position");
+
+        (, uint96 remaining,) = core.pools(IOrderBookCore.Side.Bid, 9);
+        assertEq(remaining, 100, "out-of-band liquidity was consumed");
+    }
+
+    function testLiquidationUsesOnlyInBandDepthAndLeavesResidualPosition() public {
+        address trader = address(0xBAA3);
+        _fund(trader, 3_000);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(trader);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        oracle.record(50);
+
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 10, 40);
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 9, 60);
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](0);
+
+        uint96 closed =
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+
+        assertEq(closed, 40, "liquidation did not stop at band boundary");
+        assertEq(int256(_corePosition(trader)), 60, "partial liquidation residual mismatch");
+
+        (, uint96 belowBandRemaining,) =
+            core.pools(IOrderBookCore.Side.Bid, 9);
+        assertEq(belowBandRemaining, 60, "below-band depth was consumed");
+        assertEq(
+            liquidation.terminalBadDebt(trader),
+            0,
+            "residual position incorrectly surfaced terminal debt"
+        );
+    }
+
     function testModuleTrailingUsesSegmentTreeOracle() public {
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 60);
