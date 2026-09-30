@@ -59,7 +59,7 @@ contract AdvancedOrderModuleTest is TestBase {
 
         uint96 filled = module.executeConditionalOrder(orderId);
         assertEq(filled, 40, "module conditional fill");
-        assertEq(int256(core.accountPosition(ALICE)), 40, "module owner position");
+        assertEq(int256(_corePosition(ALICE)), 40, "module owner position");
     }
 
     function testModuleTriggeredLimitBracketResizesFromLaterMakerFills() public {
@@ -131,9 +131,9 @@ contract AdvancedOrderModuleTest is TestBase {
 
         uint96 exited = module.executeConditionalOrder(tp);
         assertEq(exited, 70, "TP exit");
-        assertEq(int256(core.accountPosition(ALICE)), 0, "bracket did not close");
+        assertEq(int256(_corePosition(ALICE)), 0, "bracket did not close");
 
-        (uint128 locked,,) = core.quoteStateRaw(ALICE, IOrderBookCore.Side.Bid, 103);
+        (uint128 locked,,) = core.quotes(ALICE, IOrderBookCore.Side.Bid, 103);
         assertEq(uint256(locked), 0, "remaining entry not cancelled");
     }
 
@@ -168,14 +168,14 @@ contract AdvancedOrderModuleTest is TestBase {
         uint96 removedFirst = module.cancelRestingOrder(first);
         assertEq(removedFirst, 30, "first slice cancellation");
 
-        (, uint96 remaining,) = core.poolState(IOrderBookCore.Side.Bid, 99);
+        (, uint96 remaining,) = core.pools(IOrderBookCore.Side.Bid, 99);
         assertEq(remaining, 20, "second slice was disturbed");
 
         vm.prank(ALICE);
         uint96 removedSecond = module.cancelRestingOrder(second);
         assertEq(removedSecond, 20, "second slice cancellation");
 
-        (, remaining,) = core.poolState(IOrderBookCore.Side.Bid, 99);
+        (, remaining,) = core.pools(IOrderBookCore.Side.Bid, 99);
         assertEq(remaining, 0, "same-tick slices not fully cleared");
     }
 
@@ -215,7 +215,7 @@ contract AdvancedOrderModuleTest is TestBase {
             module.liquidate(trader, sides, ticks, conditionals, trailings);
 
         assertEq(closed, 100, "module liquidation close");
-        assertEq(int256(core.accountPosition(trader)), 0, "module liquidation position");
+        assertEq(int256(_corePosition(trader)), 0, "module liquidation position");
         assertEq(module.activeAdvancedCount(trader), 0, "advanced order count not cleared");
     }
 
@@ -245,6 +245,10 @@ contract AdvancedOrderModuleTest is TestBase {
 
         uint96 filled = module.executeTrailingOrder(trailingId);
         assertEq(filled, 60, "module trailing fill");
-        assertEq(int256(core.accountPosition(ALICE)), 0, "module trailing did not close");
+        assertEq(int256(_corePosition(ALICE)), 0, "module trailing did not close");
     }
+    function _corePosition(address account) internal view returns (int80 position) {
+        (position,,) = core.accountRisk(account);
+    }
+
 }
