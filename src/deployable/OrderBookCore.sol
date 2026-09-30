@@ -73,6 +73,7 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
     mapping(address => AccountRisk) public accountRisk;
     mapping(address => AccountMeta) internal _accountMeta;
+    mapping(address => mapping(Side => mapping(uint16 => uint128))) public moduleLockedShares;
 
     mapping(address => uint256) public collateralBalance;
     mapping(address => uint256) public reservedMargin;
@@ -196,6 +197,26 @@ contract OrderBookCore is IOrderBookCore {
         return accountRisk[account].settledPosition;
     }
 
+    function poolState(Side side, uint16 tick)
+        external
+        view
+        override
+        returns (uint128 totalShares, uint96 remainingLots, uint32 generation)
+    {
+        TickPool memory p = pools[side][tick];
+        return (p.totalShares, p.remainingLots, p.generation);
+    }
+
+    function quoteStateRaw(address account, Side side, uint16 tick)
+        external
+        view
+        override
+        returns (uint128 shares, uint96 claimLots, uint32 generation)
+    {
+        MakerQuote memory q = quotes[account][side][tick];
+        return (q.shares, q.claimLots, q.generation);
+    }
+
     function activeQuoteCount(address account) external view override returns (uint32) {
         return _accountMeta[account].activeQuoteCount;
     }
@@ -248,6 +269,10 @@ contract OrderBookCore is IOrderBookCore {
         external
         returns (uint96 removedLots)
     {
+        MakerQuote memory q = quotes[msg.sender][side][tick];
+        uint128 locked = moduleLockedShares[msg.sender][side][tick];
+        if (sharesToBurn > q.shares - locked) revert InvalidShareAmount();
+
         removedLots = _removeSharesFor(msg.sender, side, tick, sharesToBurn);
     }
 
@@ -350,6 +375,7 @@ contract OrderBookCore is IOrderBookCore {
     ) external override onlyModule returns (uint128 mintedShares) {
         mintedShares =
             _addLiquidityFor(account, side, tick, lots, true, reservedRiskCeiling, true);
+        moduleLockedShares[account][side][tick] += mintedShares;
     }
 
     function moduleSettle(address account, Side side, uint16 tick)
@@ -360,6 +386,29 @@ contract OrderBookCore is IOrderBookCore {
     {
         filledLots = _settle(account, side, tick);
         _settleExistingPositionFunding(account);
+    }
+
+    function moduleRemoveLockedShares(
+        address account,
+        Side side,
+        uint16 tick,
+        uint128 shares
+    ) external override onlyModule returns (uint96 removedLots) {
+        uint128 locked = moduleLockedShares[account][side][tick];
+        if (shares == 0 || shares > locked) revert InvalidShareAmount();
+
+        moduleLockedShares[account][side][tick] = locked - shares;
+        removedLots = _removeSharesFor(account, side, tick, shares);
+    }
+
+    function moduleUnlockShares(address account, Side side, uint16 tick, uint128 shares)
+        external
+        override
+        onlyModule
+    {
+        uint128 locked = moduleLockedShares[account][side][tick];
+        if (shares > locked) revert InvalidShareAmount();
+        moduleLockedShares[account][side][tick] = locked - shares;
     }
 
     function moduleForceCancelQuote(address account, Side side, uint16 tick)
@@ -390,6 +439,7 @@ contract OrderBookCore is IOrderBookCore {
 
         delete quotes[account][side][tick];
         delete quoteFundingCheckpointX96[account][side][tick];
+        delete moduleLockedShares[account][side][tick];
         _accountMeta[account].activeQuoteCount -= 1;
 
         if (p.totalShares == 0) {
@@ -956,13 +1006,13 @@ contract OrderBookCore is IOrderBookCore {
 
         if (side == Side.Bid) {
             if (position >= 0) return 0;
-            uint80 reducible = uint80(-position);
-            return requested < reducible ? requested : uint96(reducible);
+            uint80 shortReducible = uint80(-position);
+            return requested < shortReducible ? requested : uint96(shortReducible);
         }
 
         if (position <= 0) return 0;
-        uint80 reducible = uint80(position);
-        return requested < reducible ? requested : uint96(reducible);
+        uint80 longReducible = uint80(position);
+        return requested < longReducible ? requested : uint96(longReducible);
     }
 
     function _positionAmount(uint96 lots) internal pure returns (int80 amount) {
