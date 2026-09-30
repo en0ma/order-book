@@ -349,11 +349,11 @@ The extrema oracle is separate from both order contracts and provides bounded hi
 The deployable contracts are compiled with the Foundry size profile (optimizer_runs = 1).
 
 Current measured size-profile runtime sizes:
-- OrderBookCore: about 21,491 bytes;
-- AdvancedOrderModule: about 19,651 bytes;
+- OrderBookCore: about 21,059 bytes;
+- AdvancedOrderModule: about 19,482 bytes;
 - SegmentTreeExtremaOracle: about 1,877 bytes.
 
-The core now has about 3,085 bytes of EIP-170 headroom. CI intentionally enforces stricter project budgets than EIP-170:
+The core now has about 3,517 bytes of EIP-170 headroom. CI intentionally enforces stricter project budgets than EIP-170:
 - OrderBookCore <= 22,000 bytes;
 - AdvancedOrderModule <= 21,000 bytes;
 - SegmentTreeExtremaOracle <= 4,000 bytes.
@@ -385,3 +385,10 @@ The deployable code follows four boundaries.
 4. **Immutable market configuration.** The deployable core receives collateral token, mark oracle, execution band and initial-margin parameters in its constructor. The research monolith retains flexible configuration for experiments, but production runtime does not carry optional token/oracle/risk branches.
 
 Atomic minimum-fill is implemented in AdvancedOrderModule by calling the core IOC primitive and reverting if the returned fill is below the threshold. Because the entire cross-contract transaction reverts, partial core mutations are rolled back without requiring a second liquidity-scanning primitive in the core.
+
+
+## Oracle source binding
+
+AdvancedOrderModule verifies at construction that its extrema oracle is exactly the same contract exposed by OrderBookCore as the immutable mark oracle.
+
+That is stronger than checking whether two independent sources happen to return the same current tick. Historical trailing-stop extrema and execution-band pricing therefore share one authoritative observation stream by construction. The redundant per-execution equality check was removed after this invariant moved to deployment time.
