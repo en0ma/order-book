@@ -833,6 +833,7 @@ contract AdvancedOrderModule {
         }
 
         for (uint256 i; i < makerTicks.length; ++i) {
+            delete managedQuotes[account][makerSides[i]][makerTicks[i]];
             core.moduleForceCancelQuote(account, makerSides[i], makerTicks[i]);
         }
 
