@@ -63,6 +63,7 @@ contract ProRataOrderBook {
     error TokenTransferFailed();
     error UnsupportedTokenBehavior();
     error SettlementAlreadyConfigured();
+    error UnsettledQuotes();
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
@@ -80,6 +81,8 @@ contract ProRataOrderBook {
     mapping(address => mapping(Side => mapping(uint16 => int256))) public quoteFundingCheckpointX96;
     mapping(address => int128) public accountFundingCheckpointX18;
     mapping(address => int256) public fundingCashflow;
+    mapping(address => uint32) public activeQuoteCount;
+    mapping(Side => mapping(uint16 => mapping(uint32 => uint128))) public closedFundingOutstandingShares;
     RiskConfig public riskConfig;
     IERC20Minimal public collateralToken;
     IMarkOracle public markOracle;
@@ -193,11 +196,18 @@ contract ProRataOrderBook {
 
     function withdrawCollateral(uint256 amount) external {
         if (amount == 0) revert ZeroAmount();
+        if (riskConfig.enabled && activeQuoteCount[msg.sender] != 0) revert UnsettledQuotes();
+
+        _settleExistingPositionFunding(msg.sender);
+
         uint256 balance = collateralBalance[msg.sender];
         if (amount > balance) revert InsufficientCollateral();
-        uint256 next = balance - amount;
-        if (next < reservedMargin[msg.sender]) revert InsufficientCollateral();
-        collateralBalance[msg.sender] = next;
+
+        int256 equityAfter =
+            int256(balance - amount) + fundingCashflow[msg.sender];
+        if (equityAfter < int256(reservedMargin[msg.sender])) revert InsufficientCollateral();
+
+        collateralBalance[msg.sender] = balance - amount;
 
         IERC20Minimal token = collateralToken;
         if (address(token) != address(0)) {
@@ -219,6 +229,7 @@ contract ProRataOrderBook {
         MakerQuote storage q = quotes[msg.sender][side][tick];
 
         bool wasEmpty = p.remainingLots == 0;
+        bool isNewMakerQuote = q.shares == 0;
 
         uint16 riskCeiling;
         if (riskConfig.enabled) {
@@ -263,6 +274,7 @@ contract ProRataOrderBook {
 
         q.shares += mintedShares;
         q.claimLots += lots;
+        if (isNewMakerQuote) activeQuoteCount[msg.sender] += 1;
 
         _expandRisk(msg.sender, side, lots);
         _refreshReservedMargin(msg.sender);
@@ -306,6 +318,7 @@ contract ProRataOrderBook {
         if (q.shares == 0) {
             delete quotes[msg.sender][side][tick];
             delete quoteFundingCheckpointX96[msg.sender][side][tick];
+            activeQuoteCount[msg.sender] -= 1;
         }
 
         if (p.totalShares == 0) {
@@ -368,6 +381,7 @@ contract ProRataOrderBook {
                 uint32 oldGeneration = p.generation;
                 closedFundingEntryPerShareX96[makerSide][tick][oldGeneration] =
                     fundingEntryPerShareX96[makerSide][tick];
+                closedFundingOutstandingShares[makerSide][tick][oldGeneration] = p.totalShares;
                 fundingEntryPerShareX96[makerSide][tick] = 0;
 
                 p.totalShares = 0;
@@ -449,8 +463,21 @@ contract ProRataOrderBook {
                 closedFundingEntryPerShareX96[side][tick][oldGeneration];
             _settleFundingForQuote(maker, side, tick, q.shares, filledLots, finalFundingEntry);
             _applyFillToRisk(maker, side, filledLots);
+            _refreshReservedMargin(maker);
+
+            uint128 outstanding = closedFundingOutstandingShares[side][tick][oldGeneration];
+            if (outstanding >= q.shares) {
+                outstanding -= q.shares;
+                closedFundingOutstandingShares[side][tick][oldGeneration] = outstanding;
+                if (outstanding == 0) {
+                    delete closedFundingOutstandingShares[side][tick][oldGeneration];
+                    delete closedFundingEntryPerShareX96[side][tick][oldGeneration];
+                }
+            }
+
             delete quotes[maker][side][tick];
             delete quoteFundingCheckpointX96[maker][side][tick];
+            activeQuoteCount[maker] -= 1;
             emit MakerSettled(maker, side, tick, filledLots, oldGeneration);
             return filledLots;
         }
@@ -472,6 +499,7 @@ contract ProRataOrderBook {
         quoteFundingCheckpointX96[maker][side][tick] = currentFundingEntry;
 
         _applyFillToRisk(maker, side, filledLots);
+        _refreshReservedMargin(maker);
         emit MakerSettled(maker, side, tick, filledLots, q.generation);
     }
 
@@ -573,8 +601,10 @@ contract ProRataOrderBook {
         int128 amount = int128(uint128(filledLots));
         if (side == Side.Bid) {
             a.settledPosition += amount;
+            a.minPosition += amount;
         } else {
             a.settledPosition -= amount;
+            a.maxPosition -= amount;
         }
     }
 
