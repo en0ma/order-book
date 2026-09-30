@@ -1786,6 +1786,83 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(int256(maxPosition), 30, "failed liquidation released reservation");
     }
 
+    function testLiquidationForceCancelInvalidatesManagedQuoteMetadata() public {
+        address trader = address(0xFD01);
+        _fund(trader, 5_000);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(trader);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](1);
+        updates[0] = MarketMakerModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Bid,
+            tick: 95,
+            lots: 1
+        });
+
+        vm.prank(trader);
+        marketMaker.batchReplaceQuotes(updates);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 95, 2);
+
+        (, uint96 beforeLiquidation, uint32 generationBefore) =
+            core.pools(IOrderBookCore.Side.Bid, 95);
+        assertEq(beforeLiquidation, 3, "managed test pool setup mismatch");
+
+        oracle.record(50);
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 10, 100);
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](1);
+        sides[0] = IOrderBookCore.Side.Bid;
+        uint16[] memory ticks = new uint16[](1);
+        ticks[0] = 95;
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](0);
+
+        uint96 closed =
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+        assertEq(closed, 100, "liquidation did not flatten trader");
+
+        (, uint96 afterLiquidation, uint32 generationAfter) =
+            core.pools(IOrderBookCore.Side.Bid, 95);
+        assertEq(afterLiquidation, 2, "force cancel did not remove managed lot");
+        assertEq(
+            uint256(generationAfter),
+            uint256(generationBefore),
+            "neighbor liquidity should keep pool generation live"
+        );
+
+        // If liquidation leaves stale managed metadata, this refresh sees the
+        // deleted old shares as a live 1-lot slice and adds nothing.
+        vm.prank(trader);
+        marketMaker.batchReplaceQuotes(updates);
+
+        (, uint96 afterRefresh, uint32 generationFinal) =
+            core.pools(IOrderBookCore.Side.Bid, 95);
+        (uint128 traderShares, uint96 traderClaim, uint32 traderGeneration) =
+            core.quotes(trader, IOrderBookCore.Side.Bid, 95);
+
+        assertEq(afterRefresh, 3, "managed refresh preserved phantom shares");
+        assertTrue(traderShares != 0, "managed refresh did not mint fresh shares");
+        assertEq(traderClaim, 1, "managed refresh claim mismatch");
+        assertEq(
+            uint256(traderGeneration),
+            uint256(generationFinal),
+            "fresh managed quote generation mismatch"
+        );
+    }
+
     function testLiquidationForceCancelCrystallizesRoundingBoundaryMakerFill() public {
         address trader = address(0xFC01);
         address counterparty = address(0xFC02);
