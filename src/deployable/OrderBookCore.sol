@@ -39,13 +39,6 @@ contract OrderBookCore is IOrderBookCore {
         uint16 riskCeilingTick;
     }
 
-    struct RiskConfig {
-        uint16 markTick;
-        uint16 executionBandTicks;
-        uint16 initialMarginBps;
-        bool enabled;
-    }
-
     error ZeroAmount();
     error CrossesBook();
     error InsufficientLiquidity();
@@ -57,7 +50,6 @@ contract OrderBookCore is IOrderBookCore {
     error InsufficientCollateral();
     error TokenTransferFailed();
     error UnsupportedTokenBehavior();
-    error SettlementAlreadyConfigured();
     error ModuleAlreadyConfigured();
     error ModuleNotConfigured();
     error ReduceOnlyViolation();
@@ -66,9 +58,10 @@ contract OrderBookCore is IOrderBookCore {
     address public immutable owner;
     address public advancedModule;
 
-    IERC20Minimal public collateralToken;
-    IMarkOracle public markOracle;
-    RiskConfig public riskConfig;
+    IERC20Minimal public immutable collateralToken;
+    IMarkOracle public immutable markOracle;
+    uint16 public immutable executionBandTicks;
+    uint16 public immutable initialMarginBps;
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
@@ -96,8 +89,6 @@ contract OrderBookCore is IOrderBookCore {
     mapping(Side => uint256) internal _occupiedWords;
 
     event AdvancedModuleConfigured(address indexed module);
-    event SettlementConfigured(address indexed collateralToken, address indexed markOracle);
-    event RiskConfigured(uint16 markTick, uint16 executionBandTicks, uint16 initialMarginBps);
     event FundingIndexUpdated(int128 fundingIndexX18);
     event CollateralCredited(address indexed account, uint256 amount);
     event CollateralDebited(address indexed account, uint256 amount);
@@ -127,8 +118,22 @@ contract OrderBookCore is IOrderBookCore {
     event Trade(address indexed taker, Side indexed takerSide, uint16 indexed tick, uint96 lots);
     event FundingSettled(address indexed account, int256 cashflowDelta);
 
-    constructor() {
+    constructor(
+        address collateralToken_,
+        address markOracle_,
+        uint16 executionBandTicks_,
+        uint16 initialMarginBps_
+    ) {
+        if (
+            collateralToken_ == address(0) || markOracle_ == address(0)
+                || initialMarginBps_ == 0 || initialMarginBps_ > 10_000
+        ) revert InvalidRiskConfig();
+
         owner = msg.sender;
+        collateralToken = IERC20Minimal(collateralToken_);
+        markOracle = IMarkOracle(markOracle_);
+        executionBandTicks = executionBandTicks_;
+        initialMarginBps = initialMarginBps_;
     }
 
     modifier onlyOwner() {
@@ -148,46 +153,13 @@ contract OrderBookCore is IOrderBookCore {
         emit AdvancedModuleConfigured(module);
     }
 
-    function configureSettlement(address token, address oracle) external onlyOwner {
-        if (address(collateralToken) != address(0) || address(markOracle) != address(0)) {
-            revert SettlementAlreadyConfigured();
-        }
-        if (token == address(0) || oracle == address(0)) revert InvalidRiskConfig();
-
-        collateralToken = IERC20Minimal(token);
-        markOracle = IMarkOracle(oracle);
-        emit SettlementConfigured(token, oracle);
-    }
-
-    function configureRisk(uint16 markTick, uint16 executionBandTicks, uint16 initialMarginBps)
-        external
-        onlyOwner
-    {
-        if (initialMarginBps == 0 || initialMarginBps > 10_000) revert InvalidRiskConfig();
-
-        riskConfig = RiskConfig({
-            markTick: markTick,
-            executionBandTicks: executionBandTicks,
-            initialMarginBps: initialMarginBps,
-            enabled: true
-        });
-
-        emit RiskConfigured(markTick, executionBandTicks, initialMarginBps);
-    }
-
     function setFundingIndex(int128 nextFundingIndexX18) external onlyOwner {
         fundingIndexX18 = nextFundingIndexX18;
         emit FundingIndexUpdated(nextFundingIndexX18);
     }
 
-    function setMarkTick(uint16 markTick) external onlyOwner {
-        if (!riskConfig.enabled || address(markOracle) != address(0)) revert InvalidRiskConfig();
-        riskConfig.markTick = markTick;
-    }
-
     function currentMarkTick() public view override returns (uint16) {
-        IMarkOracle oracle = markOracle;
-        return address(oracle) == address(0) ? riskConfig.markTick : oracle.markTick();
+        return markOracle.markTick();
     }
 
     function activeQuoteCount(address account) external view override returns (uint32) {
@@ -198,12 +170,10 @@ contract OrderBookCore is IOrderBookCore {
         if (amount == 0) revert ZeroAmount();
 
         IERC20Minimal token = collateralToken;
-        if (address(token) != address(0)) {
-            uint256 beforeBalance = token.balanceOf(address(this));
-            if (!token.transferFrom(msg.sender, address(this), amount)) revert TokenTransferFailed();
-            uint256 received = token.balanceOf(address(this)) - beforeBalance;
-            if (received != amount) revert UnsupportedTokenBehavior();
-        }
+        uint256 beforeBalance = token.balanceOf(address(this));
+        if (!token.transferFrom(msg.sender, address(this), amount)) revert TokenTransferFailed();
+        uint256 received = token.balanceOf(address(this)) - beforeBalance;
+        if (received != amount) revert UnsupportedTokenBehavior();
 
         collateralBalance[msg.sender] += amount;
         emit CollateralCredited(msg.sender, amount);
@@ -223,10 +193,7 @@ contract OrderBookCore is IOrderBookCore {
 
         collateralBalance[msg.sender] = balance - amount;
 
-        IERC20Minimal token = collateralToken;
-        if (address(token) != address(0)) {
-            if (!token.transfer(msg.sender, amount)) revert TokenTransferFailed();
-        }
+        if (!collateralToken.transfer(msg.sender, amount)) revert TokenTransferFailed();
 
         emit CollateralDebited(msg.sender, amount);
     }
@@ -271,13 +238,11 @@ contract OrderBookCore is IOrderBookCore {
 
         _expandRisk(account, side, lots);
 
-        if (riskConfig.enabled) {
-            riskCeilingTick =
-                OrderBookMath.upperTick(currentMarkTick(), riskConfig.executionBandTicks);
+        riskCeilingTick =
+            OrderBookMath.upperTick(currentMarkTick(), executionBandTicks);
 
-            if (riskCeilingTick > _accountMeta[account].riskCeilingTick) {
-                _accountMeta[account].riskCeilingTick = riskCeilingTick;
-            }
+        if (riskCeilingTick > _accountMeta[account].riskCeilingTick) {
+            _accountMeta[account].riskCeilingTick = riskCeilingTick;
         }
 
         _refreshReservedMargin(account);
@@ -595,8 +560,6 @@ contract OrderBookCore is IOrderBookCore {
         bool preReserved,
         uint16 reservedRiskCeiling
     ) internal {
-        if (!riskConfig.enabled) return;
-
         uint16 mark = currentMarkTick();
         uint16 riskCeiling;
 
@@ -608,7 +571,7 @@ contract OrderBookCore is IOrderBookCore {
                 riskCeiling = reservedRiskCeiling;
             } else {
                 riskCeiling =
-                    OrderBookMath.upperTick(mark, riskConfig.executionBandTicks);
+                    OrderBookMath.upperTick(mark, executionBandTicks);
             }
             poolRiskCeilingTick[side][tick] = riskCeiling;
         } else {
@@ -895,12 +858,12 @@ contract OrderBookCore is IOrderBookCore {
         uint256 worstPrice = _accountMeta[account].riskCeilingTick;
         if (worstPrice == 0) {
             worstPrice = uint256(
-                OrderBookMath.upperTick(currentMarkTick(), riskConfig.executionBandTicks)
+                OrderBookMath.upperTick(currentMarkTick(), executionBandTicks)
             );
         }
 
         uint256 required =
-            worstLots * worstPrice * uint256(riskConfig.initialMarginBps) / 10_000;
+            worstLots * worstPrice * uint256(initialMarginBps) / 10_000;
 
         uint256 previous = reservedMargin[account];
 
@@ -959,17 +922,14 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _bestExecutableTick(Side side) internal view returns (bool ok, uint16 tick) {
-        RiskConfig memory r = riskConfig;
-        if (!r.enabled) return _bestTick(side);
-
         uint16 mark = currentMarkTick();
         uint256 lowerRaw =
-            uint256(mark) > uint256(r.executionBandTicks)
-                ? uint256(mark) - uint256(r.executionBandTicks)
+            uint256(mark) > uint256(executionBandTicks)
+                ? uint256(mark) - uint256(executionBandTicks)
                 : 0;
 
         uint16 lower = uint16(lowerRaw);
-        uint16 upper = OrderBookMath.upperTick(mark, r.executionBandTicks);
+        uint16 upper = OrderBookMath.upperTick(mark, executionBandTicks);
 
         (ok, tick) = _bestTick(side);
 
