@@ -61,6 +61,7 @@ contract OrderBookCore is IOrderBookCore {
     error PositionOverflow();
 
     address internal immutable owner;
+    address public fundingUpdater;
     address public advancedModule;
 
     IERC20Minimal internal immutable collateralToken;
@@ -96,6 +97,7 @@ contract OrderBookCore is IOrderBookCore {
     mapping(Side => uint256) internal _occupiedWords;
 
     event AdvancedModuleConfigured(address indexed module);
+    event FundingUpdaterChanged(address indexed previousUpdater, address indexed newUpdater);
     event FundingIndexUpdated(int128 fundingIndexX18);
     event CollateralCredited(address indexed account, uint256 amount);
     event CollateralDebited(address indexed account, uint256 amount);
@@ -140,6 +142,7 @@ contract OrderBookCore is IOrderBookCore {
         ) revert InvalidRiskConfig();
 
         owner = msg.sender;
+        fundingUpdater = msg.sender;
         collateralToken = IERC20Minimal(collateralToken_);
         markOracle = IMarkOracle(markOracle_);
         executionBandTicks = executionBandTicks_;
@@ -165,7 +168,15 @@ contract OrderBookCore is IOrderBookCore {
         emit AdvancedModuleConfigured(module);
     }
 
-    function setFundingIndex(int128 nextFundingIndexX18) external onlyOwner {
+    function setFundingUpdater(address nextUpdater) external onlyOwner {
+        if (nextUpdater == address(0)) revert Unauthorized();
+        address previous = fundingUpdater;
+        fundingUpdater = nextUpdater;
+        emit FundingUpdaterChanged(previous, nextUpdater);
+    }
+
+    function setFundingIndex(int128 nextFundingIndexX18) external {
+        if (msg.sender != fundingUpdater) revert Unauthorized();
         fundingIndexX18 = nextFundingIndexX18;
         emit FundingIndexUpdated(nextFundingIndexX18);
     }
