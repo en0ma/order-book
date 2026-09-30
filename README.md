@@ -77,10 +77,11 @@ The original `ProRataOrderBook` remains a research/reference monolith. It exceed
 
 The deployable path is split into:
 
-- `OrderBookCore`: hot CLOB matching, maker shares, custody, risk envelopes, margin, funding, and narrow module hooks.
-- `AdvancedOrderModule`: conditional orders, triggered limits, OCO/OTO, lazy bracket resizing, and trailing stops.
+- `OrderBookCore`: hot CLOB matching, maker shares, custody, risk envelopes, margin, funding, and narrow module hooks. Token/oracle/risk parameters are immutable deployment configuration.
+- `AdvancedOrderModule`: execution policies and advanced order state: reduce-only/min-fill wrappers, conditional orders, triggered limits, OCO/OTO, lazy bracket resizing, trailing stops, and liquidation.
+- `OrderBookMath`: shared pure side/tick/share/risk arithmetic used by the deployable contracts.
 - `SegmentTreeExtremaOracle`: bounded on-chain range high/low observations for trailing triggers.
 
-Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 23,958 bytes for the core, 19,140 bytes for the advanced module (including liquidation), and 1,877 bytes for the extrema oracle. CI contains a strict EIP-170 gate for these deployable contracts.
+Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 21,491 bytes for the core, 19,651 bytes for the advanced module, and 1,877 bytes for the extrema oracle.
 
-The core's size margin is intentionally treated as scarce. New order-type logic should normally be added to modules, not to the matching core.
+CI enforces both EIP-170 and stricter project budgets: 22,000 bytes for the core, 21,000 bytes for the advanced module, and 4,000 bytes for the extrema oracle. New order-type or execution-policy logic should normally be added to modules rather than expanding the matching core.
