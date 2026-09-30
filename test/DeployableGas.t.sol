@@ -155,7 +155,7 @@ contract DeployableGasTest is TestBase {
             bool bid = i < 8;
             updates[i] = _update(
                 bid ? IOrderBookCore.Side.Bid : IOrderBookCore.Side.Ask,
-                bid ? uint16(99 - i) : uint16(101 + (i - 8)),
+                bid ? uint16(92 + i) : uint16(101 + (i - 8)),
                 uint96(20 + i)
             );
         }
@@ -176,6 +176,8 @@ contract DeployableGasTest is TestBase {
 
         emit PackedBatchMeasured(typedCall.length, packedCall.length, used);
 
+        assertEq(typedCall.length, 1_604, "typed calldata length");
+        assertEq(packedCall.length, 324, "packed calldata length");
         assertTrue(
             packedCall.length * 4 < typedCall.length,
             "packed calldata did not shrink by at least 75%"
@@ -212,7 +214,7 @@ contract DeployableGasTest is TestBase {
         for (uint256 i; i < levels; ++i) {
             bool bid = i < bidLevels;
             uint16 tick = bid
-                ? uint16(99 - i)
+                ? uint16(100 - bidLevels + i)
                 : uint16(101 + (i - bidLevels));
             updates[i] = _update(
                 bid ? IOrderBookCore.Side.Bid : IOrderBookCore.Side.Ask,
