@@ -26,8 +26,6 @@ interface IOrderBookCore {
         external
         view
         returns (uint128 shares, uint96 claimLots, uint32 generation);
-    function maintenanceRequirement(address account) external view returns (uint256);
-
     function moduleReserveExposure(address account, Side side, uint96 lots)
         external
         returns (uint16 riskCeilingTick);
