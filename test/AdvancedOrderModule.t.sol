@@ -135,49 +135,23 @@ contract AdvancedOrderModuleTest is TestBase {
             false
         );
 
-        (int80 settledBefore, int80 minBefore, int80 maxBefore) =
-            core.accountRisk(ALICE);
-        (, uint256 reservedBefore) = core.marginStateTest(ALICE);
-        uint32 activeBefore = module.activeAdvancedOrders(ALICE);
-        uint256 protocolBefore = core.protocolFeesAccrued();
-        (, uint96 poolBefore, uint32 generationBefore) =
-            core.pools(IOrderBookCore.Side.Ask, 100);
+        bytes32 advancedBefore = _conditionalFOKAdvancedState(orderId);
+        bytes32 coreBefore = _conditionalFOKCoreState();
 
         (bool ok,) = address(module).call(
             abi.encodeCall(module.executeConditionalOrder, (orderId))
         );
         assertTrue(!ok, "insufficient conditional FOK unexpectedly succeeded");
 
-        (address ownerAfter,,,,,,,, uint8 flagsAfter) =
-            module.conditionalOrders(orderId);
-        assertTrue(ownerAfter == ALICE, "failed FOK lost conditional owner");
-        assertTrue((flagsAfter & 1) != 0, "failed FOK did not restore active flag");
         assertEq(
-            module.activeAdvancedOrders(ALICE),
-            activeBefore,
-            "failed FOK changed advanced active count"
-        );
-
-        (int80 settledAfter, int80 minAfter, int80 maxAfter) =
-            core.accountRisk(ALICE);
-        (, uint256 reservedAfter) = core.marginStateTest(ALICE);
-        (, uint96 poolAfter, uint32 generationAfter) =
-            core.pools(IOrderBookCore.Side.Ask, 100);
-
-        assertEq(int256(settledAfter), int256(settledBefore), "failed FOK changed settled position");
-        assertEq(int256(minAfter), int256(minBefore), "failed FOK changed min risk");
-        assertEq(int256(maxAfter), int256(maxBefore), "failed FOK changed max risk");
-        assertEq(reservedAfter, reservedBefore, "failed FOK changed reserved margin");
-        assertEq(poolAfter, poolBefore, "failed FOK changed maker liquidity");
-        assertEq(
-            uint256(generationAfter),
-            uint256(generationBefore),
-            "failed FOK changed pool generation"
+            uint256(_conditionalFOKAdvancedState(orderId)),
+            uint256(advancedBefore),
+            "failed FOK changed advanced state"
         );
         assertEq(
-            core.protocolFeesAccrued(),
-            protocolBefore,
-            "failed FOK changed protocol fees"
+            uint256(_conditionalFOKCoreState()),
+            uint256(coreBefore),
+            "failed FOK changed core state"
         );
 
         vm.prank(CAROL);
@@ -191,6 +165,42 @@ contract AdvancedOrderModuleTest is TestBase {
             "successful retry left conditional active"
         );
         assertEq(int256(_corePosition(ALICE)), 50, "successful FOK retry position mismatch");
+    }
+
+    function _conditionalFOKAdvancedState(uint64 orderId)
+        internal
+        view
+        returns (bytes32)
+    {
+        (address ownerAfter,,,,,,,, uint8 flagsAfter) =
+            module.conditionalOrders(orderId);
+        return keccak256(
+            abi.encode(
+                ownerAfter,
+                flagsAfter,
+                module.activeAdvancedOrders(ALICE)
+            )
+        );
+    }
+
+    function _conditionalFOKCoreState() internal view returns (bytes32) {
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(ALICE);
+        (, uint256 reserved) = core.marginStateTest(ALICE);
+        (, uint96 remaining, uint32 generation) =
+            core.pools(IOrderBookCore.Side.Ask, 100);
+
+        return keccak256(
+            abi.encode(
+                settled,
+                minPosition,
+                maxPosition,
+                reserved,
+                remaining,
+                generation,
+                core.protocolFeesAccrued()
+            )
+        );
     }
 
     function testModuleReduceOnlyCannotReversePosition() public {
