@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import {ProRataOrderBook} from "../src/ProRataOrderBook.sol";
 import {TestBase} from "./TestBase.sol";
+import {MockERC20} from "./mocks/MockERC20.sol";
+import {MockMarkOracle} from "./mocks/MockMarkOracle.sol";
 
 contract ProRataOrderBookTest is TestBase {
     ProRataOrderBook internal book;
@@ -137,6 +139,67 @@ contract ProRataOrderBookTest is TestBase {
             book.totalExecutedLots() + book.totalRemovedLots() + remaining,
             "global lot conservation"
         );
+    }
+
+    function testERC20CollateralCustodyAndWithdrawal() public {
+        MockERC20 token = new MockERC20();
+        MockMarkOracle oracle = new MockMarkOracle(100);
+        book.configureSettlement(address(token), address(oracle));
+        book.configureRisk(100, 10, 1_000);
+
+        token.mint(ALICE, 50_000);
+
+        vm.prank(ALICE);
+        token.approve(address(book), 50_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(50_000);
+
+        assertEq(token.balanceOf(address(book)), 50_000, "book did not custody collateral");
+        assertEq(book.collateralBalance(ALICE), 50_000, "internal collateral mismatch");
+
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
+
+        uint256 reserved = book.reservedMargin(ALICE);
+        assertTrue(reserved > 0, "margin was not reserved");
+
+        vm.prank(ALICE);
+        (bool ok,) =
+            address(book).call(abi.encodeCall(book.withdrawCollateral, (50_000)));
+        assertTrue(!ok, "withdraw ignored reserved margin");
+
+        vm.prank(ALICE);
+        book.withdrawCollateral(1_000);
+
+        assertEq(token.balanceOf(ALICE), 1_000, "withdraw did not transfer token");
+        assertEq(token.balanceOf(address(book)), 49_000, "custody balance mismatch");
+    }
+
+    function testExternalOracleDrivesExecutionBand() public {
+        MockERC20 token = new MockERC20();
+        MockMarkOracle oracle = new MockMarkOracle(100);
+        book.configureSettlement(address(token), address(oracle));
+        book.configureRisk(1, 5, 1_000);
+
+        token.mint(ALICE, 100_000);
+        vm.prank(ALICE);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 104, 100);
+
+        oracle.setMarkTick(90);
+
+        uint96 filled =
+            book.take(ProRataOrderBook.Side.Bid, 200, 100, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 0, "external oracle was ignored");
+
+        oracle.setMarkTick(100);
+        filled = book.take(ProRataOrderBook.Side.Bid, 200, 100, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 100, "oracle-qualified quote did not execute");
     }
 
     function testRiskRejectsUndercollateralizedQuote() public {
