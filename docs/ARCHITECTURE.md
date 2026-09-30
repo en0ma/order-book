@@ -319,7 +319,8 @@ OrderBookCore contains only the hot and safety-critical shared state:
 - signed execution cashflow;
 - lazy funding;
 - direct maker add/cancel/settle;
-- direct IOC/FOK/min-fill taker execution;
+- direct IOC/FOK taker execution as the minimal user-facing matching primitive;
+- immutable collateral token, mark oracle, execution band, and initial-margin configuration;
 - one immutable-after-configuration advanced-module address.
 
 The module receives narrow authorized capabilities rather than arbitrary delegatecall access. It can reserve/release exposure, execute on behalf of an account, create pre-reserved resting liquidity, settle an account/tick, and remove only module-locked maker shares.
@@ -328,7 +329,8 @@ Module-created maker shares are explicitly locked in the core. Generic maker can
 
 ### AdvancedOrderModule
 
-AdvancedOrderModule owns order-type state:
+AdvancedOrderModule owns execution policies and order-type state:
+- direct reduce-only and atomic minimum-fill wrappers;
 - stop/take-profit conditionals;
 - triggered limits;
 - OCO;
@@ -347,13 +349,16 @@ The extrema oracle is separate from both order contracts and provides bounded hi
 The deployable contracts are compiled with the Foundry size profile (optimizer_runs = 1).
 
 Current measured size-profile runtime sizes:
-- OrderBookCore: about 23,958 bytes;
-- AdvancedOrderModule: about 19,140 bytes after adding modular liquidation;
+- OrderBookCore: about 21,491 bytes;
+- AdvancedOrderModule: about 19,651 bytes;
 - SegmentTreeExtremaOracle: about 1,877 bytes.
 
-OrderBookCore currently has only about 618 bytes of EIP-170 headroom. Its external surface should therefore be treated as frozen unless functionality can be removed or moved to a module.
+The core now has about 3,085 bytes of EIP-170 headroom. CI intentionally enforces stricter project budgets than EIP-170:
+- OrderBookCore <= 22,000 bytes;
+- AdvancedOrderModule <= 21,000 bytes;
+- SegmentTreeExtremaOracle <= 4,000 bytes.
 
-CI runs a strict artifact-level EIP-170 check for these deployable contracts. The oversized reference monolith remains compiled and tested but is deliberately excluded from the deployable size gate.
+This prevents gradual bytecode creep from consuming all deployment margin. The oversized reference monolith remains compiled and tested but is deliberately excluded from the deployable size gate.
 
 
 ## Modular liquidation
@@ -365,3 +370,18 @@ The module tracks a live advanced-order count per account. Liquidation accepts c
 Maintenance margin is configured in the advanced module. The module reads the core's marked equity and settled position, computes the maintenance requirement, and closes the position through the core's reduce-only module execution hook. If the account is healthy, the entire cleanup and liquidation transaction reverts.
 
 Advanced resting share slices are cancelled before generic core quote cleanup so bracket-linked locks cannot be deleted before their module state is reconciled.
+
+
+## Abstraction rules
+
+The deployable code follows four boundaries.
+
+1. **Core primitives, not product features.** OrderBookCore owns canonical book state, matching, maker-share accounting, custody, margin and funding. It exposes IOC/FOK matching plus narrow module capabilities. Reduce-only convenience flows, minimum-fill policy, conditional semantics, brackets, trailing stops and liquidation live outside the core.
+
+2. **Canonical storage getters.** Modules consume Solidity's generated getters for canonical mappings such as pools, quotes and accountRisk rather than adding duplicate wrapper methods to the core.
+
+3. **Shared pure semantics.** OrderBookMath centralizes side inversion, price-limit comparison, bounded tick arithmetic, signed-position absolute value and share redemption. Storage-heavy matching/bitmap logic intentionally remains internal to the core so abstraction does not introduce external-call overhead on the hot path.
+
+4. **Immutable market configuration.** The deployable core receives collateral token, mark oracle, execution band and initial-margin parameters in its constructor. The research monolith retains flexible configuration for experiments, but production runtime does not carry optional token/oracle/risk branches.
+
+Atomic minimum-fill is implemented in AdvancedOrderModule by calling the core IOC primitive and reverting if the returned fill is below the threshold. Because the entire cross-contract transaction reverts, partial core mutations are rolled back without requiring a second liquidity-scanning primitive in the core.
