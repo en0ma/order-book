@@ -13,7 +13,9 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
     uint256 internal constant MASK = CAPACITY - 1;
     uint256 internal constant TREE_BASE = CAPACITY;
 
-    address public immutable updater;
+    address public immutable owner;
+    address public updater;
+    address public pendingUpdater;
     uint32 public immutable maxAge;
 
     uint16 internal _markTick;
@@ -30,14 +32,42 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
     error StaleObservation();
 
     event ObservationRecorded(uint64 indexed observationId, uint16 tick);
+    event UpdaterTransferProposed(address indexed currentUpdater, address indexed pendingUpdater);
+    event UpdaterTransferCancelled(address indexed pendingUpdater);
+    event UpdaterTransferred(address indexed previousUpdater, address indexed newUpdater);
 
     constructor(address updater_, uint16 initialTick, uint32 maxAge_) {
         if (updater_ == address(0)) revert Unauthorized();
         if (maxAge_ == 0) revert InvalidObservation();
 
+        owner = msg.sender;
         updater = updater_;
         maxAge = maxAge_;
         _record(initialTick);
+    }
+
+    function proposeUpdater(address nextUpdater) external {
+        if (msg.sender != owner || nextUpdater == address(0) || nextUpdater == updater) {
+            revert Unauthorized();
+        }
+        pendingUpdater = nextUpdater;
+        emit UpdaterTransferProposed(updater, nextUpdater);
+    }
+
+    function cancelUpdaterTransfer() external {
+        if (msg.sender != owner) revert Unauthorized();
+        address pending = pendingUpdater;
+        if (pending == address(0)) revert Unauthorized();
+        delete pendingUpdater;
+        emit UpdaterTransferCancelled(pending);
+    }
+
+    function acceptUpdater() external {
+        if (msg.sender != pendingUpdater || msg.sender == address(0)) revert Unauthorized();
+        address previous = updater;
+        updater = msg.sender;
+        delete pendingUpdater;
+        emit UpdaterTransferred(previous, msg.sender);
     }
 
     function markTick() external view override returns (uint16) {
