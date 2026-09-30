@@ -395,15 +395,6 @@ contract OrderBookCore is IOrderBookCore {
         emit LiquidityRemoved(account, side, tick, removedLots, shares, p.generation);
     }
 
-    function marginState(address account)
-        external
-        view
-        returns (uint256 collateral, uint256 reserved)
-    {
-        collateral = collateralBalance[account];
-        reserved = reservedMargin[account];
-    }
-
     function accountEquity(address account) public view override returns (int256 equity) {
         AccountRisk memory a = accountRisk[account];
 
