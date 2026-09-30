@@ -333,7 +333,7 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
         assertTrue(minPosition <= settled, "advanced risk min above settled");
         assertTrue(settled <= maxPosition, "advanced risk settled above max");
 
-        (uint256 collateral, uint256 reserved,,) = core.accountAccounting(owner_);
+        (uint256 collateral, uint256 reserved) = core.marginState(owner_);
         assertTrue(reserved <= collateral, "advanced reserved margin exceeds collateral");
     }
 
