@@ -54,7 +54,7 @@ contract ProRataOrderBook {
     }
 
     /// @dev Triggered orders are stored fully on-chain and executed permissionlessly.
-    /// flags: bit0 active, bit1 triggerAboveOrEqual, bit2 reduceOnly.
+    /// flags: bit0 active, bit1 triggerAboveOrEqual, bit2 reduceOnly, bit3 restingLimit.
     struct ConditionalOrder {
         address owner;
         uint96 lots;
@@ -178,6 +178,12 @@ contract ProRataOrderBook {
     );
     event ConditionalOrderCancelled(uint64 indexed orderId);
     event ConditionalOrderExecuted(uint64 indexed orderId, uint96 filledLots);
+    event TriggeredLimitActivated(
+        uint64 indexed orderId,
+        uint96 takerFilledLots,
+        uint96 restingLots,
+        uint128 restingShares
+    );
     event OCOLinked(uint64 indexed firstOrderId, uint64 indexed secondOrderId);
     event LiquidationConfigured(uint16 maintenanceMarginBps);
     event Liquidated(
@@ -344,6 +350,60 @@ contract ProRataOrderBook {
         );
     }
 
+    function placeTriggeredLimitOrder(
+        Side side,
+        bool triggerAboveOrEqual,
+        uint16 triggerTick,
+        uint16 limitTick,
+        uint96 lots
+    ) external returns (uint64 orderId) {
+        if (lots == 0) revert ZeroAmount();
+
+        _expandRisk(msg.sender, side, lots);
+
+        uint16 riskCeiling;
+        if (riskConfig.enabled) {
+            uint256 ceiling =
+                uint256(_currentMarkTick()) + uint256(riskConfig.executionBandTicks);
+            if (ceiling > type(uint16).max) ceiling = type(uint16).max;
+            riskCeiling = uint16(ceiling);
+
+            if (riskCeiling > accountRiskCeilingTick[msg.sender]) {
+                accountRiskCeilingTick[msg.sender] = riskCeiling;
+            }
+        }
+        _refreshReservedMargin(msg.sender);
+
+        orderId = nextConditionalOrderId++;
+        uint8 flags = 1 | 8;
+        if (triggerAboveOrEqual) flags |= 2;
+
+        conditionalOrders[orderId] = ConditionalOrder({
+            owner: msg.sender,
+            lots: lots,
+            sibling: 0,
+            triggerTick: triggerTick,
+            limitTick: limitTick,
+            riskCeilingTick: riskCeiling,
+            side: side,
+            policy: FillPolicy.IOC,
+            flags: flags
+        });
+
+        activeConditionalCount[msg.sender] += 1;
+
+        emit ConditionalOrderPlaced(
+            orderId,
+            msg.sender,
+            side,
+            triggerTick,
+            limitTick,
+            lots,
+            triggerAboveOrEqual,
+            false
+        );
+    }
+
     function cancelConditionalOrder(uint64 orderId) external {
         ConditionalOrder storage order = conditionalOrders[orderId];
         if (order.owner == address(0)) revert ConditionalOrderNotFound();
@@ -389,23 +449,31 @@ contract ProRataOrderBook {
             revert InvalidRiskConfig();
         }
 
+        bool restingLimit = (order.flags & 8) != 0;
+
         stored.flags &= ~uint8(1);
         activeConditionalCount[order.owner] -= 1;
 
-        filledLots = _takeFor(
-            order.owner,
-            order.side,
-            order.limitTick,
-            order.lots,
-            order.policy,
-            reduceOnly,
-            !reduceOnly
-        );
+        if (restingLimit) {
+            (filledLots, uint96 restingLots, uint128 restingShares) =
+                _activateTriggeredLimit(order);
+            emit TriggeredLimitActivated(orderId, filledLots, restingLots, restingShares);
+        } else {
+            filledLots = _takeFor(
+                order.owner,
+                order.side,
+                order.limitTick,
+                order.lots,
+                order.policy,
+                reduceOnly,
+                !reduceOnly
+            );
 
-        if (!reduceOnly) {
-            uint96 unfilled = order.lots - filledLots;
-            if (unfilled != 0) _shrinkRisk(order.owner, order.side, unfilled);
-            _refreshReservedMargin(order.owner);
+            if (!reduceOnly) {
+                uint96 unfilled = order.lots - filledLots;
+                if (unfilled != 0) _shrinkRisk(order.owner, order.side, unfilled);
+                _refreshReservedMargin(order.owner);
+            }
         }
 
         uint64 sibling = order.sibling;
@@ -423,30 +491,95 @@ contract ProRataOrderBook {
         external
         returns (uint128 mintedShares)
     {
+        mintedShares = _addLiquidityFor(msg.sender, side, tick, lots, false, 0, true);
+    }
+
+    /// @notice Burn maker shares and withdraw their current pro-rata unfilled lots.
+    /// @dev O(1) relative to maker count; there are no linked-list removals or tombstones.
+    function _activateTriggeredLimit(ConditionalOrder memory order)
+        internal
+        returns (uint96 filledLots, uint96 restingLots, uint128 restingShares)
+    {
+        Side makerSide = order.side == Side.Bid ? Side.Ask : Side.Bid;
+
+        if (_availableThrough(makerSide, order.limitTick, order.lots) != 0) {
+            uint256 notional;
+            (filledLots, notional) =
+                _match(order.owner, order.side, makerSide, order.limitTick, order.lots);
+
+            if (filledLots != 0) {
+                _applyImmediateTakerFill(
+                    order.owner, order.side, filledLots, notional, true
+                );
+            }
+        }
+
+        restingLots = order.lots - filledLots;
+        if (restingLots != 0) {
+            // If non-executable raw opposite liquidity still crosses the limit, activation
+            // waits rather than creating a crossed resting book.
+            _assertPostOnly(order.side, order.limitTick);
+
+            restingShares = _addLiquidityFor(
+                order.owner,
+                order.side,
+                order.limitTick,
+                restingLots,
+                true,
+                order.riskCeilingTick,
+                false
+            );
+        }
+
+        _refreshReservedMargin(order.owner);
+    }
+
+    function _addLiquidityFor(
+        address maker,
+        Side side,
+        uint16 tick,
+        uint96 lots,
+        bool preReserved,
+        uint16 reservedRiskCeiling,
+        bool enforcePostOnly
+    ) internal returns (uint128 mintedShares) {
         if (lots == 0) revert ZeroAmount();
-        _assertPostOnly(side, tick);
-        _settle(msg.sender, side, tick);
+        if (enforcePostOnly) _assertPostOnly(side, tick);
+        _settle(maker, side, tick);
 
         TickPool storage p = pools[side][tick];
-        MakerQuote storage q = quotes[msg.sender][side][tick];
+        MakerQuote storage q = quotes[maker][side][tick];
 
         bool wasEmpty = p.remainingLots == 0;
         bool isNewMakerQuote = q.shares == 0;
 
         uint16 riskCeiling;
         if (riskConfig.enabled) {
+            uint16 mark = _currentMarkTick();
+
             if (wasEmpty) {
-                uint256 ceiling = uint256(_currentMarkTick()) + uint256(riskConfig.executionBandTicks);
-                if (ceiling > type(uint16).max) ceiling = type(uint16).max;
-                riskCeiling = uint16(ceiling);
+                if (preReserved) {
+                    if (reservedRiskCeiling == 0 || mark > reservedRiskCeiling) {
+                        revert InvalidRiskConfig();
+                    }
+                    riskCeiling = reservedRiskCeiling;
+                } else {
+                    uint256 ceiling =
+                        uint256(mark) + uint256(riskConfig.executionBandTicks);
+                    if (ceiling > type(uint16).max) ceiling = type(uint16).max;
+                    riskCeiling = uint16(ceiling);
+                }
                 poolRiskCeilingTick[side][tick] = riskCeiling;
             } else {
                 riskCeiling = poolRiskCeilingTick[side][tick];
-                if (_currentMarkTick() > riskCeiling) revert InvalidRiskConfig();
+                if (mark > riskCeiling) revert InvalidRiskConfig();
+                if (preReserved && riskCeiling > reservedRiskCeiling) {
+                    revert InvalidRiskConfig();
+                }
             }
 
-            if (riskCeiling > accountRiskCeilingTick[msg.sender]) {
-                accountRiskCeilingTick[msg.sender] = riskCeiling;
+            if (riskCeiling > accountRiskCeilingTick[maker]) {
+                accountRiskCeilingTick[maker] = riskCeiling;
             }
         }
 
@@ -455,7 +588,8 @@ contract ProRataOrderBook {
             if (raw > type(uint128).max) revert Overflow();
             mintedShares = uint128(raw);
         } else {
-            uint256 raw = uint256(lots) * uint256(p.totalShares) / uint256(p.remainingLots);
+            uint256 raw =
+                uint256(lots) * uint256(p.totalShares) / uint256(p.remainingLots);
             if (raw == 0 || raw > type(uint128).max) revert InvalidShareAmount();
             mintedShares = uint128(raw);
         }
@@ -469,26 +603,27 @@ contract ProRataOrderBook {
 
         if (q.shares == 0) {
             q.generation = p.generation;
-            quoteFundingCheckpointX96[msg.sender][side][tick] = fundingEntryPerShareX96[side][tick];
+            quoteFundingCheckpointX96[maker][side][tick] =
+                fundingEntryPerShareX96[side][tick];
         } else if (q.generation != p.generation) {
             revert StaleQuote();
         }
 
         q.shares += mintedShares;
         q.claimLots += lots;
-        if (isNewMakerQuote) activeQuoteCount[msg.sender] += 1;
+        if (isNewMakerQuote) activeQuoteCount[maker] += 1;
 
-        _expandRisk(msg.sender, side, lots);
-        _refreshReservedMargin(msg.sender);
+        if (!preReserved) {
+            _expandRisk(maker, side, lots);
+            _refreshReservedMargin(maker);
+        }
+
         totalAddedLots += lots;
-
         if (wasEmpty) _setOccupied(side, tick, true);
 
-        emit LiquidityAdded(msg.sender, side, tick, lots, mintedShares, p.generation);
+        emit LiquidityAdded(maker, side, tick, lots, mintedShares, p.generation);
     }
 
-    /// @notice Burn maker shares and withdraw their current pro-rata unfilled lots.
-    /// @dev O(1) relative to maker count; there are no linked-list removals or tombstones.
     function removeShares(Side side, uint16 tick, uint128 sharesToBurn)
         external
         returns (uint96 removedLots)
