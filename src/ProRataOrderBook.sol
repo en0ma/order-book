@@ -512,8 +512,9 @@ contract ProRataOrderBook {
         int256 checkpoint = quoteFundingCheckpointX96[maker][side][tick];
         int256 deltaPerShare = finalFundingEntryPerShareX96 - checkpoint;
 
+        int256 weightedNumerator = int256(uint256(shares)) * deltaPerShare;
         int256 weightedEntryX18 =
-            int256(uint256(shares)) * deltaPerShare / int256(ACCUMULATOR_SCALE);
+            _divNearestSigned(weightedNumerator, int256(ACCUMULATOR_SCALE));
 
         int256 direction = side == Side.Bid ? int256(1) : int256(-1);
         int256 currentFundingOnFill =
@@ -540,6 +541,16 @@ contract ProRataOrderBook {
         }
 
         accountFundingCheckpointX18[maker] = fundingIndexX18;
+    }
+
+    function _divNearestSigned(int256 numerator, int256 denominator)
+        internal
+        pure
+        returns (int256)
+    {
+        int256 half = denominator / 2;
+        if (numerator >= 0) return (numerator + half) / denominator;
+        return -((-numerator + half) / denominator);
     }
 
     function _applyFillToRisk(address maker, Side side, uint96 filledLots) internal {
