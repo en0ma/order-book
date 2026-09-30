@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {OrderBookCore} from "../src/deployable/OrderBookCore.sol";
+import {OrderBookCoreHarness} from "./harness/OrderBookCoreHarness.sol";
 import {AdvancedOrderModule} from "../src/deployable/AdvancedOrderModule.sol";
 import {MarketMakerModule} from "../src/deployable/MarketMakerModule.sol";
 import {LiquidationModule} from "../src/deployable/LiquidationModule.sol";
@@ -14,7 +14,7 @@ import {TestBase} from "./TestBase.sol";
 /// @dev Expected operation reverts are tolerated; canonical invariants are checked
 ///      after every attempted state transition.
 contract DeployableStateMachineTest is TestBase {
-    OrderBookCore internal core;
+    OrderBookCoreHarness internal core;
     AdvancedOrderModule internal advanced;
     MarketMakerModule internal marketMaker;
     LiquidationModule internal liquidation;
@@ -34,7 +34,7 @@ contract DeployableStateMachineTest is TestBase {
     function setUp() public {
         token = new MockERC20();
         oracle = new SegmentTreeExtremaOracle(address(this), 100, 3_600);
-        core = new OrderBookCore(address(token), address(oracle), 40, 1_000, 0, 0);
+        core = new OrderBookCoreHarness(address(token), address(oracle), 40, 1_000, 0, 0);
         advanced = new AdvancedOrderModule(address(core), address(oracle));
         marketMaker = new MarketMakerModule(address(core), address(advanced));
         liquidation = new LiquidationModule(address(core), address(advanced), 500);
@@ -229,7 +229,7 @@ contract DeployableStateMachineTest is TestBase {
             );
 
             (uint256 collateral, uint256 reserved) =
-                core.marginState(actors[a]);
+                core.marginStateTest(actors[a]);
             assertTrue(reserved <= collateral, "reserved margin exceeds collateral");
         }
 
