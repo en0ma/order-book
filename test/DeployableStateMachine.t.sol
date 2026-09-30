@@ -228,8 +228,8 @@ contract DeployableStateMachineTest is TestBase {
                 "active quote count drift"
             );
 
-            (uint256 collateral, uint256 reserved,,) =
-                core.accountAccounting(actors[a]);
+            (uint256 collateral, uint256 reserved) =
+                core.marginState(actors[a]);
             assertTrue(reserved <= collateral, "reserved margin exceeds collateral");
         }
 
