@@ -538,6 +538,113 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(uint256(locked), 0, "remaining entry not cancelled");
     }
 
+    function testUnfilledTriggeredLimitCancelRetiresDormantOTOChildren() public {
+        vm.prank(ALICE);
+        uint64 parent = module.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            103,
+            100
+        );
+
+        vm.prank(ALICE);
+        uint64 tp = module.placeConditionalOrder(
+            IOrderBookCore.Side.Ask,
+            true,
+            110,
+            105,
+            100,
+            IOrderBookCore.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        uint64 sl = module.placeConditionalOrder(
+            IOrderBookCore.Side.Ask,
+            false,
+            90,
+            80,
+            100,
+            IOrderBookCore.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        module.linkOCO(tp, sl);
+        vm.prank(ALICE);
+        module.linkOTO(parent, tp);
+        vm.prank(ALICE);
+        module.linkOTO(parent, sl);
+
+        uint96 immediate = module.executeConditionalOrder(parent);
+        assertEq(immediate, 0, "entry should rest");
+        assertEq(module.activeAdvancedOrders(ALICE), 3, "unexpected linked-order count");
+
+        vm.prank(ALICE);
+        uint96 removed = module.cancelRestingOrder(parent);
+
+        assertEq(removed, 100, "unfilled parent cancellation mismatch");
+        assertEq(module.activeAdvancedOrders(ALICE), 0, "dormant exits stranded after parent cancel");
+        assertEq(core.activeQuoteCount(ALICE), 0, "parent core quote remained active");
+
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "unfilled parent changed settled position");
+        assertEq(int256(minPosition), 0, "unfilled parent left min reservation");
+        assertEq(int256(maxPosition), 0, "unfilled parent left max reservation");
+    }
+
+    function testPartialParentCancelPreservesActivatedExitOnly() public {
+        vm.prank(ALICE);
+        uint64 parent = module.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            103,
+            100
+        );
+
+        vm.prank(ALICE);
+        uint64 exitId = module.placeConditionalOrder(
+            IOrderBookCore.Side.Ask,
+            true,
+            110,
+            105,
+            100,
+            IOrderBookCore.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        module.linkOTO(parent, exitId);
+        module.executeConditionalOrder(parent);
+
+        vm.prank(BOB);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            103,
+            40,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(ALICE);
+        module.cancelRestingOrder(parent);
+
+        assertEq(module.activeAdvancedOrders(ALICE), 1, "activated exit was not preserved");
+        (, uint96 exitLots,,,,,,,) = module.conditionalOrders(exitId);
+        assertEq(exitLots, 40, "activated exit lost realized sizing");
+
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 110, 40);
+        oracle.record(110);
+
+        uint96 exited = module.executeConditionalOrder(exitId);
+        assertEq(exited, 40, "preserved exit failed");
+        assertEq(module.activeAdvancedOrders(ALICE), 0, "exit lifecycle did not close");
+        assertEq(int256(_corePosition(ALICE)), 0, "preserved exit did not flatten");
+    }
+
     function testPartialTriggeredLimitCancelReleasesOnlyUnfilledReservation() public {
         vm.prank(ALICE);
         uint64 parent = module.placeTriggeredLimitOrder(
