@@ -6,7 +6,6 @@ pragma solidity ^0.8.24;
 /// @dev Best-price priority across ticks, pro-rata allocation within a tick.
 ///      This prototype intentionally excludes custody, fees, liquidation and oracle wiring.
 contract ProRataOrderBook {
-    uint256 public constant INDEX_SCALE = 1 << 96;
     uint256 public constant INITIAL_SHARE_SCALE = 1_000_000;
 
     enum Side {
@@ -19,24 +18,19 @@ contract ProRataOrderBook {
         FOK
     }
 
+    /// @dev Fits in one storage slot.
     struct TickPool {
         uint128 totalShares;
         uint96 remainingLots;
         uint32 generation;
-        uint128 fillIndexX96;
-        uint128 fillRemainder;
     }
 
+    /// @dev Fits in one storage slot.
+    /// claimLots is the maker's last materialized unfilled entitlement.
     struct MakerQuote {
         uint128 shares;
-        uint128 fillCheckpointX96;
-        uint128 makerRemainderX96;
+        uint96 claimLots;
         uint32 generation;
-    }
-
-    struct ClosedGeneration {
-        uint128 finalFillIndexX96;
-        uint128 outstandingShares;
     }
 
     struct AccountRisk {
@@ -55,15 +49,14 @@ contract ProRataOrderBook {
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
     mapping(address => AccountRisk) public accountRisk;
-    mapping(Side => mapping(uint16 => mapping(uint32 => ClosedGeneration))) public closedGenerations;
 
+    // 65,536 ticks => 256 words of 256 ticks.
     mapping(Side => mapping(uint8 => uint256)) internal _tickWords;
     mapping(Side => uint256) internal _occupiedWords;
 
     uint256 public totalAddedLots;
     uint256 public totalRemovedLots;
     uint256 public totalExecutedLots;
-    uint256 public protocolFillDustX96;
 
     event LiquidityAdded(
         address indexed maker,
@@ -107,6 +100,7 @@ contract ProRataOrderBook {
         MakerQuote storage q = quotes[msg.sender][side][tick];
 
         bool wasEmpty = p.remainingLots == 0;
+
         if (p.totalShares == 0) {
             uint256 raw = uint256(lots) * INITIAL_SHARE_SCALE;
             if (raw > type(uint128).max) revert Overflow();
@@ -126,13 +120,12 @@ contract ProRataOrderBook {
 
         if (q.shares == 0) {
             q.generation = p.generation;
-            q.fillCheckpointX96 = p.fillIndexX96;
         } else if (q.generation != p.generation) {
             revert StaleQuote();
         }
 
         q.shares += mintedShares;
-        q.fillCheckpointX96 = p.fillIndexX96;
+        q.claimLots += lots;
 
         _expandRisk(msg.sender, side, lots);
         totalAddedLots += lots;
@@ -142,6 +135,8 @@ contract ProRataOrderBook {
         emit LiquidityAdded(msg.sender, side, tick, lots, mintedShares, p.generation);
     }
 
+    /// @notice Burn maker shares and withdraw their current pro-rata unfilled lots.
+    /// @dev O(1) relative to maker count; there are no linked-list removals or tombstones.
     function removeShares(Side side, uint16 tick, uint128 sharesToBurn)
         external
         returns (uint96 removedLots)
@@ -163,14 +158,14 @@ contract ProRataOrderBook {
         p.remainingLots -= removedLots;
         q.shares -= sharesToBurn;
 
+        if (removedLots > q.claimLots) revert InvalidShareAmount();
+        q.claimLots -= removedLots;
+
         _shrinkRisk(msg.sender, side, removedLots);
         totalRemovedLots += removedLots;
 
         if (q.shares == 0) {
-            protocolFillDustX96 += q.makerRemainderX96;
             delete quotes[msg.sender][side][tick];
-        } else {
-            q.fillCheckpointX96 = p.fillIndexX96;
         }
 
         if (p.totalShares == 0) {
@@ -179,19 +174,19 @@ contract ProRataOrderBook {
             unchecked {
                 ++p.generation;
             }
-            p.fillIndexX96 = 0;
-            p.fillRemainder = 0;
         }
 
-        emit LiquidityRemoved(
-            msg.sender, side, tick, removedLots, sharesToBurn, p.generation
-        );
+        emit LiquidityRemoved(msg.sender, side, tick, removedLots, sharesToBurn, p.generation);
     }
 
+    /// @notice Materialize lazy maker fills for one side/tick.
     function settle(Side side, uint16 tick) external returns (uint96 filledLots) {
         filledLots = _settle(msg.sender, side, tick);
     }
 
+    /// @notice Aggressively consume maker liquidity.
+    /// @param takerSide Bid means buy from asks; Ask means sell into bids.
+    /// @param limitTick Highest acceptable ask for a bid, or lowest acceptable bid for an ask.
     function take(Side takerSide, uint16 limitTick, uint96 lots, FillPolicy policy)
         external
         returns (uint96 filledLots)
@@ -213,13 +208,22 @@ contract ProRataOrderBook {
             TickPool storage p = pools[makerSide][tick];
             uint96 fill = remaining < p.remainingLots ? remaining : p.remainingLots;
 
-            _consume(makerSide, tick, p, fill);
+            p.remainingLots -= fill;
 
             unchecked {
                 remaining -= fill;
                 filledLots += fill;
             }
             totalExecutedLots += fill;
+
+            if (p.remainingLots == 0) {
+                p.totalShares = 0;
+                unchecked {
+                    ++p.generation;
+                }
+                _setOccupied(makerSide, tick, false);
+            }
+
             emit Trade(msg.sender, takerSide, tick, fill);
         }
 
@@ -240,25 +244,21 @@ contract ProRataOrderBook {
         if (q.shares == 0) return (0, 0, 0, 0);
 
         TickPool memory p = pools[side][tick];
-        uint128 finalIndex;
-        if (q.generation == p.generation) {
-            finalIndex = p.fillIndexX96;
-            currentClaimLots = uint96(
-                uint256(q.shares) * uint256(p.remainingLots) / uint256(p.totalShares)
-            );
-        } else {
-            ClosedGeneration memory c = closedGenerations[side][tick][q.generation];
-            finalIndex = c.finalFillIndexX96;
-        }
-
-        uint256 n = uint256(q.shares) * uint256(finalIndex - q.fillCheckpointX96)
-            + uint256(q.makerRemainderX96);
-        uint256 f = n / INDEX_SCALE;
-        if (f > type(uint96).max) revert Overflow();
 
         shares = q.shares;
         generation = q.generation;
-        pendingFillLots = uint96(f);
+
+        if (q.generation != p.generation) {
+            pendingFillLots = q.claimLots;
+            return (shares, generation, 0, pendingFillLots);
+        }
+
+        currentClaimLots = _redeemableLots(q.shares, p.remainingLots, p.totalShares);
+        if (currentClaimLots >= q.claimLots) {
+            pendingFillLots = 0;
+        } else {
+            pendingFillLots = q.claimLots - currentClaimLots;
+        }
     }
 
     function bestBid() external view returns (bool ok, uint16 tick) {
@@ -277,35 +277,6 @@ contract ProRataOrderBook {
         return _occupiedWords[side];
     }
 
-    function _consume(Side side, uint16 tick, TickPool storage p, uint96 fill) internal {
-        uint256 n = uint256(fill) * INDEX_SCALE + uint256(p.fillRemainder);
-        uint256 dI = n / uint256(p.totalShares);
-        uint256 rem = n % uint256(p.totalShares);
-
-        uint256 nextIndex = uint256(p.fillIndexX96) + dI;
-        if (nextIndex > type(uint128).max || rem > type(uint128).max) revert Overflow();
-
-        p.fillIndexX96 = uint128(nextIndex);
-        p.fillRemainder = uint128(rem);
-        p.remainingLots -= fill;
-
-        if (p.remainingLots == 0) {
-            uint32 oldGeneration = p.generation;
-            closedGenerations[side][tick][oldGeneration] = ClosedGeneration({
-                finalFillIndexX96: p.fillIndexX96,
-                outstandingShares: p.totalShares
-            });
-
-            p.totalShares = 0;
-            p.fillIndexX96 = 0;
-            p.fillRemainder = 0;
-            unchecked {
-                ++p.generation;
-            }
-            _setOccupied(side, tick, false);
-        }
-    }
-
     function _settle(address maker, Side side, uint16 tick)
         internal
         returns (uint96 filledLots)
@@ -315,47 +286,52 @@ contract ProRataOrderBook {
 
         TickPool storage p = pools[side][tick];
 
-        uint128 finalIndex;
-        bool closedGeneration = q.generation != p.generation;
-        if (closedGeneration) {
-            ClosedGeneration storage c = closedGenerations[side][tick][q.generation];
-            finalIndex = c.finalFillIndexX96;
-            if (c.outstandingShares < q.shares) revert StaleQuote();
-        } else {
-            finalIndex = p.fillIndexX96;
-        }
-
-        uint256 n = uint256(q.shares) * uint256(finalIndex - q.fillCheckpointX96)
-            + uint256(q.makerRemainderX96);
-        uint256 f = n / INDEX_SCALE;
-        uint256 makerRem = n % INDEX_SCALE;
-        if (f > type(uint96).max || makerRem > type(uint128).max) revert Overflow();
-
-        filledLots = uint96(f);
-        if (filledLots != 0) {
-            AccountRisk storage a = accountRisk[maker];
-            int128 signedFill = int128(uint128(filledLots));
-            if (side == Side.Bid) {
-                a.settledPosition += signedFill;
-            } else {
-                a.settledPosition -= signedFill;
-            }
-        }
-
-        if (closedGeneration) {
-            ClosedGeneration storage c = closedGenerations[side][tick][q.generation];
-            c.outstandingShares -= q.shares;
-            protocolFillDustX96 += makerRem;
+        if (q.generation != p.generation) {
+            // A generation can only roll after every lot in that pool was consumed,
+            // so the maker's full last materialized claim has filled.
+            filledLots = q.claimLots;
             uint32 oldGeneration = q.generation;
-            if (c.outstandingShares == 0) {
-                delete closedGenerations[side][tick][oldGeneration];
-            }
+            _applyFillToRisk(maker, side, filledLots);
             delete quotes[maker][side][tick];
             emit MakerSettled(maker, side, tick, filledLots, oldGeneration);
+            return filledLots;
+        }
+
+        uint96 currentClaim = _redeemableLots(q.shares, p.remainingLots, p.totalShares);
+
+        // Share mint/burn rounding may occasionally make currentClaim one unit larger than
+        // the last materialized claim. Treat that as pool dust/yield, never as a negative fill.
+        if (currentClaim >= q.claimLots) {
+            q.claimLots = currentClaim;
+            return 0;
+        }
+
+        filledLots = q.claimLots - currentClaim;
+        q.claimLots = currentClaim;
+
+        _applyFillToRisk(maker, side, filledLots);
+        emit MakerSettled(maker, side, tick, filledLots, q.generation);
+    }
+
+    function _redeemableLots(uint128 shares, uint96 remainingLots, uint128 totalShares)
+        internal
+        pure
+        returns (uint96)
+    {
+        if (shares == 0 || remainingLots == 0 || totalShares == 0) return 0;
+        uint256 lots = uint256(shares) * uint256(remainingLots) / uint256(totalShares);
+        if (lots > type(uint96).max) revert Overflow();
+        return uint96(lots);
+    }
+
+    function _applyFillToRisk(address maker, Side side, uint96 filledLots) internal {
+        if (filledLots == 0) return;
+        AccountRisk storage a = accountRisk[maker];
+        int128 amount = int128(uint128(filledLots));
+        if (side == Side.Bid) {
+            a.settledPosition += amount;
         } else {
-            q.fillCheckpointX96 = finalIndex;
-            q.makerRemainderX96 = uint128(makerRem);
-            emit MakerSettled(maker, side, tick, filledLots, q.generation);
+            a.settledPosition -= amount;
         }
     }
 
@@ -461,8 +437,12 @@ contract ProRataOrderBook {
             uint256 higherWords =
                 _occupiedWords[side] & (type(uint256).max << (uint256(wi) + 1));
             if (higherWords == 0) return (false, 0);
-            uint8 nwi = _lsb(higherWords);
-            return (true, (uint16(nwi) << 8) | uint16(_lsb(_tickWords[side][nwi])));
+            uint8 higherWordIndex = _lsb(higherWords);
+            return (
+                true,
+                (uint16(higherWordIndex) << 8)
+                    | uint16(_lsb(_tickWords[side][higherWordIndex]))
+            );
         }
 
         if (bi != 0) {
@@ -474,8 +454,11 @@ contract ProRataOrderBook {
         if (wi == 0) return (false, 0);
         uint256 lowerWords = _occupiedWords[side] & ((uint256(1) << wi) - 1);
         if (lowerWords == 0) return (false, 0);
-        uint8 nwi = _msb(lowerWords);
-        return (true, (uint16(nwi) << 8) | uint16(_msb(_tickWords[side][nwi])));
+        uint8 lowerWordIndex = _msb(lowerWords);
+        return (
+            true,
+            (uint16(lowerWordIndex) << 8) | uint16(_msb(_tickWords[side][lowerWordIndex]))
+        );
     }
 
     function _lsb(uint256 x) internal pure returns (uint8 r) {
