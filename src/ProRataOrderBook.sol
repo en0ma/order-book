@@ -83,6 +83,9 @@ contract ProRataOrderBook {
     error ConditionalOrderInactive();
     error TriggerNotSatisfied();
     error InvalidOCO();
+    error InvalidLiquidationConfig();
+    error NotLiquidatable();
+    error InvalidLiquidationInput();
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
@@ -102,8 +105,10 @@ contract ProRataOrderBook {
     mapping(address => int256) public fundingCashflow;
     mapping(address => int256) public tradeCashflow;
     mapping(address => uint32) public activeQuoteCount;
+    mapping(address => uint32) public activeConditionalCount;
     mapping(Side => mapping(uint16 => mapping(uint32 => uint128))) public closedFundingOutstandingShares;
 
+    uint16 public maintenanceMarginBps;
     uint64 public nextConditionalOrderId = 1;
     mapping(uint64 => ConditionalOrder) public conditionalOrders;
     RiskConfig public riskConfig;
@@ -171,6 +176,13 @@ contract ProRataOrderBook {
     event ConditionalOrderCancelled(uint64 indexed orderId);
     event ConditionalOrderExecuted(uint64 indexed orderId, uint96 filledLots);
     event OCOLinked(uint64 indexed firstOrderId, uint64 indexed secondOrderId);
+    event LiquidationConfigured(uint16 maintenanceMarginBps);
+    event Liquidated(
+        address indexed liquidator,
+        address indexed account,
+        uint96 closedLots,
+        int256 equityBefore
+    );
 
     function configureSettlement(address token, address oracle) external {
         if (msg.sender != owner) revert Unauthorized();
@@ -197,6 +209,19 @@ contract ProRataOrderBook {
             enabled: true
         });
         emit RiskConfigured(markTick, executionBandTicks, initialMarginBps);
+    }
+
+    function configureLiquidation(uint16 maintenanceBps) external {
+        if (msg.sender != owner) revert Unauthorized();
+        if (
+            maintenanceBps == 0 || maintenanceBps > 10_000
+                || (riskConfig.enabled && maintenanceBps >= riskConfig.initialMarginBps)
+        ) {
+            revert InvalidLiquidationConfig();
+        }
+
+        maintenanceMarginBps = maintenanceBps;
+        emit LiquidationConfigured(maintenanceBps);
     }
 
     function setFundingIndex(int128 nextFundingIndexX18) external {
@@ -232,7 +257,10 @@ contract ProRataOrderBook {
 
     function withdrawCollateral(uint256 amount) external {
         if (amount == 0) revert ZeroAmount();
-        if (riskConfig.enabled && activeQuoteCount[msg.sender] != 0) revert UnsettledQuotes();
+        if (
+            riskConfig.enabled
+                && (activeQuoteCount[msg.sender] != 0 || activeConditionalCount[msg.sender] != 0)
+        ) revert UnsettledQuotes();
 
         _settleExistingPositionFunding(msg.sender);
 
@@ -299,6 +327,8 @@ contract ProRataOrderBook {
             flags: flags
         });
 
+        activeConditionalCount[msg.sender] += 1;
+
         emit ConditionalOrderPlaced(
             orderId,
             msg.sender,
@@ -357,6 +387,7 @@ contract ProRataOrderBook {
         }
 
         stored.flags &= ~uint8(1);
+        activeConditionalCount[order.owner] -= 1;
 
         filledLots = _takeFor(
             order.owner,
@@ -510,6 +541,96 @@ contract ProRataOrderBook {
     function settleFunding() external returns (int256 cashflow) {
         _settleExistingPositionFunding(msg.sender);
         cashflow = fundingCashflow[msg.sender];
+    }
+
+    function accountEquity(address account) public view returns (int256 equity) {
+        AccountRisk memory a = accountRisk[account];
+
+        int256 pendingFunding =
+            -(int256(a.settledPosition)
+                * (int256(fundingIndexX18) - int256(accountFundingCheckpointX18[account]))
+                / FUNDING_SCALE);
+
+        equity = int256(collateralBalance[account]) + tradeCashflow[account]
+            + fundingCashflow[account] + pendingFunding
+            + int256(a.settledPosition) * int256(uint256(_currentMarkTick()));
+    }
+
+    function maintenanceRequirement(address account) public view returns (uint256) {
+        uint16 maintenanceBps = maintenanceMarginBps;
+        if (maintenanceBps == 0) return 0;
+
+        int128 position = accountRisk[account].settledPosition;
+        uint256 absPosition =
+            position < 0 ? uint256(uint128(-position)) : uint256(uint128(position));
+
+        return absPosition * uint256(_currentMarkTick()) * uint256(maintenanceBps) / 10_000;
+    }
+
+    function isLiquidatable(address account) public view returns (bool) {
+        if (maintenanceMarginBps == 0) return false;
+        if (activeQuoteCount[account] != 0 || activeConditionalCount[account] != 0) return false;
+        if (accountRisk[account].settledPosition == 0) return false;
+
+        return accountEquity(account) < int256(maintenanceRequirement(account));
+    }
+
+    function liquidate(
+        address account,
+        Side[] calldata makerSides,
+        uint16[] calldata makerTicks,
+        uint64[] calldata conditionalIds
+    ) external returns (uint96 closedLots) {
+        if (maintenanceMarginBps == 0) revert InvalidLiquidationConfig();
+        if (makerSides.length != makerTicks.length) revert InvalidLiquidationInput();
+
+        for (uint256 i; i < makerTicks.length; ++i) {
+            _forceCancelMakerQuote(account, makerSides[i], makerTicks[i]);
+        }
+
+        for (uint256 i; i < conditionalIds.length; ++i) {
+            uint64 id = conditionalIds[i];
+            ConditionalOrder storage order = conditionalOrders[id];
+            if (order.owner == account && _conditionalActive(order)) {
+                _cancelConditional(id, true);
+            }
+        }
+
+        if (activeQuoteCount[account] != 0 || activeConditionalCount[account] != 0) {
+            revert UnsettledQuotes();
+        }
+
+        _settleExistingPositionFunding(account);
+
+        int256 equityBefore = accountEquity(account);
+        if (equityBefore >= int256(maintenanceRequirement(account))) revert NotLiquidatable();
+
+        int128 position = accountRisk[account].settledPosition;
+        if (position > 0) {
+            closedLots = _takeFor(
+                account,
+                Side.Ask,
+                0,
+                uint96(uint128(position)),
+                FillPolicy.IOC,
+                true,
+                false
+            );
+        } else if (position < 0) {
+            closedLots = _takeFor(
+                account,
+                Side.Bid,
+                type(uint16).max,
+                uint96(uint128(-position)),
+                FillPolicy.IOC,
+                true,
+                false
+            );
+        } else {
+            revert NotLiquidatable();
+        }
+
+        emit Liquidated(msg.sender, account, closedLots, equityBefore);
     }
 
     /// @notice Aggressively consume maker liquidity.
@@ -817,6 +938,42 @@ contract ProRataOrderBook {
         return -((-numerator + half) / denominator);
     }
 
+    function _forceCancelMakerQuote(address maker, Side side, uint16 tick) internal {
+        _settle(maker, side, tick);
+
+        MakerQuote storage q = quotes[maker][side][tick];
+        if (q.shares == 0) return;
+
+        TickPool storage p = pools[side][tick];
+        if (q.generation != p.generation) revert StaleQuote();
+
+        uint128 shares = q.shares;
+        uint96 removedLots =
+            _redeemableLots(shares, p.remainingLots, p.totalShares);
+
+        p.totalShares -= shares;
+        p.remainingLots -= removedLots;
+
+        _shrinkRisk(maker, side, removedLots);
+        _refreshReservedMargin(maker);
+        totalRemovedLots += removedLots;
+
+        delete quotes[maker][side][tick];
+        delete quoteFundingCheckpointX96[maker][side][tick];
+        activeQuoteCount[maker] -= 1;
+
+        if (p.totalShares == 0) {
+            if (p.remainingLots != 0) revert InvalidShareAmount();
+            _setOccupied(side, tick, false);
+            delete poolRiskCeilingTick[side][tick];
+            unchecked {
+                ++p.generation;
+            }
+        }
+
+        emit LiquidityRemoved(maker, side, tick, removedLots, shares, p.generation);
+    }
+
     function _conditionalActive(ConditionalOrder storage order) internal view returns (bool) {
         return (order.flags & 1) != 0;
     }
@@ -827,6 +984,7 @@ contract ProRataOrderBook {
         if (!_conditionalActive(order)) return;
 
         order.flags &= ~uint8(1);
+        activeConditionalCount[order.owner] -= 1;
 
         bool reduceOnly = (order.flags & 4) != 0;
         if (releaseRisk && !reduceOnly) {
@@ -923,7 +1081,10 @@ contract ProRataOrderBook {
         }
         uint256 required = worstLots * worstPrice * uint256(r.initialMarginBps) / 10_000;
 
-        if (required > collateralBalance[maker]) revert InsufficientCollateral();
+        uint256 previous = reservedMargin[maker];
+        if (required > collateralBalance[maker] && required > previous) {
+            revert InsufficientCollateral();
+        }
         reservedMargin[maker] = required;
     }
 
