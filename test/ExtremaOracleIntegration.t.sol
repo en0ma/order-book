@@ -11,7 +11,7 @@ contract ExtremaOracleIntegrationTest is TestBase {
         ProRataOrderBook book = new ProRataOrderBook();
         MockERC20 token = new MockERC20();
         SegmentTreeExtremaOracle oracle =
-            new SegmentTreeExtremaOracle(address(this), 100);
+            new SegmentTreeExtremaOracle(address(this), 100, 3_600);
 
         address account = address(0xA11CE);
         address maker = address(0xB0B);
@@ -73,7 +73,7 @@ contract ExtremaOracleIntegrationTest is TestBase {
 
     function testSegmentTreeQueryCostIsBoundedByTreeHeight() public {
         SegmentTreeExtremaOracle oracle =
-            new SegmentTreeExtremaOracle(address(this), 100);
+            new SegmentTreeExtremaOracle(address(this), 100, 3_600);
         uint64 start = oracle.currentObservationId();
 
         for (uint256 i; i < 64; ++i) {
