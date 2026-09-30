@@ -287,6 +287,9 @@ contract RebateFundingRoundingInvariantTest is TestBase {
             core.settle(IOrderBookCore.Side.Ask, 105);
         }
 
+        vm.prank(TAKER);
+        core.settle(IOrderBookCore.Side.Bid, 105);
+
         settledClaims =
             _cashClaim(core, ALICE) + _cashClaim(core, BOB)
                 + _cashClaim(core, CAROL) + _cashClaim(core, TAKER);
