@@ -1083,18 +1083,20 @@ contract ProRataOrderBook {
     }
 
     function _settleExistingPositionFunding(address maker) internal {
-        AccountRisk memory a = accountRisk[maker];
-        int256 position = int256(a.settledPosition);
-        int256 deltaIndex =
-            int256(fundingIndexX18) - int256(accountFundingCheckpointX18[maker]);
+        int128 currentIndex = fundingIndexX18;
+        int128 checkpoint = accountFundingCheckpointX18[maker];
+        if (currentIndex == checkpoint) return;
 
-        if (position != 0 && deltaIndex != 0) {
+        int256 position = int256(accountRisk[maker].settledPosition);
+        int256 deltaIndex = int256(currentIndex) - int256(checkpoint);
+
+        if (position != 0) {
             int256 cashflowDelta = -(position * deltaIndex / FUNDING_SCALE);
             fundingCashflow[maker] += cashflowDelta;
             emit FundingSettled(maker, cashflowDelta);
         }
 
-        accountFundingCheckpointX18[maker] = fundingIndexX18;
+        accountFundingCheckpointX18[maker] = currentIndex;
     }
 
     function _divNearestSigned(int256 numerator, int256 denominator)
@@ -1259,7 +1261,7 @@ contract ProRataOrderBook {
         if (required > collateralBalance[maker] && required > previous) {
             revert InsufficientCollateral();
         }
-        reservedMargin[maker] = required;
+        if (required != previous) reservedMargin[maker] = required;
     }
 
     function _bestExecutableTick(Side side) internal view returns (bool ok, uint16 tick) {
