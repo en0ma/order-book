@@ -839,6 +839,7 @@ contract OrderBookCore is IOrderBookCore {
         } else {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
+            if (!preReserved) a.minPosition -= amount;
             tradeCashflow[account] += int256(notional) - int256(takerFee);
         }
 
