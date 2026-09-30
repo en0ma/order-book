@@ -32,7 +32,11 @@ jobs:
         run: |
           test -n "$ETH_RPC" || (echo "ETH_RPC secret is not configured" && exit 1)
           CLEAN_RPC="$(printf '%s' "$ETH_RPC" | xargs)"
-          ETH_RPC="$CLEAN_RPC" forge test --match-contract MainnetForkTest -vvv
+          if ETH_RPC="$CLEAN_RPC" forge test --match-contract MainnetForkTest -vvv; then
+            exit 0
+          fi
+          echo "::warning::Configured ETH_RPC could not create a Foundry fork; retrying public mainnet fallback"
+          ETH_RPC="https://ethereum-rpc.publicnode.com" forge test --match-contract MainnetForkTest -vvv
 
       - name: Gas report
         run: forge test --no-match-contract MainnetForkTest --gas-report | tee gas-report.txt
