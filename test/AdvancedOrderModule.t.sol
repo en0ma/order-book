@@ -1710,9 +1710,9 @@ contract AdvancedOrderModuleTest is TestBase {
 
         module.syncRestingOrder(parent);
 
-        (, uint96 exitLotsBefore, uint64 exitSiblingBefore,,,,, uint8 exitFlagsBefore) =
+        (, uint96 exitLotsBefore, uint64 exitSiblingBefore,,,,,, uint8 exitFlagsBefore) =
             module.conditionalOrders(exit);
-        (, uint96 siblingLotsBefore, uint64 siblingBackBefore,,,,, uint8 siblingFlagsBefore) =
+        (, uint96 siblingLotsBefore, uint64 siblingBackBefore,,,,,, uint8 siblingFlagsBefore) =
             module.conditionalOrders(sibling);
         (uint128 parentSharesBefore, uint96 parentClaimBefore, uint32 parentGenerationBefore) =
             core.quotes(ALICE, IOrderBookCore.Side.Bid, 99);
@@ -1724,9 +1724,9 @@ contract AdvancedOrderModuleTest is TestBase {
         );
         assertTrue(!ok, "OTO FOK exit unexpectedly succeeded without bids");
 
-        (, uint96 exitLotsAfter, uint64 exitSiblingAfter,,,,, uint8 exitFlagsAfter) =
+        (, uint96 exitLotsAfter, uint64 exitSiblingAfter,,,,,, uint8 exitFlagsAfter) =
             module.conditionalOrders(exit);
-        (, uint96 siblingLotsAfter, uint64 siblingBackAfter,,,,, uint8 siblingFlagsAfter) =
+        (, uint96 siblingLotsAfter, uint64 siblingBackAfter,,,,,, uint8 siblingFlagsAfter) =
             module.conditionalOrders(sibling);
         (uint128 parentSharesAfter, uint96 parentClaimAfter, uint32 parentGenerationAfter) =
             core.quotes(ALICE, IOrderBookCore.Side.Bid, 99);
