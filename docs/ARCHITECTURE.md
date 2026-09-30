@@ -317,6 +317,7 @@ OrderBookCore contains only the hot and safety-critical shared state:
 - ERC-20 custody;
 - risk envelopes and initial-margin reservation;
 - signed execution cashflow;
+- immutable taker-fee / maker-rebate accounting;
 - lazy funding;
 - direct maker add/cancel/settle;
 - direct IOC/FOK taker execution as the minimal user-facing matching primitive;
@@ -369,7 +370,7 @@ The extrema oracle is separate from both order contracts and provides bounded hi
 The deployable contracts are compiled with the Foundry size profile (optimizer_runs = 1).
 
 Current measured size-profile runtime sizes:
-- OrderBookCore: about 21,482 bytes;
+- OrderBookCore: about 21,511 bytes;
 - AdvancedOrderModule: about 18,617 bytes;
 - MarketMakerModule: about 4,434 bytes;
 - LiquidationModule: about 4,001 bytes;
@@ -493,3 +494,74 @@ Current state-machine invariants include:
 The fuzz configuration runs 5,000 independently seeded 12-step sequences. A separate deterministic corpus adds longer 32-step sequences while staying below Forge's single-test gas ceiling.
 
 This harness intentionally mixes ordinary maker shares and MarketMakerModule-managed shares at the same ticks, because generation rollover and locked-share ownership are high-risk composition boundaries.
+
+
+## Fee and rebate accounting
+
+Fee accounting is part of OrderBookCore because it changes canonical account cashflows. Fee policy is intentionally minimal and immutable so it does not become another runtime governance branch.
+
+The constructor receives:
+- takerFeeBps;
+- makerRebateBps.
+
+Both are bounded to 10,000 bps and makerRebateBps must be less than or equal to takerFeeBps. Fixing the schedule at deployment avoids a subtle retroactivity problem: if fees could change while maker fills were still unsettled, a later maker settlement could otherwise apply a new rebate rate to an old fill.
+
+### Taker path
+
+After matching returns aggregate executed notional, the taker cashflow is updated once:
+
+- bid taker: -(notional + takerFee);
+- ask taker: +(notional - takerFee).
+
+The core also increments protocolFeesAccrued by:
+
+    takerFee - reservedMakerRebate
+
+where reservedMakerRebate is computed from the same executed notional.
+
+This introduces no maker read/write and no external fee-policy call into matching.
+
+### Maker path
+
+Maker rebates materialize lazily during maker settlement.
+
+Because a maker quote belongs to exactly one tick, settled maker notional is:
+
+    filledLots * tick
+
+The rebate can therefore be derived at settlement without a separate per-fill fee accumulator:
+
+    makerRebate = floor(makerNotional * makerRebateBps / 10_000)
+
+The rebate and maker trade notional are folded into one tradeCashflow storage write.
+
+### Rounding policy
+
+The taker path reserves the aggregate maker rebate before makers are individually materialized. Individual maker rebate calculations floor independently, so actual credited maker rebates may be slightly smaller than the reserved amount.
+
+The protocol deliberately treats that difference as conservative dust:
+- maker rebates cannot exceed the reserved rebate;
+- protocol fee accounting plus credited maker rebates cannot exceed the taker fee;
+- dust remains in contract backing rather than being assigned to either party.
+
+FeeAccountingPropertyTest fuzzes three pro-rata makers for 5,000 runs and asserts those inequalities.
+
+### Current boundary
+
+protocolFeesAccrued is accounting-only. Protocol-fee withdrawal, fee-recipient routing, insurance-fund allocation, and rebate tiers are not implemented yet.
+
+The current recurring fee gas regression compares identical zero-fee and fee-enabled takes after the fee-accrual slot has been initialized and requires recurring fee overhead to remain below 20,000 gas.
+
+## State-machine regression found by fuzzing
+
+The adversarial deployable state machine caught a direct-Ask risk-envelope regression introduced during fee cashflow optimization.
+
+The optimized Ask taker branch had accidentally dropped the non-pre-reserved minPosition shift. A direct sell from flat could therefore produce:
+
+    settledPosition = -13
+    minPosition     = 0
+    maxPosition     = -13
+
+violating minPosition <= settledPosition.
+
+The missing minPosition update was restored and a focused direct-Ask regression was added. The full randomized state-machine corpus is green again. This validates the value of checking risk-envelope invariants after every randomized transition rather than relying only on scenario tests.
