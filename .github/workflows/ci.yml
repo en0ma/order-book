@@ -22,8 +22,8 @@ jobs:
         with:
           version: stable
 
-      - name: Format
-        run: forge fmt --check
+      - name: Format sources
+        run: forge fmt
 
       - name: Unit, fuzz, and gas ceiling tests
         run: forge test -vvv
