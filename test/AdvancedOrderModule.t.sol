@@ -1720,48 +1720,19 @@ contract AdvancedOrderModuleTest is TestBase {
 
         module.syncRestingOrder(parent);
 
-        (, uint96 exitLotsBefore, uint64 exitSiblingBefore,,,,,, uint8 exitFlagsBefore) =
-            module.conditionalOrders(exit);
-        (, uint96 siblingLotsBefore, uint64 siblingBackBefore,,,,,, uint8 siblingFlagsBefore) =
-            module.conditionalOrders(sibling);
-        (uint128 parentSharesBefore, uint96 parentClaimBefore, uint32 parentGenerationBefore) =
-            core.quotes(ALICE, IOrderBookCore.Side.Bid, 99);
-        (, uint256 reservedBefore) = core.marginStateTest(ALICE);
-        uint32 activeBefore = module.activeAdvancedOrders(ALICE);
+        bytes32 stateBefore =
+            _otoFOKRollbackState(parent, exit, sibling);
 
-        (bool ok,) = address(module).call(
-            abi.encodeCall(module.executeConditionalOrder, (exit))
+        assertTrue(
+            !_attemptConditionalExecution(exit),
+            "OTO FOK exit unexpectedly succeeded without bids"
         );
-        assertTrue(!ok, "OTO FOK exit unexpectedly succeeded without bids");
 
-        (, uint96 exitLotsAfter, uint64 exitSiblingAfter,,,,,, uint8 exitFlagsAfter) =
-            module.conditionalOrders(exit);
-        (, uint96 siblingLotsAfter, uint64 siblingBackAfter,,,,,, uint8 siblingFlagsAfter) =
-            module.conditionalOrders(sibling);
-        (uint128 parentSharesAfter, uint96 parentClaimAfter, uint32 parentGenerationAfter) =
-            core.quotes(ALICE, IOrderBookCore.Side.Bid, 99);
-        (, uint256 reservedAfter) = core.marginStateTest(ALICE);
-
-        assertEq(exitLotsAfter, exitLotsBefore, "failed exit changed OTO size");
-        assertEq(siblingLotsAfter, siblingLotsBefore, "failed exit changed sibling size");
-        assertEq(uint256(exitSiblingAfter), uint256(exitSiblingBefore), "failed exit unlinked OCO sibling");
-        assertEq(uint256(siblingBackAfter), uint256(siblingBackBefore), "failed exit broke OCO backlink");
-        assertEq(uint256(exitFlagsAfter), uint256(exitFlagsBefore), "failed exit changed exit flags");
-        assertEq(uint256(siblingFlagsAfter), uint256(siblingFlagsBefore), "failed exit changed sibling flags");
         assertEq(
-            module.activeAdvancedOrders(ALICE),
-            activeBefore,
-            "failed exit changed advanced active count"
+            uint256(_otoFOKRollbackState(parent, exit, sibling)),
+            uint256(stateBefore),
+            "failed exit changed OTO/core rollback state"
         );
-        assertEq(uint256(parentSharesAfter), uint256(parentSharesBefore), "failed exit burned parent shares");
-        assertEq(parentClaimAfter, parentClaimBefore, "failed exit changed parent claim");
-        assertEq(
-            uint256(parentGenerationAfter),
-            uint256(parentGenerationBefore),
-            "failed exit changed parent generation"
-        );
-        assertEq(reservedAfter, reservedBefore, "failed exit changed reserved margin");
-        assertEq(core.activeQuoteCount(ALICE), 1, "failed exit retired resting parent");
 
         // The restored parent must still be cancellable, proving its lock/link
         // survived the failed child transaction.
@@ -1777,6 +1748,46 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(filled, 40, "restored OTO FOK exit did not execute");
         assertEq(int256(_corePosition(ALICE)), 0, "restored OTO exit did not flatten position");
         assertEq(module.activeAdvancedOrders(ALICE), 0, "OCO sibling survived successful exit");
+    }
+
+    function _attemptConditionalExecution(uint64 orderId)
+        internal
+        returns (bool ok)
+    {
+        (ok,) = address(module).call(
+            abi.encodeCall(module.executeConditionalOrder, (orderId))
+        );
+    }
+
+    function _otoFOKRollbackState(
+        uint64 parent,
+        uint64 exit,
+        uint64 sibling
+    ) internal view returns (bytes32) {
+        (, uint96 exitLots, uint64 exitSibling,,,,,, uint8 exitFlags) =
+            module.conditionalOrders(exit);
+        (, uint96 siblingLots, uint64 siblingBack,,,,,, uint8 siblingFlags) =
+            module.conditionalOrders(sibling);
+        (uint128 parentShares, uint96 parentClaim, uint32 parentGeneration) =
+            core.quotes(ALICE, IOrderBookCore.Side.Bid, 99);
+        (, uint256 reserved) = core.marginStateTest(ALICE);
+
+        return keccak256(
+            abi.encode(
+                exitLots,
+                exitSibling,
+                exitFlags,
+                siblingLots,
+                siblingBack,
+                siblingFlags,
+                parentShares,
+                parentClaim,
+                parentGeneration,
+                reserved,
+                module.activeAdvancedOrders(ALICE),
+                core.activeQuoteCount(ALICE)
+            )
+        );
     }
 
     function testOCOExecutionAndSiblingCancellationConserveReservation() public {
