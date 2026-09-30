@@ -94,6 +94,16 @@ contract ProRataOrderBook {
         uint8 flags;
     }
 
+    /// @dev Tracks the share slice created by a triggered-limit parent with OTO exits.
+    ///      The slice is settled lazily; no bracket state is touched on the taker path.
+    struct RestingBracketLink {
+        uint128 shares;
+        uint96 remainingClaimLots;
+        uint96 activatedLots;
+        uint32 generation;
+        bool active;
+    }
+
     error ZeroAmount();
     error CrossesBook();
     error InsufficientLiquidity();
@@ -121,6 +131,8 @@ contract ProRataOrderBook {
     error TrailingOrderNotFound();
     error TrailingOrderInactive();
     error ExtremaOracleNotConfigured();
+    error RestingBracketLocked();
+    error RestingBracketNotFound();
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
@@ -147,6 +159,10 @@ contract ProRataOrderBook {
     mapping(uint64 => TrailingOrder) public trailingOrders;
     mapping(uint64 => uint64) public otoChildOne;
     mapping(uint64 => uint64) public otoChildTwo;
+    mapping(uint64 => uint64) public otoParent;
+    mapping(uint64 => uint96) public otoChildMaxLots;
+    mapping(uint64 => RestingBracketLink) public restingBrackets;
+    mapping(address => mapping(Side => mapping(uint16 => uint64))) public restingBracketAt;
     RiskConfig public riskConfig;
     IERC20Minimal public collateralToken;
     IMarkOracle public markOracle;
@@ -221,6 +237,22 @@ contract ProRataOrderBook {
     event OCOLinked(uint64 indexed firstOrderId, uint64 indexed secondOrderId);
     event OTOLinked(uint64 indexed parentOrderId, uint64 indexed childOrderId);
     event OTOActivated(uint64 indexed parentOrderId, uint64 indexed childOrderId, uint96 lots);
+    event OTOResized(uint64 indexed parentOrderId, uint64 indexed childOrderId, uint96 lots);
+    event RestingBracketLinked(
+        uint64 indexed parentOrderId,
+        address indexed owner,
+        Side side,
+        uint16 tick,
+        uint128 shares,
+        uint96 restingLots
+    );
+    event RestingBracketSynced(
+        uint64 indexed parentOrderId,
+        uint96 newlyFilledLots,
+        uint96 cumulativeFilledLots,
+        uint96 remainingLots
+    );
+    event RestingBracketCancelled(uint64 indexed parentOrderId, uint96 removedLots);
     event TrailingOrderPlaced(
         uint64 indexed orderId,
         address indexed owner,
@@ -632,6 +664,8 @@ contract ProRataOrderBook {
         // Children are exits: they must only reduce the position created by the parent.
         if ((child.flags & 4) == 0) revert InvalidOTO();
 
+        if (otoParent[childOrderId] != 0) revert InvalidOTO();
+
         if (otoChildOne[parentOrderId] == 0) {
             otoChildOne[parentOrderId] = childOrderId;
         } else if (otoChildTwo[parentOrderId] == 0) {
@@ -639,6 +673,9 @@ contract ProRataOrderBook {
         } else {
             revert InvalidOTO();
         }
+
+        otoParent[childOrderId] = parentOrderId;
+        otoChildMaxLots[childOrderId] = child.lots;
 
         // Dormant until the parent has an actual fill.
         child.flags = (child.flags & ~uint8(1)) | uint8(16);
@@ -659,6 +696,14 @@ contract ProRataOrderBook {
             revert TriggerNotSatisfied();
         }
 
+        uint64 parentOfExit = otoParent[orderId];
+        if (parentOfExit != 0 && restingBrackets[parentOfExit].active) {
+            _settle(order.owner, conditionalOrders[parentOfExit].side, conditionalOrders[parentOfExit].limitTick);
+            _syncRestingBracket(parentOfExit);
+            _cancelRestingBracket(parentOfExit);
+            order = stored;
+        }
+
         bool reduceOnly = (order.flags & 4) != 0;
         if (reduceOnly) {
             if (_accountMeta[order.owner].activeQuoteCount != 0) revert UnsettledQuotes();
@@ -675,6 +720,21 @@ contract ProRataOrderBook {
             uint96 restingLots;
             uint128 restingShares;
             (filledLots, restingLots, restingShares) = _activateTriggeredLimit(order);
+
+            bool hasOTO = otoChildOne[orderId] != 0 || otoChildTwo[orderId] != 0;
+            if (hasOTO && restingLots != 0) {
+                _linkRestingBracket(
+                    orderId, order, restingShares, restingLots, filledLots
+                );
+                if (filledLots != 0) {
+                    _resizeOTOChildren(orderId, order.owner, filledLots);
+                }
+            } else if (filledLots != 0) {
+                _resizeOTOChildren(orderId, order.owner, filledLots);
+            } else {
+                _cancelOTOChildren(orderId);
+            }
+
             emit TriggeredLimitActivated(orderId, filledLots, restingLots, restingShares);
         } else {
             filledLots = _takeFor(
@@ -692,12 +752,12 @@ contract ProRataOrderBook {
                 if (unfilled != 0) _shrinkRisk(order.owner, order.side, unfilled);
                 _refreshReservedMargin(order.owner);
             }
-        }
 
-        if (filledLots != 0) {
-            _activateOTOChildren(orderId, order.owner, filledLots);
-        } else {
-            _cancelOTOChildren(orderId);
+            if (filledLots != 0) {
+                _resizeOTOChildren(orderId, order.owner, filledLots);
+            } else {
+                _cancelOTOChildren(orderId);
+            }
         }
 
         uint64 sibling = order.sibling;
@@ -715,6 +775,7 @@ contract ProRataOrderBook {
         external
         returns (uint128 mintedShares)
     {
+        if (restingBracketAt[msg.sender][side][tick] != 0) revert RestingBracketLocked();
         mintedShares = _addLiquidityFor(msg.sender, side, tick, lots, false, 0, true);
     }
 
@@ -883,6 +944,7 @@ contract ProRataOrderBook {
         returns (uint96 removedLots)
     {
         if (sharesToBurn == 0) revert ZeroAmount();
+        if (restingBracketAt[msg.sender][side][tick] != 0) revert RestingBracketLocked();
         _settle(msg.sender, side, tick);
 
         TickPool storage p = pools[side][tick];
@@ -927,7 +989,29 @@ contract ProRataOrderBook {
     /// @notice Materialize lazy maker fills for one side/tick.
     function settle(Side side, uint16 tick) external returns (uint96 filledLots) {
         filledLots = _settle(msg.sender, side, tick);
+        _syncRestingBracketAt(msg.sender, side, tick);
         _settleExistingPositionFunding(msg.sender);
+    }
+
+    function syncRestingBracket(uint64 parentOrderId)
+        external
+        returns (uint96 newlyFilledLots, uint96 cumulativeFilledLots)
+    {
+        RestingBracketLink storage link = restingBrackets[parentOrderId];
+        ConditionalOrder storage parent = conditionalOrders[parentOrderId];
+        if (!link.active || parent.owner == address(0)) revert RestingBracketNotFound();
+
+        _settle(parent.owner, parent.side, parent.limitTick);
+        (newlyFilledLots, cumulativeFilledLots) = _syncRestingBracket(parentOrderId);
+        _settleExistingPositionFunding(parent.owner);
+    }
+
+    function cancelRestingBracket(uint64 parentOrderId) external returns (uint96 removedLots) {
+        ConditionalOrder storage parent = conditionalOrders[parentOrderId];
+        if (parent.owner == address(0)) revert ConditionalOrderNotFound();
+        if (parent.owner != msg.sender) revert Unauthorized();
+
+        removedLots = _cancelRestingBracket(parentOrderId);
     }
 
     function settleFunding() external returns (int256 cashflow) {
@@ -1441,6 +1525,9 @@ contract ProRataOrderBook {
     }
 
     function _forceCancelMakerQuote(address maker, Side side, uint16 tick) internal {
+        uint64 parentOrderId = restingBracketAt[maker][side][tick];
+        if (parentOrderId != 0) _cancelRestingBracket(parentOrderId);
+
         _settle(maker, side, tick);
 
         MakerQuote storage q = quotes[maker][side][tick];
@@ -1476,43 +1563,194 @@ contract ProRataOrderBook {
         emit LiquidityRemoved(maker, side, tick, removedLots, shares, p.generation);
     }
 
-    function _activateOTOChildren(uint64 parentOrderId, address owner_, uint96 filledLots)
+    function _resizeOTOChildren(uint64 parentOrderId, address owner_, uint96 filledLots)
         internal
     {
         uint64 first = otoChildOne[parentOrderId];
         uint64 second = otoChildTwo[parentOrderId];
 
-        if (first != 0) _activateOTOChild(parentOrderId, first, owner_, filledLots);
-        if (second != 0) _activateOTOChild(parentOrderId, second, owner_, filledLots);
+        if (first != 0) _resizeOTOChild(parentOrderId, first, owner_, filledLots);
+        if (second != 0) _resizeOTOChild(parentOrderId, second, owner_, filledLots);
     }
 
-    function _activateOTOChild(
+    function _resizeOTOChild(
         uint64 parentOrderId,
         uint64 childOrderId,
         address owner_,
         uint96 filledLots
     ) internal {
         ConditionalOrder storage child = conditionalOrders[childOrderId];
-        if (
-            child.owner != owner_ || (child.flags & 1) != 0 || (child.flags & 4) == 0
-                || (child.flags & 16) == 0
-        ) {
-            revert InvalidOTO();
+        if (child.owner != owner_ || (child.flags & 4) == 0) revert InvalidOTO();
+
+        uint96 maxLots = otoChildMaxLots[childOrderId];
+        uint96 targetLots = filledLots < maxLots ? filledLots : maxLots;
+        if (targetLots == 0) return;
+
+        bool dormant = _conditionalDormant(child);
+        bool active = _conditionalActive(child);
+
+        if (dormant) {
+            child.lots = targetLots;
+            child.flags = (child.flags | uint8(1)) & ~uint8(16);
+            _accountMeta[owner_].activeConditionalCount += 1;
+            emit OTOActivated(parentOrderId, childOrderId, targetLots);
+        } else if (active && targetLots > child.lots) {
+            child.lots = targetLots;
+            emit OTOResized(parentOrderId, childOrderId, targetLots);
+        }
+    }
+
+    function _linkRestingBracket(
+        uint64 parentOrderId,
+        ConditionalOrder memory parent,
+        uint128 shares,
+        uint96 restingLots,
+        uint96 alreadyFilledLots
+    ) internal {
+        if (restingBracketAt[parent.owner][parent.side][parent.limitTick] != 0) {
+            revert RestingBracketLocked();
         }
 
-        if (child.lots > filledLots) child.lots = filledLots;
-        child.flags = (child.flags | uint8(1)) & ~uint8(16);
-        _accountMeta[owner_].activeConditionalCount += 1;
+        MakerQuote storage q = quotes[parent.owner][parent.side][parent.limitTick];
+        restingBrackets[parentOrderId] = RestingBracketLink({
+            shares: shares,
+            remainingClaimLots: restingLots,
+            activatedLots: alreadyFilledLots,
+            generation: q.generation,
+            active: true
+        });
+        restingBracketAt[parent.owner][parent.side][parent.limitTick] = parentOrderId;
 
-        emit OTOActivated(parentOrderId, childOrderId, child.lots);
+        emit RestingBracketLinked(
+            parentOrderId,
+            parent.owner,
+            parent.side,
+            parent.limitTick,
+            shares,
+            restingLots
+        );
+    }
+
+    function _syncRestingBracketAt(address maker, Side side, uint16 tick) internal {
+        uint64 parentOrderId = restingBracketAt[maker][side][tick];
+        if (parentOrderId != 0) _syncRestingBracket(parentOrderId);
+    }
+
+    function _syncRestingBracket(uint64 parentOrderId)
+        internal
+        returns (uint96 newlyFilledLots, uint96 cumulativeFilledLots)
+    {
+        RestingBracketLink storage link = restingBrackets[parentOrderId];
+        if (!link.active) return (0, 0);
+
+        ConditionalOrder storage parent = conditionalOrders[parentOrderId];
+        TickPool storage p = pools[parent.side][parent.limitTick];
+
+        uint96 currentClaim;
+        if (link.generation == p.generation) {
+            currentClaim = _redeemableLots(link.shares, p.remainingLots, p.totalShares);
+        }
+
+        if (currentClaim < link.remainingClaimLots) {
+            newlyFilledLots = link.remainingClaimLots - currentClaim;
+            link.remainingClaimLots = currentClaim;
+            link.activatedLots += newlyFilledLots;
+            _resizeOTOChildren(parentOrderId, parent.owner, link.activatedLots);
+        }
+
+        cumulativeFilledLots = link.activatedLots;
+
+        emit RestingBracketSynced(
+            parentOrderId,
+            newlyFilledLots,
+            cumulativeFilledLots,
+            currentClaim
+        );
+
+        if (currentClaim == 0) {
+            delete restingBracketAt[parent.owner][parent.side][parent.limitTick];
+            delete restingBrackets[parentOrderId];
+        }
+    }
+
+    function _cancelRestingBracket(uint64 parentOrderId)
+        internal
+        returns (uint96 removedLots)
+    {
+        RestingBracketLink storage link = restingBrackets[parentOrderId];
+        if (!link.active) return 0;
+
+        ConditionalOrder storage parent = conditionalOrders[parentOrderId];
+        address maker = parent.owner;
+        Side side = parent.side;
+        uint16 tick = parent.limitTick;
+
+        _settle(maker, side, tick);
+        _syncRestingBracket(parentOrderId);
+
+        RestingBracketLink storage live = restingBrackets[parentOrderId];
+        if (!live.active) return 0;
+
+        TickPool storage p = pools[side][tick];
+        MakerQuote storage q = quotes[maker][side][tick];
+        if (q.generation != p.generation || live.generation != p.generation) {
+            revert StaleQuote();
+        }
+        if (live.shares > q.shares || live.shares > p.totalShares) {
+            revert InvalidShareAmount();
+        }
+
+        if (p.totalShares != 0 && p.remainingLots != 0) {
+            removedLots = _redeemableLots(live.shares, p.remainingLots, p.totalShares);
+        }
+
+        p.totalShares -= live.shares;
+        p.remainingLots -= removedLots;
+        q.shares -= live.shares;
+        if (removedLots > q.claimLots) revert InvalidShareAmount();
+        q.claimLots -= removedLots;
+
+        if (removedLots != 0) {
+            _shrinkRisk(maker, side, removedLots);
+            totalRemovedLots += removedLots;
+        }
+
+        delete restingBracketAt[maker][side][tick];
+        delete restingBrackets[parentOrderId];
+
+        if (q.shares == 0) {
+            delete quotes[maker][side][tick];
+            delete quoteFundingCheckpointX96[maker][side][tick];
+            _accountMeta[maker].activeQuoteCount -= 1;
+        }
+
+        if (p.totalShares == 0) {
+            if (p.remainingLots != 0) revert InvalidShareAmount();
+            _setOccupied(side, tick, false);
+            delete poolRiskCeilingTick[side][tick];
+            unchecked {
+                ++p.generation;
+            }
+        }
+
+        _refreshReservedMargin(maker);
+        emit RestingBracketCancelled(parentOrderId, removedLots);
     }
 
     function _cancelOTOChildren(uint64 parentOrderId) internal {
         uint64 first = otoChildOne[parentOrderId];
         uint64 second = otoChildTwo[parentOrderId];
 
-        if (first != 0) _cancelConditional(first, true);
-        if (second != 0) _cancelConditional(second, true);
+        if (first != 0) {
+            _cancelConditional(first, true);
+            delete otoParent[first];
+            delete otoChildMaxLots[first];
+        }
+        if (second != 0) {
+            _cancelConditional(second, true);
+            delete otoParent[second];
+            delete otoChildMaxLots[second];
+        }
 
         delete otoChildOne[parentOrderId];
         delete otoChildTwo[parentOrderId];
