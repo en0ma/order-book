@@ -26,18 +26,19 @@ jobs:
         run: forge fmt
 
       - name: Unit, fuzz, and gas ceiling tests
-        run: forge test -vvv
+        run: forge test --no-match-contract MainnetForkTest -vvv
 
       - name: Ethereum mainnet fork test
         run: |
           test -n "$ETH_RPC" || (echo "ETH_RPC secret is not configured" && exit 1)
-          forge test --match-contract MainnetForkTest -vvv
+          CLEAN_RPC="$(printf '%s' "$ETH_RPC" | xargs)"
+          ETH_RPC="$CLEAN_RPC" forge test --match-contract MainnetForkTest -vvv
 
       - name: Gas report
-        run: forge test --gas-report | tee gas-report.txt
+        run: forge test --no-match-contract MainnetForkTest --gas-report | tee gas-report.txt
 
       - name: Gas snapshot
-        run: forge snapshot
+        run: forge snapshot --no-match-contract MainnetForkTest
 
       - name: Upload gas artifacts
         uses: actions/upload-artifact@v4
