@@ -1561,12 +1561,12 @@ contract AdvancedOrderModuleTest is TestBase {
 
         vm.prank(ALICE);
         (bool tooMuchOk,) = address(core).call(
-            abi.encodeCall(core.withdrawCollateral, (uint256(98_601)))
+            abi.encodeCall(core.withdrawCollateral, (uint256(998_601)))
         );
         assertTrue(!tooMuchOk, "withdrawal bypassed advanced reserved margin");
 
         vm.prank(ALICE);
-        core.withdrawCollateral(98_600);
+        core.withdrawCollateral(998_600);
 
         vm.prank(ALICE);
         module.cancelConditionalOrder(orderId);
