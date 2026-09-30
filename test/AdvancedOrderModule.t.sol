@@ -2190,16 +2190,11 @@ contract AdvancedOrderModuleTest is TestBase {
         vm.prank(CAROL);
         core.addLiquidity(IOrderBookCore.Side.Bid, 10, 100);
 
-        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](1);
-        sides[0] = IOrderBookCore.Side.Bid;
-        uint16[] memory ticks = new uint16[](1);
-        ticks[0] = 95;
-        uint64[] memory conditionals = new uint64[](0);
-        uint64[] memory trailings = new uint64[](0);
-
-        uint96 closed =
-            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
-        assertEq(closed, 100, "liquidation did not flatten trader");
+        assertEq(
+            _liquidateManagedMetadataTrader(trader),
+            100,
+            "liquidation did not flatten trader"
+        );
 
         (, uint96 afterLiquidation, uint32 generationAfter) =
             core.pools(IOrderBookCore.Side.Bid, 95);
@@ -2215,6 +2210,30 @@ contract AdvancedOrderModuleTest is TestBase {
         vm.prank(trader);
         marketMaker.batchReplaceQuotes(updates);
 
+        _assertManagedMetadataRefresh(trader);
+    }
+
+    function _liquidateManagedMetadataTrader(address trader)
+        internal
+        returns (uint96 closed)
+    {
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](1);
+        sides[0] = IOrderBookCore.Side.Bid;
+        uint16[] memory ticks = new uint16[](1);
+        ticks[0] = 95;
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](0);
+
+        closed = liquidation.liquidate(
+            trader,
+            sides,
+            ticks,
+            conditionals,
+            trailings
+        );
+    }
+
+    function _assertManagedMetadataRefresh(address trader) internal view {
         (, uint96 afterRefresh, uint32 generationFinal) =
             core.pools(IOrderBookCore.Side.Bid, 95);
         (uint128 traderShares, uint96 traderClaim, uint32 traderGeneration) =
