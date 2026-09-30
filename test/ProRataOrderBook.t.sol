@@ -139,6 +139,70 @@ contract ProRataOrderBookTest is TestBase {
         );
     }
 
+    function testRiskRejectsUndercollateralizedQuote() public {
+        book.configureRisk(100, 10, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(500);
+
+        vm.prank(ALICE);
+        (bool ok,) = address(book).call(
+            abi.encodeCall(book.addLiquidity, (ProRataOrderBook.Side.Bid, uint16(99), uint96(100)))
+        );
+
+        assertTrue(!ok, "undercollateralized quote entered the book");
+
+        (bool hasBid,) = book.bestBid();
+        assertTrue(!hasBid, "failed quote left executable liquidity");
+    }
+
+    function testExecutionBandLeavesOutOfBandQuoteRestingButUnfilled() public {
+        book.configureRisk(100, 5, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 104, 100);
+
+        book.setMarkTick(90);
+
+        uint96 filled =
+            book.take(ProRataOrderBook.Side.Bid, 200, 100, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 0, "out-of-band quote executed");
+
+        (, uint96 remaining,) = book.pools(ProRataOrderBook.Side.Ask, 104);
+        assertEq(remaining, 100, "out-of-band quote was mutated");
+
+        book.setMarkTick(100);
+        filled = book.take(ProRataOrderBook.Side.Bid, 200, 100, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 100, "quote did not reactivate inside oracle band");
+    }
+
+    function testMakerRiskStateDoesNotChangeOnTakerFill() public {
+        book.configureRisk(100, 10, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
+
+        uint256 collateralBefore = book.collateralBalance(ALICE);
+        uint256 reservedBefore = book.reservedMargin(ALICE);
+        (int128 settledBefore, int128 minBefore, int128 maxBefore) = book.accountRisk(ALICE);
+
+        book.take(ProRataOrderBook.Side.Ask, 99, 60, ProRataOrderBook.FillPolicy.IOC);
+
+        assertEq(book.collateralBalance(ALICE), collateralBefore, "fill wrote maker collateral");
+        assertEq(book.reservedMargin(ALICE), reservedBefore, "fill wrote maker reserve");
+
+        (int128 settledAfter, int128 minAfter, int128 maxAfter) = book.accountRisk(ALICE);
+        assertEq(int256(settledAfter), int256(settledBefore), "fill materialized maker position");
+        assertEq(int256(minAfter), int256(minBefore), "fill mutated min envelope");
+        assertEq(int256(maxAfter), int256(maxBefore), "fill mutated max envelope");
+    }
+
     function testRiskEnvelopeDoesNotMoveOnFill() public {
         vm.prank(ALICE);
         book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
