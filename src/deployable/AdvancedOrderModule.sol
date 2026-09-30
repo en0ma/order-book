@@ -7,6 +7,14 @@ import {IExtremaOracle} from "../interfaces/IExtremaOracle.sol";
 /// @title AdvancedOrderModule
 /// @notice Fully-on-chain conditional, triggered-limit, OCO/OTO, bracket and trailing logic.
 /// @dev The module owns only advanced-order state. Matching/risk/custody remain in OrderBookCore.
+interface IMarketMakerLiquidationCleanup {
+    function liquidationForgetManagedQuote(
+        address maker,
+        IOrderBookCore.Side side,
+        uint16 tick
+    ) external;
+}
+
 contract AdvancedOrderModule {
     uint8 internal constant FLAG_ACTIVE = 1 << 0;
     uint8 internal constant FLAG_TRIGGER_ABOVE = 1 << 1;
@@ -240,6 +248,14 @@ contract AdvancedOrderModule {
         IOrderBookCore.Side side,
         uint16 tick
     ) external onlyLiquidationModule returns (uint96 removedLots) {
+        address mm = marketMakerModule;
+        if (mm != address(0)) {
+            IMarketMakerLiquidationCleanup(mm).liquidationForgetManagedQuote(
+                account,
+                side,
+                tick
+            );
+        }
         removedLots = core.moduleForceCancelQuote(account, side, tick);
     }
 
