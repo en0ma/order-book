@@ -83,7 +83,7 @@ contract AdvancedOrderModule {
     uint64 internal nextTrailingOrderId = 1;
 
     mapping(uint64 => ConditionalOrder) public conditionalOrders;
-    mapping(uint64 => TrailingOrder) public trailingOrders;
+    mapping(uint64 => TrailingOrder) internal trailingOrders;
     mapping(uint64 => RestingLink) internal restingLinks;
 
     mapping(uint64 => uint64) internal otoChildOne;
