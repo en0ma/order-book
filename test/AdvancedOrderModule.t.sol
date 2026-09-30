@@ -1310,6 +1310,47 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(core.activeQuoteCount(trader), 0, "liquidation cleanup stranded core quote");
     }
 
+    function testOCOExecutionAndSiblingCancellationConserveReservation() public {
+        vm.prank(ALICE);
+        uint64 first = module.placeConditionalOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            100,
+            40,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        uint64 second = module.placeConditionalOrder(
+            IOrderBookCore.Side.Bid,
+            false,
+            90,
+            90,
+            30,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        module.linkOCO(first, second);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 25);
+
+        uint96 filled = module.executeConditionalOrder(first);
+        assertEq(filled, 25, "OCO execution fill mismatch");
+
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(ALICE);
+
+        assertEq(int256(settled), 25, "filled OCO leg not materialized");
+        assertEq(int256(minPosition), 25, "OCO min reservation not conserved");
+        assertEq(int256(maxPosition), 25, "OCO sibling/unfilled reservation leaked");
+        assertEq(module.activeAdvancedOrders(ALICE), 0, "OCO lifecycle remained active");
+    }
+
     function testExecutedOTOChildUnlinksFromParentGraph() public {
         MockERC20 graphToken = new MockERC20();
         SegmentTreeExtremaOracle graphOracle =
