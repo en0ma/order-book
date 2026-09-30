@@ -358,6 +358,63 @@ contract ProRataOrderBookTest is TestBase {
         assertEq(int256(settled), 0, "liquidation left position open");
     }
 
+    function testTriggeredLimitActivatesIntoRestingBook() public {
+        book.configureRisk(100, 20, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        uint64 orderId = book.placeTriggeredLimitOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            105,
+            103,
+            40
+        );
+
+        book.setMarkTick(105);
+        uint96 filled = book.executeConditionalOrder(orderId);
+        assertEq(filled, 0, "non-marketable triggered limit unexpectedly filled");
+
+        (, uint96 remaining,) = book.pools(ProRataOrderBook.Side.Bid, 103);
+        assertEq(remaining, 40, "triggered limit did not rest");
+        assertEq(book.activeQuoteCount(ALICE), 1, "resting quote count missing");
+    }
+
+    function testTriggeredLimitTakesThenRestsRemainder() public {
+        book.configureRisk(100, 20, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 102, 25);
+
+        vm.prank(ALICE);
+        uint64 orderId = book.placeTriggeredLimitOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            105,
+            103,
+            40
+        );
+
+        book.setMarkTick(105);
+        uint96 filled = book.executeConditionalOrder(orderId);
+        assertEq(filled, 25, "triggered limit aggressive portion mismatch");
+
+        (, uint96 resting,) = book.pools(ProRataOrderBook.Side.Bid, 103);
+        assertEq(resting, 15, "triggered limit remainder did not rest");
+
+        (int80 settled, int80 minPosition, int80 maxPosition) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 25, "triggered limit taker fill not materialized");
+        assertEq(int256(minPosition), 25, "triggered limit min envelope");
+        assertEq(int256(maxPosition), 40, "triggered limit reserved max envelope");
+    }
+
     function testConditionalOrderTriggersPermissionlessly() public {
         book.configureRisk(100, 10, 1_000);
 
