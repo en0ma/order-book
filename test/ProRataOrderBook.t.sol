@@ -696,7 +696,7 @@ contract ProRataOrderBookTest is TestBase {
 
         book.executeConditionalOrder(parent);
 
-        (uint128 shares,,,) = book.quotes(ALICE, ProRataOrderBook.Side.Bid, 103);
+        (uint128 shares,,) = book.quotes(ALICE, ProRataOrderBook.Side.Bid, 103);
 
         vm.prank(ALICE);
         (bool genericCancel,) = address(book).call(
