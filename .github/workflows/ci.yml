@@ -39,7 +39,9 @@ jobs:
           ETH_RPC="https://ethereum-rpc.publicnode.com" forge test --match-contract MainnetForkTest -vvv
 
       - name: Contract sizes
-        run: forge build --sizes | tee contract-sizes.txt
+        run: |
+          forge build --sizes | tee contract-sizes.txt
+          FOUNDRY_PROFILE=size forge build --sizes | tee contract-sizes-size-profile.txt
 
       - name: Gas report
         run: forge test --no-match-contract MainnetForkTest --gas-report | tee gas-report.txt
@@ -54,4 +56,5 @@ jobs:
           path: |
             gas-report.txt
             contract-sizes.txt
+            contract-sizes-size-profile.txt
             .gas-snapshot
