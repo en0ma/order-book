@@ -534,6 +534,8 @@ contract AdvancedOrderModule {
             activeAdvancedCount[order.owner] -= 1;
         }
 
+        _unlinkOTOChild(orderId);
+
         uint64 sibling = order.sibling;
         if (sibling != 0) _cancelConditional(sibling, true);
 
@@ -855,6 +857,20 @@ contract AdvancedOrderModule {
         delete otoChildTwo[parentOrderId];
     }
 
+    function _unlinkOTOChild(uint64 orderId) internal {
+        uint64 parentId = otoParent[orderId];
+        if (parentId == 0) return;
+
+        if (otoChildOne[parentId] == orderId) {
+            otoChildOne[parentId] = 0;
+        } else if (otoChildTwo[parentId] == orderId) {
+            otoChildTwo[parentId] = 0;
+        }
+
+        delete otoParent[orderId];
+        delete otoChildMaxLots[orderId];
+    }
+
     function _cancelConditional(uint64 orderId, bool releaseRisk) internal {
         ConditionalOrder storage order = conditionalOrders[orderId];
         if (order.owner == address(0)) revert OrderNotFound();
@@ -880,16 +896,7 @@ contract AdvancedOrderModule {
             order.sibling = 0;
         }
 
-        uint64 parentId = otoParent[orderId];
-        if (parentId != 0) {
-            if (otoChildOne[parentId] == orderId) {
-                otoChildOne[parentId] = 0;
-            } else if (otoChildTwo[parentId] == orderId) {
-                otoChildTwo[parentId] = 0;
-            }
-            delete otoParent[orderId];
-            delete otoChildMaxLots[orderId];
-        }
+        _unlinkOTOChild(orderId);
 
         if (otoChildOne[orderId] != 0 || otoChildTwo[orderId] != 0) {
             _cancelOTOChildren(orderId);

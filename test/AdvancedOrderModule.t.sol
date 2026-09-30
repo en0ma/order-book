@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {OrderBookCore} from "../src/deployable/OrderBookCore.sol";
 import {AdvancedOrderModule} from "../src/deployable/AdvancedOrderModule.sol";
+import {AdvancedOrderModuleHarness} from "./harness/AdvancedOrderModuleHarness.sol";
 import {MarketMakerModule} from "../src/deployable/MarketMakerModule.sol";
 import {LiquidationModule} from "../src/deployable/LiquidationModule.sol";
 import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
@@ -1307,6 +1308,113 @@ contract AdvancedOrderModuleTest is TestBase {
 
         assertEq(module.activeAdvancedOrders(trader), 0, "liquidation cleanup stranded advanced order");
         assertEq(core.activeQuoteCount(trader), 0, "liquidation cleanup stranded core quote");
+    }
+
+    function testOCOExecutionAndSiblingCancellationConserveReservation() public {
+        vm.prank(ALICE);
+        uint64 first = module.placeConditionalOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            100,
+            40,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        uint64 second = module.placeConditionalOrder(
+            IOrderBookCore.Side.Bid,
+            false,
+            90,
+            90,
+            30,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        module.linkOCO(first, second);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 25);
+
+        uint96 filled = module.executeConditionalOrder(first);
+        assertEq(filled, 25, "OCO execution fill mismatch");
+
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(ALICE);
+
+        assertEq(int256(settled), 25, "filled OCO leg not materialized");
+        assertEq(int256(minPosition), 25, "OCO min reservation not conserved");
+        assertEq(int256(maxPosition), 25, "OCO sibling/unfilled reservation leaked");
+        assertEq(module.activeAdvancedOrders(ALICE), 0, "OCO lifecycle remained active");
+    }
+
+    function testExecutedOTOChildUnlinksFromParentGraph() public {
+        MockERC20 graphToken = new MockERC20();
+        SegmentTreeExtremaOracle graphOracle =
+            new SegmentTreeExtremaOracle(address(this), 100, 3_600);
+        OrderBookCore graphCore =
+            new OrderBookCore(address(graphToken), address(graphOracle), 40, 1_000, 0, 0);
+        AdvancedOrderModuleHarness graphModule =
+            new AdvancedOrderModuleHarness(address(graphCore), address(graphOracle));
+
+        graphCore.configureAdvancedModule(address(graphModule));
+
+        _fundOn(graphCore, graphToken, ALICE, 100_000);
+        _fundOn(graphCore, graphToken, BOB, 100_000);
+        _fundOn(graphCore, graphToken, CAROL, 100_000);
+
+        vm.prank(ALICE);
+        uint64 parent = graphModule.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            103,
+            40
+        );
+
+        vm.prank(ALICE);
+        uint64 exitId = graphModule.placeConditionalOrder(
+            IOrderBookCore.Side.Ask,
+            true,
+            110,
+            105,
+            40,
+            IOrderBookCore.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        graphModule.linkOTO(parent, exitId);
+
+        graphModule.executeConditionalOrder(parent);
+
+        vm.prank(BOB);
+        graphCore.take(
+            IOrderBookCore.Side.Ask,
+            103,
+            40,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        graphModule.syncRestingOrder(parent);
+
+        vm.prank(CAROL);
+        graphCore.addLiquidity(IOrderBookCore.Side.Bid, 110, 40);
+        graphOracle.record(110);
+
+        uint96 exited = graphModule.executeConditionalOrder(exitId);
+        assertEq(exited, 40, "OTO exit failed");
+
+        (uint64 childOne, uint64 childTwo, uint64 parentOfChild, uint96 childMaxLots) =
+            graphModule.otoGraphTest(parent, exitId);
+
+        assertEq(uint256(childOne), 0, "executed child left parent slot one");
+        assertEq(uint256(childTwo), 0, "executed child left parent slot two");
+        assertEq(uint256(parentOfChild), 0, "executed child kept parent backlink");
+        assertEq(uint256(childMaxLots), 0, "executed child kept max-lot metadata");
     }
 
     function testModuleTrailingUsesSegmentTreeOracle() public {
