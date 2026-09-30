@@ -1351,6 +1351,64 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(module.activeAdvancedOrders(ALICE), 0, "OCO lifecycle remained active");
     }
 
+    function testDelayedAdvancedParentSettlementPreservesFundingAttribution() public {
+        vm.prank(ALICE);
+        uint64 parent = module.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            99,
+            100
+        );
+
+        vm.prank(ALICE);
+        uint64 exitId = module.placeConditionalOrder(
+            IOrderBookCore.Side.Ask,
+            true,
+            110,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        module.linkOTO(parent, exitId);
+        module.executeConditionalOrder(parent);
+
+        vm.prank(BOB);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            99,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        core.setFundingIndex(int128(2e18));
+
+        module.syncRestingOrder(parent);
+
+        assertEq(int256(_corePosition(ALICE)), 100, "advanced maker fill not materialized");
+        assertEq(
+            core.accountEquity(ALICE),
+            99_900,
+            "delayed maker funding attribution mismatch"
+        );
+
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 100, 100);
+        oracle.record(110);
+
+        uint96 exited = module.executeConditionalOrder(exitId);
+        assertEq(exited, 100, "funded advanced exit failed");
+        assertEq(int256(_corePosition(ALICE)), 0, "funded advanced exit did not flatten");
+        assertEq(
+            core.accountEquity(ALICE),
+            99_900,
+            "funding cashflow changed when closing after sync"
+        );
+    }
+
     function testAdvancedRestingSyncUsesCoreCeilClaimRounding() public {
         MockERC20 roundToken = new MockERC20();
         SegmentTreeExtremaOracle roundOracle =
