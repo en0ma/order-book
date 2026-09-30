@@ -307,7 +307,7 @@ Measured runtime sizes demonstrated the problem:
 - reference monolith, size profile: about 40.6 KB;
 - EIP-170 limit: 24,576 bytes.
 
-The production-oriented architecture therefore separates the protocol into three contracts.
+The production-oriented architecture separates the protocol into specialized deployable contracts.
 
 ### OrderBookCore
 
@@ -329,7 +329,7 @@ Module-created maker shares are explicitly locked in the core. Generic maker can
 
 ### AdvancedOrderModule
 
-AdvancedOrderModule owns execution policies and order-type state:
+AdvancedOrderModule owns generic advanced-order state:
 - direct reduce-only and atomic minimum-fill wrappers;
 - stop/take-profit conditionals;
 - triggered limits;
@@ -338,7 +338,27 @@ AdvancedOrderModule owns execution policies and order-type state:
 - lazy bracket resize;
 - trailing orders.
 
-The module never becomes the matching engine. Its executions call the core, so authoritative matching, balances, risk and settlement remain on-chain in the core.
+It is also the single core-authorized gateway for specialized modules. The core therefore keeps one narrow trust boundary rather than a dynamic module registry.
+
+### MarketMakerModule
+
+MarketMakerModule owns managed market-maker quote metadata and batching policy.
+
+Canonical liquidity still lives in OrderBookCore. The MM module calls authenticated forwarding functions on AdvancedOrderModule, which in turn invokes the core's narrow module hooks.
+
+Managed share locks are generation-bound. A stale lock from a fully consumed generation can be unlocked as a no-op without touching a new quote created later at the same maker/side/tick.
+
+For target refreshes:
+- unchanged same-generation targets preserve the existing share slice;
+- increases preserve the slice and add only the missing lots;
+- decreases remove and rebuild the managed slice so integer share rounding cannot leave the wrong executable lot amount;
+- batch exposure reservation is aggregated once per side.
+
+### LiquidationModule
+
+LiquidationModule owns maintenance-margin policy and orchestration.
+
+AdvancedOrderModule retains only storage-aware cleanup for its conditional/trailing/resting state plus narrow authenticated forwarding into OrderBookCore. This keeps liquidation policy out of the generic advanced-order bytecode while preserving atomic cleanup.
 
 ### SegmentTreeExtremaOracle
 
@@ -349,13 +369,17 @@ The extrema oracle is separate from both order contracts and provides bounded hi
 The deployable contracts are compiled with the Foundry size profile (optimizer_runs = 1).
 
 Current measured size-profile runtime sizes:
-- OrderBookCore: about 21,059 bytes;
-- AdvancedOrderModule: about 19,482 bytes;
-- SegmentTreeExtremaOracle: about 1,877 bytes.
+- OrderBookCore: about 21,482 bytes;
+- AdvancedOrderModule: about 18,617 bytes;
+- MarketMakerModule: about 3,653 bytes;
+- LiquidationModule: about 4,001 bytes;
+- SegmentTreeExtremaOracle: about 2,152 bytes.
 
-The core now has about 3,517 bytes of EIP-170 headroom. CI intentionally enforces stricter project budgets than EIP-170:
+CI intentionally enforces stricter project budgets than EIP-170:
 - OrderBookCore <= 22,000 bytes;
-- AdvancedOrderModule <= 21,000 bytes;
+- AdvancedOrderModule <= 19,500 bytes;
+- MarketMakerModule <= 5,000 bytes;
+- LiquidationModule <= 5,000 bytes;
 - SegmentTreeExtremaOracle <= 4,000 bytes.
 
 This prevents gradual bytecode creep from consuming all deployment margin. The oversized reference monolith remains compiled and tested but is deliberately excluded from the deployable size gate.
@@ -363,13 +387,16 @@ This prevents gradual bytecode creep from consuming all deployment margin. The o
 
 ## Modular liquidation
 
-Liquidation now lives in AdvancedOrderModule rather than consuming the core's remaining bytecode budget.
+Maintenance policy and liquidation orchestration live in LiquidationModule.
 
-The module tracks a live advanced-order count per account. Liquidation accepts caller-supplied maker tick keys, conditional IDs, and trailing IDs, atomically cleans them up, then requires both the core quote count and module advanced-order count to reach zero before checking health.
+AdvancedOrderModule exposes only:
+- advanced-order cleanup over supplied conditional/trailing IDs;
+- a force-cancel forwarding hook for supplied maker ticks;
+- a reduce-only liquidation execution hook.
 
-Maintenance margin is configured in the advanced module. The module reads the core's marked equity and settled position, computes the maintenance requirement, and closes the position through the core's reduce-only module execution hook. If the account is healthy, the entire cleanup and liquidation transaction reverts.
+LiquidationModule checks core quote count plus advanced-order count, reads marked equity and settled position directly from OrderBookCore, computes the maintenance requirement, and requests the final reduce-only close through the authenticated gateway. If the account is healthy, the entire cleanup and liquidation transaction reverts.
 
-Advanced resting share slices are cancelled before generic core quote cleanup so bracket-linked locks cannot be deleted before their module state is reconciled.
+Advanced resting share slices are reconciled before generic core quote cleanup so bracket-linked locks cannot be deleted before their module state is settled.
 
 
 ## Abstraction rules
@@ -392,3 +419,22 @@ Atomic minimum-fill is implemented in AdvancedOrderModule by calling the core IO
 AdvancedOrderModule verifies at construction that its extrema oracle is exactly the same contract exposed by OrderBookCore as the immutable mark oracle.
 
 That is stronger than checking whether two independent sources happen to return the same current tick. Historical trailing-stop extrema and execution-band pricing therefore share one authoritative observation stream by construction. The redundant per-execution equality check was removed after this invariant moved to deployment time.
+
+
+## Market-maker batching and scaling
+
+Managed quote refresh is intentionally separate from the matching engine.
+
+The batch API uses target remaining lots rather than cancel/add instructions. For each managed maker/side/tick slice it first derives the current executable lots from the slice's shares and the aggregate tick pool.
+
+If the target is unchanged, no liquidity mutation is needed. If the target increases, only the delta is reserved and added. If the target decreases, the slice is removed and rebuilt to the exact target because partial share redemption is integer-rounded.
+
+Risk reservation is aggregated across the batch and performed once per side.
+
+The dedicated deployable gas-regression suite covers 1, 4, 8 and 16 managed quote levels. Current total test gas is approximately:
+- 1 level: 402k;
+- 4 levels: 1.01m;
+- 8 levels: 1.74m;
+- 16 levels: 3.20m.
+
+Those figures include the test's initial quote setup plus refresh call, so they are regression/scaling measurements rather than isolated transaction gas. A separate regression asserts that one four-level batch replacement is cheaper than four one-level replacement calls.
