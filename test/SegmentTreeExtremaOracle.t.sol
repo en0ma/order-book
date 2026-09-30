@@ -79,6 +79,54 @@ contract SegmentTreeExtremaOracleTest is TestBase {
         assertTrue(!ok, "unauthorized recorder accepted");
     }
 
+    function testUpdaterRotationRequiresTwoStepAcceptance() public {
+        address nextUpdater = address(0xBEEF);
+
+        oracle.proposeUpdater(nextUpdater);
+        assertTrue(oracle.pendingUpdater() == nextUpdater, "pending updater mismatch");
+
+        (bool ownerAcceptOk,) =
+            address(oracle).call(abi.encodeCall(oracle.acceptUpdater, ()));
+        assertTrue(!ownerAcceptOk, "owner accepted updater on behalf of nominee");
+
+        vm.prank(nextUpdater);
+        oracle.acceptUpdater();
+
+        assertTrue(oracle.updater() == nextUpdater, "updater not transferred");
+        assertTrue(oracle.pendingUpdater() == address(0), "pending updater not cleared");
+
+        (bool oldUpdaterOk,) =
+            address(oracle).call(abi.encodeCall(oracle.record, (uint16(101))));
+        assertTrue(!oldUpdaterOk, "old updater retained publish authority");
+
+        vm.prank(nextUpdater);
+        oracle.record(101);
+        assertEq(oracle.markTick(), 101, "new updater could not publish");
+    }
+
+    function testUpdaterTransferCanBeCancelled() public {
+        address nextUpdater = address(0xCAFE);
+
+        oracle.proposeUpdater(nextUpdater);
+        oracle.cancelUpdaterTransfer();
+
+        assertTrue(oracle.pendingUpdater() == address(0), "pending updater not cancelled");
+
+        vm.prank(nextUpdater);
+        (bool ok,) =
+            address(oracle).call(abi.encodeCall(oracle.acceptUpdater, ()));
+        assertTrue(!ok, "cancelled updater accepted authority");
+        assertTrue(oracle.updater() == address(this), "updater changed after cancellation");
+    }
+
+    function testUnauthorizedAccountCannotProposeUpdater() public {
+        vm.prank(address(0xBEEF));
+        (bool ok,) = address(oracle).call(
+            abi.encodeCall(oracle.proposeUpdater, (address(0xCAFE)))
+        );
+        assertTrue(!ok, "unauthorized updater proposal accepted");
+    }
+
     function testObservationExpiresAfterRingWindow() public {
         uint64 first = oracle.currentObservationId();
 
