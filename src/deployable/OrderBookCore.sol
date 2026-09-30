@@ -413,37 +413,14 @@ contract OrderBookCore is IOrderBookCore {
         _settle(account, side, tick);
 
         MakerQuote storage q = quotes[account][side][tick];
-        if (q.shares == 0) return 0;
-
-        TickPool storage p = pools[side][tick];
-        if (q.generation != p.generation) revert StaleQuote();
-
-        removedLots =
-            OrderBookMath.redeemableLots(q.shares, p.remainingLots, p.totalShares);
-
-        uint128 shares = q.shares;
-        p.totalShares -= shares;
-        p.remainingLots -= removedLots;
-
-        _shrinkRisk(account, side, removedLots);
-        _refreshReservedMargin(account);
-
-
-        delete quotes[account][side][tick];
-        delete quoteFundingCheckpointX96[account][side][tick];
-        delete moduleLocks[account][side][tick];
-        _accountMeta[account].activeQuoteCount -= 1;
-
-        if (p.totalShares == 0) {
-            if (p.remainingLots != 0) revert InvalidShareAmount();
-            _setOccupied(side, tick, false);
-            delete poolRiskCeilingTick[side][tick];
-            unchecked {
-                ++p.generation;
-            }
+        if (q.shares == 0) {
+            delete moduleLocks[account][side][tick];
+            return 0;
         }
 
-        emit LiquidityRemoved(account, side, tick, removedLots, shares, p.generation);
+        uint128 shares = q.shares;
+        removedLots = _removeSharesFor(account, side, tick, shares);
+        delete moduleLocks[account][side][tick];
     }
 
     function moduleCoverBadDebt(address account, uint256 requested)
