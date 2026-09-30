@@ -19,6 +19,8 @@ The design keeps authoritative liquidity and matching entirely on-chain, but rep
 - Fully on-chain conditional trigger state with permissionless execution.
 - Pairwise OCO conditional orders.
 - True triggered-limit activation: take up to the limit, then rest the remainder.
+- Minimum-fill and reduce-only minimum-fill aggressive execution.
+- OTO child activation and TP/SL bracket composition with OCO exits.
 - One-slot packed risk envelope and one-slot packed account metadata.
 - Exposure-envelope margin reservation.
 - Oracle-bounded execution with per-pool risk ceilings.
@@ -53,3 +55,14 @@ ETH_RPC=<mainnet-rpc> forge test --match-contract MainnetForkTest -vvv
 See docs/ARCHITECTURE.md for the design, accounting model, liquidation flow, and current limitations.
 
 This is a research prototype, not audited production code.
+
+
+## Current bracket semantics
+
+OTO children are dormant reduce-only conditionals. They activate only after the parent receives an actual aggressive fill and are resized to that filled quantity. Linking two children with OCO gives a take-profit / stop-loss bracket.
+
+Maker fills from a triggered-limit remainder do not yet expand bracket children; that requires a separate lazy resize mechanism.
+
+## Trailing stops
+
+Trailing stops are intentionally not implemented against the current mark-only oracle interface. The planned design requires an on-chain extrema oracle capable of proving the high/low since an observation ID, avoiding per-order watermark writes and trusted off-chain trigger attestations.
