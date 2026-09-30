@@ -454,3 +454,12 @@ The dedicated deployable gas-regression suite covers 1, 4, 8 and 16 managed quot
 - 16 levels: 3.20m.
 
 Those figures include the test's initial quote setup plus refresh call, so they are regression/scaling measurements rather than isolated transaction gas. A separate regression asserts that one four-level batch replacement is cheaper than four one-level replacement calls.
+
+
+## Packed codec headroom decision
+
+The fixed-width 16-byte quote codec intentionally stops short of an on-chain delta-tick codec.
+
+A denser sorted-tick format could reduce the raw record width further, but for a representative 16-level batch the current packed function already uses 324 total calldata bytes. Because dynamic bytes are ABI-padded to 32-byte boundaries, modest sub-16-byte record reductions often save only one additional 32-byte calldata word at this batch size.
+
+MarketMakerModule is currently about 4,434 bytes against a 5,000-byte project budget. Spending most of the remaining module budget on another decoder is therefore a poor trade relative to the incremental calldata reduction. Future delta/grid compression should preferably live in an SDK or a separately budgeted codec path unless measurements show a materially better end-to-end result.
