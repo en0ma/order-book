@@ -53,6 +53,7 @@ contract MarketMakerModule {
 
     error ZeroAmount();
     error InvalidPackedQuotes();
+    error QuotesNotStrictlySorted();
 
     IOrderBookCore public immutable core;
     IAdvancedQuoteGateway public immutable gateway;
@@ -115,8 +116,21 @@ contract MarketMakerModule {
         uint96[] memory additions = new uint96[](length);
         uint96 bidAddLots;
         uint96 askAddLots;
+        uint32 previousKey;
 
-        // Phase 1: preserve same-generation slices when possible. Exact decreases
+        // Phase 1: require deterministic side/tick ordering and preserve
+        // same-generation slices when possible.
+        for (uint256 i; i < length; ) {
+            uint32 key = uint32(words[i] >> 96);
+            if (i != 0 && key <= previousKey) revert QuotesNotStrictlySorted();
+            previousKey = key;
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        // Phase 1b: preserve same-generation slices when possible. Exact decreases
         // still clear/rebuild because share redemption rounds down in integer lots.
         for (uint256 i; i < length; ) {
             uint128 word = words[i];
