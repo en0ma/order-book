@@ -48,6 +48,30 @@ contract SegmentTreeExtremaOracleTest is TestBase {
         assertEq(low, 0, "tick zero lost as empty sentinel");
     }
 
+    function testStaleObservationBlocksMarkAndExtremaUntilRefresh() public {
+        SegmentTreeExtremaOracle staleOracle =
+            new SegmentTreeExtremaOracle(address(this), 100, 60);
+        uint64 start = staleOracle.currentObservationId();
+
+        vm.warp(block.timestamp + 61);
+
+        (bool markOk,) =
+            address(staleOracle).call(abi.encodeCall(staleOracle.markTick, ()));
+        assertTrue(!markOk, "stale mark remained readable");
+
+        (bool extremaOk,) = address(staleOracle).call(
+            abi.encodeCall(staleOracle.highLowSince, (start))
+        );
+        assertTrue(!extremaOk, "stale extrema remained readable");
+
+        staleOracle.record(101);
+        assertEq(staleOracle.markTick(), 101, "fresh record did not restore oracle");
+
+        (uint16 high, uint16 low) = staleOracle.highLowSince(start);
+        assertEq(high, 101, "fresh extrema high");
+        assertEq(low, 100, "fresh extrema low");
+    }
+
     function testUnauthorizedRecorderRejected() public {
         vm.prank(address(0xBEEF));
         (bool ok,) =
