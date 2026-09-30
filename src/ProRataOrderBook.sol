@@ -323,6 +323,12 @@ contract ProRataOrderBook {
     /// @notice Materialize lazy maker fills for one side/tick.
     function settle(Side side, uint16 tick) external returns (uint96 filledLots) {
         filledLots = _settle(msg.sender, side, tick);
+        _settleExistingPositionFunding(msg.sender);
+    }
+
+    function settleFunding() external returns (int256 cashflow) {
+        _settleExistingPositionFunding(msg.sender);
+        cashflow = fundingCashflow[msg.sender];
     }
 
     /// @notice Aggressively consume maker liquidity.
