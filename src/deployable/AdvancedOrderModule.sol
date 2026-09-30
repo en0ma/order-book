@@ -674,6 +674,8 @@ contract AdvancedOrderModule {
         RestingLink storage live = restingLinks[parentOrderId];
         if (!live.active) return 0;
 
+        uint96 cumulativeFilledLots = live.cumulativeFilledLots;
+
         removedLots = core.moduleRemoveLockedShares(
             parent.owner,
             parent.side,
@@ -684,6 +686,13 @@ contract AdvancedOrderModule {
 
         delete restingLinks[parentOrderId];
         activeAdvancedCount[parent.owner] -= 1;
+
+        // If the entry never filled, its dormant OTO exits have no exposure to
+        // protect and must be retired with the parent. Partially filled parents
+        // keep their activated exits alive for the realized position.
+        if (cumulativeFilledLots == 0) {
+            _cancelOTOChildren(parentOrderId);
+        }
 
         emit RestingOrderCancelled(parentOrderId, removedLots);
     }
