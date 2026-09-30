@@ -432,7 +432,7 @@ contract OrderBookCore is IOrderBookCore {
         if (requested == 0) return 0;
         if (_accountMeta[account].activeQuoteCount != 0) revert Unauthorized();
 
-        (int80 position,,) = accountRisk[account];
+        int80 position = accountRisk[account].settledPosition;
         if (position != 0) revert ReduceOnlyViolation();
 
         int256 equity = accountEquity(account);

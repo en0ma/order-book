@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {OrderBookCore} from "../src/deployable/OrderBookCore.sol";
+import {OrderBookCoreHarness} from "./harness/OrderBookCoreHarness.sol";
 import {AdvancedOrderModule} from "../src/deployable/AdvancedOrderModule.sol";
 import {AdvancedOrderModuleHarness} from "./harness/AdvancedOrderModuleHarness.sol";
 import {MarketMakerModule} from "../src/deployable/MarketMakerModule.sol";
@@ -12,7 +13,7 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 import {TestBase} from "./TestBase.sol";
 
 contract AdvancedOrderModuleTest is TestBase {
-    OrderBookCore internal core;
+    OrderBookCoreHarness internal core;
     AdvancedOrderModule internal module;
     MarketMakerModule internal marketMaker;
     LiquidationModule internal liquidation;
@@ -26,7 +27,8 @@ contract AdvancedOrderModuleTest is TestBase {
     function setUp() public {
         token = new MockERC20();
         oracle = new SegmentTreeExtremaOracle(address(this), 100, 3_600);
-        core = new OrderBookCore(address(token), address(oracle), 40, 1_000, 0, 0);
+        core =
+            new OrderBookCoreHarness(address(token), address(oracle), 40, 1_000, 0, 0);
         module = new AdvancedOrderModule(address(core), address(oracle));
         marketMaker = new MarketMakerModule(address(core), address(module));
         liquidation = new LiquidationModule(address(core), address(module), 500);
