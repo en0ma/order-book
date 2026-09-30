@@ -9,6 +9,11 @@ import {OrderBookMath} from "./OrderBookMath.sol";
 /// @notice Fully-on-chain conditional, triggered-limit, OCO/OTO, bracket and trailing logic.
 /// @dev The module owns only advanced-order state. Matching/risk/custody remain in OrderBookCore.
 contract AdvancedOrderModule {
+    uint8 internal constant FLAG_ACTIVE = 1 << 0;
+    uint8 internal constant FLAG_TRIGGER_ABOVE = 1 << 1;
+    uint8 internal constant FLAG_REDUCE_ONLY = 1 << 2;
+    uint8 internal constant FLAG_TRIGGERED_LIMIT = 1 << 3;
+    uint8 internal constant FLAG_DORMANT = 1 << 4;
     struct ConditionalOrder {
         address owner;
         uint96 lots;
@@ -248,10 +253,10 @@ contract AdvancedOrderModule {
             riskCeiling = core.moduleReserveExposure(account, side, lots);
         }
 
-        uint8 flags = 1;
-        if (triggerAboveOrEqual) flags |= 2;
-        if (reduceOnly) flags |= 4;
-        if (triggeredLimit) flags |= 8;
+        uint8 flags = FLAG_ACTIVE;
+        if (triggerAboveOrEqual) flags |= FLAG_TRIGGER_ABOVE;
+        if (reduceOnly) flags |= FLAG_REDUCE_ONLY;
+        if (triggeredLimit) flags |= FLAG_TRIGGERED_LIMIT;
 
         orderId = nextConditionalOrderId++;
         ConditionalOrder memory order = ConditionalOrder({
@@ -281,9 +286,9 @@ contract AdvancedOrderModule {
             order.triggerTick,
             order.limitTick,
             order.lots,
-            (order.flags & 2) != 0,
-            (order.flags & 4) != 0,
-            (order.flags & 8) != 0
+            (order.flags & FLAG_TRIGGER_ABOVE) != 0,
+            (order.flags & FLAG_REDUCE_ONLY) != 0,
+            (order.flags & FLAG_TRIGGERED_LIMIT) != 0
         );
     }
 
@@ -326,7 +331,7 @@ contract AdvancedOrderModule {
         if (parent.owner == address(0) || child.owner == address(0)) revert OrderNotFound();
         if (parent.owner != msg.sender || child.owner != msg.sender) revert Unauthorized();
         if (!_active(parent) || !_active(child)) revert OrderInactive();
-        if ((child.flags & 4) == 0 || otoParent[childOrderId] != 0) revert InvalidOTO();
+        if ((child.flags & FLAG_REDUCE_ONLY) == 0 || otoParent[childOrderId] != 0) revert InvalidOTO();
 
         if (otoChildOne[parentOrderId] == 0) {
             otoChildOne[parentOrderId] = childOrderId;
@@ -339,7 +344,7 @@ contract AdvancedOrderModule {
         otoParent[childOrderId] = parentOrderId;
         otoChildMaxLots[childOrderId] = child.lots;
 
-        child.flags = (child.flags & ~uint8(1)) | uint8(16);
+        child.flags = (child.flags & ~FLAG_ACTIVE) | FLAG_DORMANT;
 
         emit OTOLinked(parentOrderId, childOrderId);
     }
@@ -352,7 +357,7 @@ contract AdvancedOrderModule {
         ConditionalOrder memory order = stored;
         uint16 mark = core.currentMarkTick();
 
-        bool triggerAbove = (order.flags & 2) != 0;
+        bool triggerAbove = (order.flags & FLAG_TRIGGER_ABOVE) != 0;
         if (triggerAbove ? mark < order.triggerTick : mark > order.triggerTick) {
             revert TriggerNotSatisfied();
         }
@@ -364,7 +369,7 @@ contract AdvancedOrderModule {
             order = stored;
         }
 
-        bool reduceOnly = (order.flags & 4) != 0;
+        bool reduceOnly = (order.flags & FLAG_REDUCE_ONLY) != 0;
         if (reduceOnly && core.activeQuoteCount(order.owner) != 0) {
             revert ReduceOnlyViolation();
         }
@@ -372,8 +377,8 @@ contract AdvancedOrderModule {
             revert InvalidRiskCeiling();
         }
 
-        bool triggeredLimit = (order.flags & 8) != 0;
-        stored.flags &= ~uint8(1);
+        bool triggeredLimit = (order.flags & FLAG_TRIGGERED_LIMIT) != 0;
+        stored.flags &= ~FLAG_ACTIVE;
 
         if (triggeredLimit) {
             filledLots = _executeTriggeredLimit(orderId, order);
@@ -579,7 +584,7 @@ contract AdvancedOrderModule {
             riskCeilingTick: riskCeiling,
             side: side,
             policy: policy,
-            flags: reduceOnly ? uint8(3) : uint8(1)
+            flags: reduceOnly ? (FLAG_ACTIVE | FLAG_REDUCE_ONLY) : FLAG_ACTIVE
         });
 
         activeAdvancedCount[msg.sender] += 1;
@@ -607,7 +612,7 @@ contract AdvancedOrderModule {
     function executeTrailingOrder(uint64 orderId) external returns (uint96 filledLots) {
         TrailingOrder storage stored = trailingOrders[orderId];
         if (stored.owner == address(0)) revert OrderNotFound();
-        if ((stored.flags & 1) == 0) revert OrderInactive();
+        if ((stored.flags & FLAG_ACTIVE) == 0) revert OrderInactive();
 
         TrailingOrder memory order = stored;
         uint16 current = core.currentMarkTick();
@@ -626,7 +631,7 @@ contract AdvancedOrderModule {
 
         if (!triggered) revert TriggerNotSatisfied();
 
-        bool reduceOnly = (order.flags & 2) != 0;
+        bool reduceOnly = (order.flags & FLAG_REDUCE_ONLY) != 0;
         if (reduceOnly && core.activeQuoteCount(order.owner) != 0) {
             revert ReduceOnlyViolation();
         }
@@ -634,7 +639,7 @@ contract AdvancedOrderModule {
             revert InvalidRiskCeiling();
         }
 
-        stored.flags &= ~uint8(1);
+        stored.flags &= ~FLAG_ACTIVE;
         activeAdvancedCount[order.owner] -= 1;
 
         filledLots = core.moduleTake(
@@ -770,7 +775,7 @@ contract AdvancedOrderModule {
         uint96 filledLots
     ) internal {
         ConditionalOrder storage child = conditionalOrders[childOrderId];
-        if (child.owner != owner_ || (child.flags & 4) == 0) revert InvalidOTO();
+        if (child.owner != owner_ || (child.flags & FLAG_REDUCE_ONLY) == 0) revert InvalidOTO();
 
         uint96 maxLots = otoChildMaxLots[childOrderId];
         uint96 targetLots = filledLots < maxLots ? filledLots : maxLots;
@@ -781,7 +786,7 @@ contract AdvancedOrderModule {
 
         if (dormant) {
             child.lots = targetLots;
-            child.flags = (child.flags | uint8(1)) & ~uint8(16);
+            child.flags = (child.flags | FLAG_ACTIVE) & ~FLAG_DORMANT;
             emit OTOActivated(parentOrderId, childOrderId, targetLots);
         } else if (active && targetLots > child.lots) {
             child.lots = targetLots;
@@ -817,10 +822,10 @@ contract AdvancedOrderModule {
         bool dormant = _dormant(order);
         if (!active && !dormant) return;
 
-        order.flags &= ~(uint8(1) | uint8(16));
+        order.flags &= ~(FLAG_ACTIVE | FLAG_DORMANT);
         activeAdvancedCount[order.owner] -= 1;
 
-        bool reduceOnly = (order.flags & 4) != 0;
+        bool reduceOnly = (order.flags & FLAG_REDUCE_ONLY) != 0;
         if (releaseRisk && !reduceOnly) {
             core.moduleReleaseExposure(order.owner, order.side, order.lots);
         }
@@ -844,12 +849,12 @@ contract AdvancedOrderModule {
     function _cancelTrailing(uint64 orderId, bool releaseRisk) internal {
         TrailingOrder storage order = trailingOrders[orderId];
         if (order.owner == address(0)) revert OrderNotFound();
-        if ((order.flags & 1) == 0) return;
+        if ((order.flags & FLAG_ACTIVE) == 0) return;
 
-        order.flags &= ~uint8(1);
+        order.flags &= ~FLAG_ACTIVE;
         activeAdvancedCount[order.owner] -= 1;
 
-        bool reduceOnly = (order.flags & 2) != 0;
+        bool reduceOnly = (order.flags & FLAG_REDUCE_ONLY) != 0;
         if (releaseRisk && !reduceOnly) {
             core.moduleReleaseExposure(order.owner, order.side, order.lots);
         }
@@ -858,11 +863,11 @@ contract AdvancedOrderModule {
     }
 
     function _active(ConditionalOrder storage order) internal view returns (bool) {
-        return (order.flags & 1) != 0;
+        return (order.flags & FLAG_ACTIVE) != 0;
     }
 
     function _dormant(ConditionalOrder storage order) internal view returns (bool) {
-        return (order.flags & 16) != 0;
+        return (order.flags & FLAG_DORMANT) != 0;
     }
 }
 
