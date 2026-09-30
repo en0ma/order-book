@@ -140,6 +140,62 @@ contract GasTest is TestBase {
         assertTrue(used < 450_000, "triggered-limit activation gas ceiling exceeded");
     }
 
+    function testGas_MinimumFillIsBounded() public {
+        ProRataOrderBook book = new ProRataOrderBook();
+
+        vm.prank(address(0xA1));
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 10_000, 1_000);
+
+        uint256 g0 = gasleft();
+        uint96 filled =
+            book.takeMinFill(ProRataOrderBook.Side.Bid, 10_000, 500, 250);
+        uint256 used = g0 - gasleft();
+
+        assertEq(filled, 500, "minimum-fill gas fixture did not fill");
+        assertTrue(used < 260_000, "minimum-fill gas ceiling exceeded");
+    }
+
+    function testGas_OTOActivationIsBounded() public {
+        ProRataOrderBook book = new ProRataOrderBook();
+        address account = address(0xA11CE);
+
+        vm.prank(address(0xB0B));
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 10_000, 500);
+
+        vm.prank(account);
+        uint64 parent = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            0,
+            10_000,
+            500,
+            ProRataOrderBook.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(account);
+        uint64 child = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            true,
+            20_000,
+            10_000,
+            500,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(account);
+        book.linkOTO(parent, child);
+
+        uint256 g0 = gasleft();
+        uint96 filled = book.executeConditionalOrder(parent);
+        uint256 used = g0 - gasleft();
+
+        assertEq(filled, 500, "OTO parent gas fixture did not fill");
+        assertTrue(book.conditionalOrderActive(child), "OTO child did not activate");
+        assertTrue(used < 350_000, "OTO activation gas ceiling exceeded");
+    }
+
     function testGas_AddAtExistingTickIsBounded() public {
         ProRataOrderBook book = new ProRataOrderBook();
 
