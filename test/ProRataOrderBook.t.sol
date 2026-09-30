@@ -308,6 +308,121 @@ contract ProRataOrderBookTest is TestBase {
         assertEq(int256(settled), 0, "reduce-only flipped position");
     }
 
+    function testConditionalOrderTriggersPermissionlessly() public {
+        book.configureRisk(100, 10, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 104, 100);
+
+        vm.prank(ALICE);
+        uint64 orderId = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            105,
+            110,
+            40,
+            ProRataOrderBook.FillPolicy.IOC,
+            false
+        );
+
+        (bool early,) =
+            address(book).call(abi.encodeCall(book.executeConditionalOrder, (orderId)));
+        assertTrue(!early, "conditional executed before trigger");
+
+        book.setMarkTick(105);
+
+        uint96 filled = book.executeConditionalOrder(orderId);
+        assertEq(filled, 40, "conditional fill mismatch");
+        assertTrue(!book.conditionalOrderActive(orderId), "conditional remained active");
+
+        (int128 settled,,) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 40, "conditional owner position not updated");
+    }
+
+    function testOCOCancelsSiblingAndReleasesReservation() public {
+        book.configureRisk(100, 10, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 104, 100);
+
+        vm.prank(ALICE);
+        uint64 first = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            100,
+            110,
+            25,
+            ProRataOrderBook.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        uint64 second = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Bid,
+            false,
+            90,
+            110,
+            25,
+            ProRataOrderBook.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        book.linkOCO(first, second);
+
+        uint256 reservedBefore = book.reservedMargin(ALICE);
+        uint96 filled = book.executeConditionalOrder(first);
+        assertEq(filled, 25, "OCO primary fill mismatch");
+        assertTrue(!book.conditionalOrderActive(second), "OCO sibling remained active");
+        assertTrue(book.reservedMargin(ALICE) < reservedBefore, "OCO reservation not released");
+    }
+
+    function testReduceOnlyConditionalCannotFlipPosition() public {
+        book.configureRisk(100, 10, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        vm.prank(ALICE);
+        book.take(ProRataOrderBook.Side.Bid, 100, 60, ProRataOrderBook.FillPolicy.IOC);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
+
+        vm.prank(ALICE);
+        uint64 stopId = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            false,
+            95,
+            90,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        book.setMarkTick(95);
+        uint96 reduced = book.executeConditionalOrder(stopId);
+        assertEq(reduced, 60, "reduce-only conditional did not cap at position");
+
+        (int128 settled,,) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "reduce-only conditional flipped position");
+    }
+
     function testRiskRejectsUndercollateralizedQuote() public {
         book.configureRisk(100, 10, 1_000);
 
