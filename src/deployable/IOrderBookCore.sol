@@ -13,16 +13,20 @@ interface IOrderBookCore {
     }
 
     function currentMarkTick() external view returns (uint16);
-    function accountPosition(address account) external view returns (int80);
+    function accountRisk(address account)
+        external
+        view
+        returns (int80 settledPosition, int80 minPosition, int80 maxPosition);
+
     function activeQuoteCount(address account) external view returns (uint32);
     function accountEquity(address account) external view returns (int256);
 
-    function poolState(Side side, uint16 tick)
+    function pools(Side side, uint16 tick)
         external
         view
         returns (uint128 totalShares, uint96 remainingLots, uint32 generation);
 
-    function quoteStateRaw(address account, Side side, uint16 tick)
+    function quotes(address account, Side side, uint16 tick)
         external
         view
         returns (uint128 shares, uint96 claimLots, uint32 generation);
