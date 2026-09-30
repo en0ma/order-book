@@ -1079,8 +1079,8 @@ contract ProRataOrderBook {
         if (!r.enabled) return;
 
         AccountRisk memory a = accountRisk[maker];
-        uint256 absMin = a.minPosition < 0 ? uint256(uint128(-a.minPosition)) : uint256(uint128(a.minPosition));
-        uint256 absMax = a.maxPosition < 0 ? uint256(uint128(-a.maxPosition)) : uint256(uint128(a.maxPosition));
+        uint256 absMin = a.minPosition < 0 ? uint256(uint80(-a.minPosition)) : uint256(uint80(a.minPosition));
+        uint256 absMax = a.maxPosition < 0 ? uint256(uint80(-a.maxPosition)) : uint256(uint80(a.maxPosition));
         uint256 worstLots = absMin > absMax ? absMin : absMax;
 
         uint256 worstPrice = accountRiskCeilingTick[maker];
