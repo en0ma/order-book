@@ -42,6 +42,64 @@ contract AdvancedOrderModuleTest is TestBase {
         core.depositCollateral(amount);
     }
 
+    function testModuleMinimumFillIsAtomic() public {
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 40);
+
+        vm.prank(ALICE);
+        (bool ok,) = address(module).call(
+            abi.encodeCall(
+                module.takeMinFill,
+                (
+                    IOrderBookCore.Side.Bid,
+                    uint16(100),
+                    uint96(50),
+                    uint96(45),
+                    false
+                )
+            )
+        );
+        assertTrue(!ok, "minimum-fill should revert below threshold");
+
+        (, uint96 remaining,) = core.pools(IOrderBookCore.Side.Ask, 100);
+        assertEq(remaining, 40, "failed minimum-fill mutated maker liquidity");
+        assertEq(int256(_corePosition(ALICE)), 0, "failed minimum-fill mutated position");
+
+        vm.prank(ALICE);
+        uint96 filled = module.takeMinFill(
+            IOrderBookCore.Side.Bid,
+            100,
+            50,
+            40,
+            false
+        );
+        assertEq(filled, 40, "minimum-fill success quantity");
+        assertEq(int256(_corePosition(ALICE)), 40, "minimum-fill position");
+    }
+
+    function testModuleReduceOnlyCannotReversePosition() public {
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 60);
+
+        vm.prank(ALICE);
+        core.take(IOrderBookCore.Side.Bid, 100, 60, IOrderBookCore.FillPolicy.IOC);
+        assertEq(int256(_corePosition(ALICE)), 60, "long setup");
+
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 100, 100);
+
+        vm.prank(ALICE);
+        uint96 closed = module.takeReduceOnly(
+            IOrderBookCore.Side.Ask,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        assertEq(closed, 60, "reduce-only did not cap at position");
+        assertEq(int256(_corePosition(ALICE)), 0, "reduce-only crossed zero");
+    }
+
     function testModuleConditionalExecutesAgainstCore() public {
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 105, 100);
