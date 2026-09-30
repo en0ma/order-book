@@ -85,26 +85,36 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
     function testFuzz_AdvancedLifecycleSequence(uint256 seed) public {
         uint256 randomness = seed;
 
-        for (uint256 step; step < 8; ++step) {
+        for (uint256 step; step < 12; ++step) {
             randomness = uint256(keccak256(abi.encode(randomness, step)));
             _step(randomness);
             _checkAdvancedInvariants();
         }
+
+        _drainOwner(ALICE);
+        _drainOwner(BOB);
+        _checkTerminalClosure(ALICE);
+        _checkTerminalClosure(BOB);
     }
 
     function testAdvancedLifecycleDeterministicCorpus() public {
         for (uint256 seed = 1; seed <= 8; ++seed) {
             uint256 randomness = uint256(keccak256(abi.encode(seed, "advanced")));
-            for (uint256 step; step < 20; ++step) {
+            for (uint256 step; step < 24; ++step) {
                 randomness = uint256(keccak256(abi.encode(randomness, step)));
                 _step(randomness);
                 _checkAdvancedInvariants();
             }
+
+            _drainOwner(ALICE);
+            _drainOwner(BOB);
+            _checkTerminalClosure(ALICE);
+            _checkTerminalClosure(BOB);
         }
     }
 
     function _step(uint256 r) internal {
-        uint256 op = r % 11;
+        uint256 op = r % 12;
         address owner_ = ((r >> 8) & 1) == 0 ? ALICE : BOB;
 
         if (op == 0) {
@@ -127,6 +137,8 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
             _linkOTO(owner_, r);
         } else if (op == 9) {
             oracle.record(uint16(90 + ((r >> 16) % 21)));
+        } else if (op == 10) {
+            _syncConditional(r);
         } else {
             _replenish();
         }
@@ -177,6 +189,13 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
         if (next <= 1) return;
         uint64 id = uint64(1 + ((r >> 20) % (next - 1)));
         address(advanced).call(abi.encodeCall(advanced.executeConditionalOrder, (id)));
+    }
+
+    function _syncConditional(uint256 r) internal {
+        uint64 next = advanced.nextConditionalId();
+        if (next <= 1) return;
+        uint64 id = uint64(1 + ((r >> 20) % (next - 1)));
+        address(advanced).call(abi.encodeCall(advanced.syncRestingOrder, (id)));
     }
 
     function _cancelConditional(uint256 r) internal {
@@ -337,6 +356,56 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
         assertTrue(
             core.accountEquity(owner_) >= int256(reserved),
             "advanced reserved margin exceeds account equity"
+        );
+    }
+
+    function _drainOwner(address owner_) internal {
+        uint64 nextConditional = advanced.nextConditionalId();
+        for (uint64 id = 1; id < nextConditional; ++id) {
+            (bool live, address orderOwner) = advanced.conditionalLive(id);
+            if (!live || orderOwner != owner_) continue;
+
+            vm.prank(owner_);
+            address(advanced).call(
+                abi.encodeCall(advanced.cancelConditionalOrder, (id))
+            );
+        }
+
+        uint64 nextTrailing = advanced.nextTrailingId();
+        for (uint64 id = 1; id < nextTrailing; ++id) {
+            (bool live, address orderOwner) = advanced.trailingLive(id);
+            if (!live || orderOwner != owner_) continue;
+
+            vm.prank(owner_);
+            address(advanced).call(
+                abi.encodeCall(advanced.cancelTrailingOrder, (id))
+            );
+        }
+    }
+
+    function _checkTerminalClosure(address owner_) internal view {
+        assertEq(
+            uint256(advanced.activeAdvancedOrders(owner_)),
+            0,
+            "terminal cleanup left advanced orders"
+        );
+        assertEq(
+            uint256(core.activeQuoteCount(owner_)),
+            0,
+            "terminal cleanup left core quotes"
+        );
+
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(owner_);
+        assertEq(
+            int256(minPosition),
+            int256(settled),
+            "terminal cleanup left min reservation"
+        );
+        assertEq(
+            int256(maxPosition),
+            int256(settled),
+            "terminal cleanup left max reservation"
         );
     }
 
