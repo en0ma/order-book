@@ -38,10 +38,12 @@ contract ProRataOrderBook {
         uint32 generation;
     }
 
+    /// @dev Three int80 values fit in one storage slot. All position-changing paths
+    ///      use _positionAmount() so narrowing is checked.
     struct AccountRisk {
-        int128 settledPosition;
-        int128 minPosition;
-        int128 maxPosition;
+        int80 settledPosition;
+        int80 minPosition;
+        int80 maxPosition;
     }
 
     struct RiskConfig {
@@ -86,6 +88,7 @@ contract ProRataOrderBook {
     error InvalidLiquidationConfig();
     error NotLiquidatable();
     error InvalidLiquidationInput();
+    error PositionOverflow();
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
@@ -560,9 +563,9 @@ contract ProRataOrderBook {
         uint16 maintenanceBps = maintenanceMarginBps;
         if (maintenanceBps == 0) return 0;
 
-        int128 position = accountRisk[account].settledPosition;
+        int80 position = accountRisk[account].settledPosition;
         uint256 absPosition =
-            position < 0 ? uint256(uint128(-position)) : uint256(uint128(position));
+            position < 0 ? uint256(uint80(-position)) : uint256(uint80(position));
 
         return absPosition * uint256(_currentMarkTick()) * uint256(maintenanceBps) / 10_000;
     }
@@ -605,13 +608,13 @@ contract ProRataOrderBook {
         int256 equityBefore = accountEquity(account);
         if (equityBefore >= int256(maintenanceRequirement(account))) revert NotLiquidatable();
 
-        int128 position = accountRisk[account].settledPosition;
+        int80 position = accountRisk[account].settledPosition;
         if (position > 0) {
             closedLots = _takeFor(
                 account,
                 Side.Ask,
                 0,
-                uint96(uint128(position)),
+                uint96(uint80(position)),
                 FillPolicy.IOC,
                 true,
                 false
@@ -621,7 +624,7 @@ contract ProRataOrderBook {
                 account,
                 Side.Bid,
                 type(uint16).max,
-                uint96(uint128(-position)),
+                uint96(uint80(-position)),
                 FillPolicy.IOC,
                 true,
                 false
@@ -1004,20 +1007,25 @@ contract ProRataOrderBook {
         emit ConditionalOrderCancelled(orderId);
     }
 
+    function _positionAmount(uint96 lots) internal pure returns (int80 amount) {
+        if (lots > uint96(uint80(type(int80).max))) revert PositionOverflow();
+        amount = int80(uint80(lots));
+    }
+
     function _reduceOnlyLots(address account, Side side, uint96 requested)
         internal
         view
         returns (uint96)
     {
-        int128 position = accountRisk[account].settledPosition;
+        int80 position = accountRisk[account].settledPosition;
         if (side == Side.Bid) {
             if (position >= 0) return 0;
-            uint128 shortReducible = uint128(-position);
+            uint128 shortReducible = uint80(-position);
             return requested < shortReducible ? requested : uint96(shortReducible);
         }
 
         if (position <= 0) return 0;
-        uint128 longReducible = uint128(position);
+        uint128 longReducible = uint80(position);
         return requested < longReducible ? requested : uint96(longReducible);
     }
 
@@ -1031,7 +1039,7 @@ contract ProRataOrderBook {
         _settleExistingPositionFunding(account);
 
         AccountRisk storage a = accountRisk[account];
-        int128 amount = int128(uint128(filledLots));
+        int80 amount = _positionAmount(filledLots);
 
         if (side == Side.Bid) {
             a.settledPosition += amount;
@@ -1052,7 +1060,7 @@ contract ProRataOrderBook {
         if (filledLots == 0) return;
 
         AccountRisk storage a = accountRisk[maker];
-        int128 amount = int128(uint128(filledLots));
+        int80 amount = _positionAmount(filledLots);
         int256 notional = int256(uint256(filledLots) * uint256(tick));
 
         if (side == Side.Bid) {
@@ -1127,7 +1135,7 @@ contract ProRataOrderBook {
 
     function _expandRisk(address maker, Side side, uint96 lots) internal {
         AccountRisk storage a = accountRisk[maker];
-        int128 amount = int128(uint128(lots));
+        int80 amount = _positionAmount(lots);
         if (side == Side.Bid) {
             a.maxPosition += amount;
         } else {
@@ -1137,7 +1145,7 @@ contract ProRataOrderBook {
 
     function _shrinkRisk(address maker, Side side, uint96 lots) internal {
         AccountRisk storage a = accountRisk[maker];
-        int128 amount = int128(uint128(lots));
+        int80 amount = _positionAmount(lots);
         if (side == Side.Bid) {
             a.maxPosition -= amount;
         } else {
