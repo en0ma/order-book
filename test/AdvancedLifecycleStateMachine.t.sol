@@ -13,6 +13,14 @@ import {TestBase} from "./TestBase.sol";
 contract AdvancedOrderModuleHarness is AdvancedOrderModule {
     constructor(address core_, address oracle_) AdvancedOrderModule(core_, oracle_) {}
 
+    function nextConditionalId() external view returns (uint64) {
+        return nextConditionalOrderId;
+    }
+
+    function nextTrailingId() external view returns (uint64) {
+        return nextTrailingOrderId;
+    }
+
     function conditionalLive(uint64 id) external view returns (bool live, address owner_) {
         ConditionalOrder storage order = conditionalOrders[id];
         owner_ = order.owner;
@@ -165,14 +173,14 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
     }
 
     function _executeConditional(uint256 r) internal {
-        uint64 next = advanced.nextConditionalOrderId();
+        uint64 next = advanced.nextConditionalId();
         if (next <= 1) return;
         uint64 id = uint64(1 + ((r >> 20) % (next - 1)));
         address(advanced).call(abi.encodeCall(advanced.executeConditionalOrder, (id)));
     }
 
     function _cancelConditional(uint256 r) internal {
-        uint64 next = advanced.nextConditionalOrderId();
+        uint64 next = advanced.nextConditionalId();
         if (next <= 1) return;
         uint64 id = uint64(1 + ((r >> 20) % (next - 1)));
 
@@ -209,14 +217,14 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
     }
 
     function _executeTrailing(uint256 r) internal {
-        uint64 next = advanced.nextTrailingOrderId();
+        uint64 next = advanced.nextTrailingId();
         if (next <= 1) return;
         uint64 id = uint64(1 + ((r >> 20) % (next - 1)));
         address(advanced).call(abi.encodeCall(advanced.executeTrailingOrder, (id)));
     }
 
     function _cancelTrailing(uint256 r) internal {
-        uint64 next = advanced.nextTrailingOrderId();
+        uint64 next = advanced.nextTrailingId();
         if (next <= 1) return;
         uint64 id = uint64(1 + ((r >> 20) % (next - 1)));
         (, address owner_) = advanced.trailingLive(id);
@@ -227,7 +235,7 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
     }
 
     function _linkOCO(address owner_, uint256 r) internal {
-        uint64 next = advanced.nextConditionalOrderId();
+        uint64 next = advanced.nextConditionalId();
         if (next <= 2) return;
 
         uint64 first = uint64(1 + ((r >> 20) % (next - 1)));
@@ -239,7 +247,7 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
     }
 
     function _linkOTO(address owner_, uint256 r) internal {
-        uint64 next = advanced.nextConditionalOrderId();
+        uint64 next = advanced.nextConditionalId();
         if (next <= 2) return;
 
         uint64 parent = uint64(1 + ((r >> 20) % (next - 1)));
@@ -264,7 +272,7 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
         _checkOwner(ALICE);
         _checkOwner(BOB);
 
-        uint64 nextConditional = advanced.nextConditionalOrderId();
+        uint64 nextConditional = advanced.nextConditionalId();
         for (uint64 id = 1; id < nextConditional; ++id) {
             (address owner_,, uint64 sibling,,,,,,) = advanced.conditionalOrders(id);
 
@@ -302,13 +310,13 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
     function _checkOwner(address owner_) internal view {
         uint256 live;
 
-        uint64 nextConditional = advanced.nextConditionalOrderId();
+        uint64 nextConditional = advanced.nextConditionalId();
         for (uint64 id = 1; id < nextConditional; ++id) {
             (bool isLive, address orderOwner) = advanced.conditionalLive(id);
             if (isLive && orderOwner == owner_) ++live;
         }
 
-        uint64 nextTrailing = advanced.nextTrailingOrderId();
+        uint64 nextTrailing = advanced.nextTrailingId();
         for (uint64 id = 1; id < nextTrailing; ++id) {
             (bool isLive, address orderOwner) = advanced.trailingLive(id);
             if (isLive && orderOwner == owner_) ++live;
