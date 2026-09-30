@@ -232,6 +232,37 @@ contract DeployableCoreTest is TestBase {
         assertTrue(!ok, "risk-increasing quote admitted against stale deposit balance");
     }
 
+    function testProtocolFeesCanBeAllocatedToInsurance() public {
+        MockERC20 feeToken = new MockERC20();
+        MockMarkOracle feeOracle = new MockMarkOracle(100);
+        OrderBookCore feeCore =
+            new OrderBookCore(address(feeToken), address(feeOracle), 20, 1_000, 10, 5);
+
+        _fundOn(feeCore, feeToken, ALICE, 100_000);
+        _fundOn(feeCore, feeToken, BOB, 100_000);
+
+        vm.prank(ALICE);
+        feeCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(BOB);
+        feeCore.take(IOrderBookCore.Side.Bid, 100, 40, IOrderBookCore.FillPolicy.IOC);
+
+        assertEq(feeCore.protocolFeesAccrued(), 2, "fee accrual mismatch");
+
+        feeCore.allocateProtocolFeesToInsurance(2);
+
+        assertEq(feeCore.protocolFeesAccrued(), 0, "protocol fee not allocated");
+        assertEq(feeCore.insuranceReserves(), 2, "insurance reserve not credited");
+    }
+
+    function testInsuranceFundingUsesRealTokenCustody() public {
+        token.mint(address(this), 5_000);
+        core.fundInsurance(5_000);
+
+        assertEq(core.insuranceReserves(), 5_000, "insurance accounting mismatch");
+        assertEq(token.balanceOf(address(core)), 305_000, "insurance custody mismatch");
+    }
+
     function testFundingUpdaterCanBeRotatedWithoutChangingOwner() public {
         address updater = address(0xF00D);
 
