@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches: ["main", "feat/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      ETH_RPC: ${{ secrets.ETH_RPC }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Format sources
+        run: forge fmt
+
+      - name: Unit, fuzz, and gas ceiling tests
+        run: forge test --no-match-contract MainnetForkTest -vvv
+
+      - name: Ethereum mainnet fork test
+        run: |
+          test -n "$ETH_RPC" || (echo "ETH_RPC secret is not configured" && exit 1)
+          CLEAN_RPC="$(printf '%s' "$ETH_RPC" | xargs)"
+          if ETH_RPC="$CLEAN_RPC" forge test --match-contract MainnetForkTest -vvv; then
+            exit 0
+          fi
+          echo "::warning::Configured ETH_RPC could not create a Foundry fork; retrying public mainnet fallback"
+          ETH_RPC="https://ethereum-rpc.publicnode.com" forge test --match-contract MainnetForkTest -vvv
+
+      - name: Contract sizes
+        run: |
+          forge build --sizes | tee contract-sizes.txt
+          FOUNDRY_PROFILE=size forge build --sizes | tee contract-sizes-size-profile.txt
+
+      - name: Enforce deployable EIP-170 sizes
+        run: |
+          FOUNDRY_PROFILE=size forge build
+          python3 script/check_deployable_sizes.py
+
+      - name: Gas report
+        run: forge test --no-match-contract MainnetForkTest --gas-report | tee gas-report.txt
+
+      - name: Gas snapshot
+        run: forge snapshot --no-match-contract MainnetForkTest
+
+      - name: Upload gas artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-results
+          path: |
+            gas-report.txt
+            contract-sizes.txt
+            contract-sizes-size-profile.txt
+            .gas-snapshot

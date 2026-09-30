@@ -1,0 +1,1143 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {ProRataOrderBook} from "../src/ProRataOrderBook.sol";
+import {TestBase} from "./TestBase.sol";
+import {MockERC20} from "./mocks/MockERC20.sol";
+import {MockMarkOracle} from "./mocks/MockMarkOracle.sol";
+import {MockExtremaOracle} from "./mocks/MockExtremaOracle.sol";
+
+contract ProRataOrderBookTest is TestBase {
+    ProRataOrderBook internal book;
+
+    address internal constant ALICE = address(0xA11CE);
+    address internal constant BOB = address(0xB0B);
+    address internal constant CAROL = address(0xCA401);
+
+    function setUp() public {
+        book = new ProRataOrderBook();
+    }
+
+    function testBestPricePriorityAndProRataFill() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 101, 100);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 101, 300);
+
+        vm.prank(CAROL);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 102, 500);
+
+        uint96 filled =
+            book.take(ProRataOrderBook.Side.Bid, 102, 200, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 200, "wrong taker fill");
+
+        (, , uint96 aliceRemaining, uint96 aliceFill) =
+            book.quoteState(ALICE, ProRataOrderBook.Side.Ask, 101);
+        (, , uint96 bobRemaining, uint96 bobFill) =
+            book.quoteState(BOB, ProRataOrderBook.Side.Ask, 101);
+
+        assertEq(aliceFill, 50, "alice pro-rata fill");
+        assertEq(bobFill, 150, "bob pro-rata fill");
+        assertEq(aliceRemaining + bobRemaining, 200, "remaining tick liquidity");
+    }
+
+    function testLateMakerDoesNotReceiveHistoricalFill() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        book.take(ProRataOrderBook.Side.Bid, 100, 40, ProRataOrderBook.FillPolicy.IOC);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 60);
+
+        (, , , uint96 bobHistoricalFill) =
+            book.quoteState(BOB, ProRataOrderBook.Side.Ask, 100);
+        assertEq(bobHistoricalFill, 0, "late maker inherited old fill");
+
+        book.take(ProRataOrderBook.Side.Bid, 100, 60, ProRataOrderBook.FillPolicy.IOC);
+
+        (, , , uint96 aliceFill) =
+            book.quoteState(ALICE, ProRataOrderBook.Side.Ask, 100);
+        (, , , uint96 bobFill) = book.quoteState(BOB, ProRataOrderBook.Side.Ask, 100);
+
+        assertTrue(aliceFill > 40, "alice did not receive future fill");
+        assertTrue(bobFill > 0, "bob missed future fill");
+    }
+
+    function testCancellationLeavesNoTombstone() public {
+        vm.prank(ALICE);
+        uint128 shares = book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
+
+        vm.prank(ALICE);
+        uint96 removed = book.removeShares(ProRataOrderBook.Side.Bid, 99, shares);
+        assertEq(removed, 100, "full cancellation should redeem all lots");
+
+        (bool ok,) = book.bestBid();
+        assertTrue(!ok, "cancelled tick remained occupied");
+    }
+
+    function testFullDepletionRollsGenerationAndSettlesLater() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        book.take(ProRataOrderBook.Side.Bid, 100, 100, ProRataOrderBook.FillPolicy.FOK);
+
+        vm.prank(ALICE);
+        uint96 settled = book.settle(ProRataOrderBook.Side.Ask, 100);
+        assertEq(settled, 100, "closed generation did not settle");
+
+        (int128 position,,) = book.accountRisk(ALICE);
+        assertEq(int256(position), -100, "ask fill should create short position");
+    }
+
+    function testFokDoesNotPartiallyExecute() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 40);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 101, 50);
+
+        (bool ok,) = address(book).call(
+            abi.encodeCall(
+                book.take,
+                (
+                    ProRataOrderBook.Side.Bid,
+                    uint16(101),
+                    uint96(100),
+                    ProRataOrderBook.FillPolicy.FOK
+                )
+            )
+        );
+        assertTrue(!ok, "FOK should fail when aggregate liquidity is insufficient");
+
+        (, uint96 l0,) = book.pools(ProRataOrderBook.Side.Ask, 100);
+        (, uint96 l1,) = book.pools(ProRataOrderBook.Side.Ask, 101);
+
+        assertEq(l0, 40, "FOK mutated first level");
+        assertEq(l1, 50, "FOK mutated second level");
+    }
+
+    function testFuzzConservation(uint256 aRaw, uint256 bRaw, uint256 fillRaw) public {
+        uint96 a = boundNonZero(aRaw, 1_000_000);
+        uint96 b = boundNonZero(bRaw, 1_000_000);
+        uint96 total = a + b;
+        uint96 fill = uint96(fillRaw % (uint256(total) + 1));
+
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 500, a);
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 500, b);
+
+        if (fill != 0) {
+            book.take(ProRataOrderBook.Side.Bid, 500, fill, ProRataOrderBook.FillPolicy.IOC);
+        }
+
+        (, uint96 remaining,) = book.pools(ProRataOrderBook.Side.Ask, 500);
+
+        assertEq(
+            book.totalAddedLots(),
+            book.totalExecutedLots() + book.totalRemovedLots() + remaining,
+            "global lot conservation"
+        );
+    }
+
+    function testERC20CollateralCustodyAndWithdrawal() public {
+        MockERC20 token = new MockERC20();
+        MockMarkOracle oracle = new MockMarkOracle(100);
+        book.configureSettlement(address(token), address(oracle));
+        book.configureRisk(100, 10, 1_000);
+
+        token.mint(ALICE, 50_000);
+
+        vm.prank(ALICE);
+        token.approve(address(book), 50_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(50_000);
+
+        assertEq(token.balanceOf(address(book)), 50_000, "book did not custody collateral");
+        assertEq(book.collateralBalance(ALICE), 50_000, "internal collateral mismatch");
+
+        vm.prank(ALICE);
+        uint128 shares = book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
+
+        uint256 reserved = book.reservedMargin(ALICE);
+        assertTrue(reserved > 0, "margin was not reserved");
+
+        vm.prank(ALICE);
+        (bool ok,) =
+            address(book).call(abi.encodeCall(book.withdrawCollateral, (1_000)));
+        assertTrue(!ok, "withdraw ignored unsettled quote state");
+
+        vm.prank(ALICE);
+        book.removeShares(ProRataOrderBook.Side.Bid, 99, shares);
+
+        assertEq(book.activeQuoteCount(ALICE), 0, "quote count did not clear");
+
+        vm.prank(ALICE);
+        book.withdrawCollateral(1_000);
+
+        assertEq(token.balanceOf(ALICE), 1_000, "withdraw did not transfer token");
+        assertEq(token.balanceOf(address(book)), 49_000, "custody balance mismatch");
+    }
+
+    function testExternalOracleDrivesExecutionBand() public {
+        MockERC20 token = new MockERC20();
+        MockMarkOracle oracle = new MockMarkOracle(100);
+        book.configureSettlement(address(token), address(oracle));
+        book.configureRisk(1, 5, 1_000);
+
+        token.mint(ALICE, 100_000);
+        token.mint(address(this), 100_000);
+        vm.prank(ALICE);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        token.approve(address(book), type(uint256).max);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 104, 100);
+
+        oracle.setMarkTick(90);
+
+        uint96 filled =
+            book.take(ProRataOrderBook.Side.Bid, 200, 100, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 0, "external oracle was ignored");
+
+        oracle.setMarkTick(100);
+        filled = book.take(ProRataOrderBook.Side.Bid, 200, 100, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 100, "oracle-qualified quote did not execute");
+    }
+
+    function testLazyFundingAccruesFromFillIndexWithoutMakerWrite() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        book.setFundingIndex(int128(1e18));
+
+        uint96 filled =
+            book.take(ProRataOrderBook.Side.Bid, 100, 40, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 40, "wrong fill");
+
+        // Funding moved after the maker fill. The taker path still did not touch maker funding.
+        assertEq(book.fundingCashflow(ALICE), 0, "fill eagerly wrote maker funding");
+
+        book.setFundingIndex(int128(2e18));
+
+        vm.prank(ALICE);
+        uint96 settled = book.settle(ProRataOrderBook.Side.Ask, 100);
+        assertEq(settled, 40, "wrong lazy fill settlement");
+
+        // A short receives +1 unit per lot when the cumulative funding index rises by 1e18.
+        assertEq(book.fundingCashflow(ALICE), 40, "lazy fill funding mismatch");
+    }
+
+    function testFundingIsAttributedProRataAcrossMakers() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 300);
+
+        book.setFundingIndex(int128(1e18));
+        book.take(ProRataOrderBook.Side.Bid, 100, 200, ProRataOrderBook.FillPolicy.IOC);
+        book.setFundingIndex(int128(2e18));
+
+        vm.prank(ALICE);
+        book.settle(ProRataOrderBook.Side.Ask, 100);
+        vm.prank(BOB);
+        book.settle(ProRataOrderBook.Side.Ask, 100);
+
+        assertEq(book.fundingCashflow(ALICE), 50, "alice funding share");
+        assertEq(book.fundingCashflow(BOB), 150, "bob funding share");
+        assertEq(
+            book.fundingCashflow(ALICE) + book.fundingCashflow(BOB),
+            200,
+            "aggregate funding attribution"
+        );
+    }
+
+    function testMaterializedPositionContinuesFundingAfterQuoteSettlement() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        book.setFundingIndex(int128(1e18));
+        book.take(ProRataOrderBook.Side.Bid, 100, 40, ProRataOrderBook.FillPolicy.IOC);
+
+        book.setFundingIndex(int128(2e18));
+        vm.prank(ALICE);
+        book.settle(ProRataOrderBook.Side.Ask, 100);
+
+        assertEq(book.fundingCashflow(ALICE), 40, "first funding interval mismatch");
+
+        book.setFundingIndex(int128(3e18));
+        vm.prank(ALICE);
+        book.settleFunding();
+
+        assertEq(book.fundingCashflow(ALICE), 80, "materialized position funding mismatch");
+    }
+
+    function testAggressiveTakeMaterializesTakerPosition() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        uint96 filled =
+            book.take(ProRataOrderBook.Side.Bid, 100, 40, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 40, "wrong taker fill");
+
+        (int128 settled, int128 minPosition, int128 maxPosition) = book.accountRisk(address(this));
+        assertEq(int256(settled), 40, "taker position not materialized");
+        assertEq(int256(minPosition), 40, "taker min envelope");
+        assertEq(int256(maxPosition), 40, "taker max envelope");
+    }
+
+    function testReduceOnlyCannotFlipPosition() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+        book.take(ProRataOrderBook.Side.Bid, 100, 60, ProRataOrderBook.FillPolicy.IOC);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
+
+        uint96 reduced =
+            book.takeReduceOnly(ProRataOrderBook.Side.Ask, 99, 100, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(reduced, 60, "reduce-only did not cap at position");
+
+        (int128 settled,,) = book.accountRisk(address(this));
+        assertEq(int256(settled), 0, "reduce-only flipped position");
+    }
+
+    function testTradeCashflowKeepsEquityFlatAtExecutionPrice() public {
+        book.configureRisk(100, 10, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        book.take(ProRataOrderBook.Side.Bid, 100, 40, ProRataOrderBook.FillPolicy.IOC);
+
+        assertEq(book.tradeCashflow(address(this)), -4_000, "taker notional mismatch");
+        assertEq(book.accountEquity(address(this)), 100_000, "equity changed at execution mark");
+    }
+
+    function testWithdrawalUsesMarkedEquityNotRawCollateral() public {
+        book.configureRisk(100, 20, 2_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(3_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        vm.prank(ALICE);
+        book.take(ProRataOrderBook.Side.Bid, 100, 100, ProRataOrderBook.FillPolicy.IOC);
+
+        book.setMarkTick(80);
+
+        vm.prank(ALICE);
+        (bool ok,) =
+            address(book).call(abi.encodeCall(book.withdrawCollateral, (uint256(1_500))));
+        assertTrue(!ok, "withdraw ignored mark-to-market loss");
+
+        assertEq(book.collateralBalance(ALICE), 3_000, "failed withdraw changed collateral");
+    }
+
+    function testLiquidationClosesUnderwaterPositionAtOracleBandLiquidity() public {
+        book.configureRisk(100, 20, 2_000);
+        book.configureLiquidation(1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(3_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        vm.prank(ALICE);
+        book.take(ProRataOrderBook.Side.Bid, 100, 100, ProRataOrderBook.FillPolicy.IOC);
+
+        assertTrue(!book.isLiquidatable(ALICE), "fresh position should be healthy");
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 70, 100);
+
+        book.setMarkTick(70);
+        assertTrue(book.isLiquidatable(ALICE), "loss-making position not liquidatable");
+
+        ProRataOrderBook.Side[] memory sides = new ProRataOrderBook.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](0);
+
+        uint96 closed = book.liquidate(ALICE, sides, ticks, conditionals);
+        assertEq(closed, 100, "liquidation did not close full position");
+
+        (int128 settled,,) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "liquidation left position open");
+    }
+
+    function testMinimumFillRevertsWithoutMutatingBook() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 40);
+
+        (bool ok,) = address(book).call(
+            abi.encodeCall(
+                book.takeMinFill,
+                (ProRataOrderBook.Side.Bid, uint16(100), uint96(100), uint96(50))
+            )
+        );
+        assertTrue(!ok, "minimum-fill unexpectedly executed");
+
+        (, uint96 remaining,) = book.pools(ProRataOrderBook.Side.Ask, 100);
+        assertEq(remaining, 40, "failed minimum-fill mutated liquidity");
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 30);
+
+        uint96 filled =
+            book.takeMinFill(ProRataOrderBook.Side.Bid, 100, 100, 50);
+        assertEq(filled, 70, "minimum-fill should consume available quantity");
+    }
+
+    function testOTOBracketActivatesAtActualParentFillAndOCOClosesOneExit() public {
+        book.configureRisk(100, 20, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+        vm.prank(CAROL);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 60);
+
+        vm.prank(ALICE);
+        uint64 parent = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            100,
+            100,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        uint64 takeProfit = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            true,
+            110,
+            105,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        uint64 stopLoss = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            false,
+            90,
+            80,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        book.linkOCO(takeProfit, stopLoss);
+        vm.prank(ALICE);
+        book.linkOTO(parent, takeProfit);
+        vm.prank(ALICE);
+        book.linkOTO(parent, stopLoss);
+
+        assertTrue(!book.conditionalOrderActive(takeProfit), "TP should be dormant");
+        assertTrue(!book.conditionalOrderActive(stopLoss), "SL should be dormant");
+
+        uint96 parentFilled = book.executeConditionalOrder(parent);
+        assertEq(parentFilled, 60, "parent fill mismatch");
+        assertTrue(book.conditionalOrderActive(takeProfit), "TP did not activate");
+        assertTrue(book.conditionalOrderActive(stopLoss), "SL did not activate");
+
+        (address tpOwner, uint96 tpLots,,,,,,,) = book.conditionalOrders(takeProfit);
+        (address slOwner, uint96 slLots,,,,,,,) = book.conditionalOrders(stopLoss);
+        assertTrue(tpOwner == ALICE && slOwner == ALICE, "child owner mismatch");
+        assertEq(tpLots, 60, "TP not resized to actual fill");
+        assertEq(slLots, 60, "SL not resized to actual fill");
+
+        vm.prank(CAROL);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 110, 60);
+
+        book.setMarkTick(110);
+        uint96 exited = book.executeConditionalOrder(takeProfit);
+        assertEq(exited, 60, "TP exit mismatch");
+        assertTrue(!book.conditionalOrderActive(stopLoss), "OCO sibling not cancelled");
+
+        (int80 settled,,) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "bracket did not close position");
+    }
+
+    function testCancellingOTOParentCancelsDormantChildren() public {
+        vm.prank(ALICE);
+        uint64 parent = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            100,
+            100,
+            10,
+            ProRataOrderBook.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        uint64 child = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            true,
+            110,
+            105,
+            10,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        book.linkOTO(parent, child);
+        assertTrue(!book.conditionalOrderActive(child), "child should be dormant");
+
+        vm.prank(ALICE);
+        book.cancelConditionalOrder(parent);
+
+        assertTrue(!book.conditionalOrderActive(parent), "parent remained active");
+        assertTrue(!book.conditionalOrderActive(child), "dormant child survived parent cancel");
+
+        vm.prank(ALICE);
+        (bool ok,) =
+            address(book).call(abi.encodeCall(book.cancelConditionalOrder, (child)));
+        assertTrue(ok, "dormant child should remain safely cancellable/idempotent");
+    }
+
+    function testZeroFillOTOParentCancelsChildren() public {
+        book.configureRisk(100, 20, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        uint64 parent = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            100,
+            100,
+            20,
+            ProRataOrderBook.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        uint64 child = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            true,
+            110,
+            105,
+            20,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        book.linkOTO(parent, child);
+
+        uint96 filled = book.executeConditionalOrder(parent);
+        assertEq(filled, 0, "zero-liquidity parent unexpectedly filled");
+        assertTrue(!book.conditionalOrderActive(child), "zero-fill child became active");
+    }
+
+    function testRestingTriggeredLimitLazilyExpandsBracketOnMakerSettlement() public {
+        book.configureRisk(100, 30, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+        vm.prank(CAROL);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        uint64 parent = book.placeTriggeredLimitOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            100,
+            103,
+            100
+        );
+
+        vm.prank(ALICE);
+        uint64 takeProfit = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            true,
+            110,
+            105,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        uint64 stopLoss = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            false,
+            90,
+            80,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        book.linkOCO(takeProfit, stopLoss);
+        vm.prank(ALICE);
+        book.linkOTO(parent, takeProfit);
+        vm.prank(ALICE);
+        book.linkOTO(parent, stopLoss);
+
+        uint96 immediate = book.executeConditionalOrder(parent);
+        assertEq(immediate, 0, "parent should rest without immediate fill");
+        assertTrue(!book.conditionalOrderActive(takeProfit), "TP should stay dormant");
+        assertTrue(!book.conditionalOrderActive(stopLoss), "SL should stay dormant");
+        assertEq(
+            book.restingBracketAt(ALICE, ProRataOrderBook.Side.Bid, 103),
+            parent,
+            "resting bracket link missing"
+        );
+
+        vm.prank(BOB);
+        uint96 firstFill =
+            book.take(ProRataOrderBook.Side.Ask, 103, 40, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(firstFill, 40, "first maker fill mismatch");
+
+        vm.prank(ALICE);
+        book.settle(ProRataOrderBook.Side.Bid, 103);
+
+        assertTrue(book.conditionalOrderActive(takeProfit), "TP did not activate after settlement");
+        assertTrue(book.conditionalOrderActive(stopLoss), "SL did not activate after settlement");
+
+        (, uint96 tpLots,,,,,,,) = book.conditionalOrders(takeProfit);
+        (, uint96 slLots,,,,,,,) = book.conditionalOrders(stopLoss);
+        assertEq(tpLots, 40, "TP size after first maker settlement");
+        assertEq(slLots, 40, "SL size after first maker settlement");
+
+        vm.prank(BOB);
+        uint96 secondFill =
+            book.take(ProRataOrderBook.Side.Ask, 103, 30, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(secondFill, 30, "second maker fill mismatch");
+
+        vm.prank(ALICE);
+        book.syncRestingBracket(parent);
+
+        (, tpLots,,,,,,,) = book.conditionalOrders(takeProfit);
+        (, slLots,,,,,,,) = book.conditionalOrders(stopLoss);
+        assertEq(tpLots, 70, "TP did not lazily expand");
+        assertEq(slLots, 70, "SL did not lazily expand");
+
+        (, uint96 remainingEntry,) = book.pools(ProRataOrderBook.Side.Bid, 103);
+        assertEq(remainingEntry, 30, "entry remainder mismatch");
+
+        vm.prank(CAROL);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 110, 70);
+
+        book.setMarkTick(110);
+        uint96 exited = book.executeConditionalOrder(takeProfit);
+        assertEq(exited, 70, "TP did not close cumulative filled entry");
+        assertTrue(!book.conditionalOrderActive(stopLoss), "OCO sibling remained active");
+
+        (, uint96 entryAfterExit,) = book.pools(ProRataOrderBook.Side.Bid, 103);
+        assertEq(entryAfterExit, 0, "resting entry remainder was not cancelled");
+
+        (int80 settled,,) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "lazy bracket did not close position");
+    }
+
+    function testGenericCancelIsBlockedForBracketLinkedShareSlice() public {
+        book.configureRisk(100, 30, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        uint64 parent = book.placeTriggeredLimitOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            100,
+            103,
+            50
+        );
+
+        vm.prank(ALICE);
+        uint64 child = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            true,
+            110,
+            105,
+            50,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        book.linkOTO(parent, child);
+
+        book.executeConditionalOrder(parent);
+
+        (uint128 shares,,) = book.quotes(ALICE, ProRataOrderBook.Side.Bid, 103);
+
+        vm.prank(ALICE);
+        (bool genericCancel,) = address(book).call(
+            abi.encodeCall(
+                book.removeShares,
+                (ProRataOrderBook.Side.Bid, uint16(103), shares)
+            )
+        );
+        assertTrue(!genericCancel, "generic cancellation bypassed bracket share lock");
+
+        vm.prank(ALICE);
+        uint96 removed = book.cancelRestingBracket(parent);
+        assertEq(removed, 50, "explicit bracket cancellation mismatch");
+
+        (, uint96 remaining,) = book.pools(ProRataOrderBook.Side.Bid, 103);
+        assertEq(remaining, 0, "bracket liquidity remained after explicit cancellation");
+    }
+
+    function testTriggeredLimitActivatesIntoRestingBook() public {
+        book.configureRisk(100, 20, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        uint64 orderId = book.placeTriggeredLimitOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            105,
+            103,
+            40
+        );
+
+        book.setMarkTick(105);
+        uint96 filled = book.executeConditionalOrder(orderId);
+        assertEq(filled, 0, "non-marketable triggered limit unexpectedly filled");
+
+        (, uint96 remaining,) = book.pools(ProRataOrderBook.Side.Bid, 103);
+        assertEq(remaining, 40, "triggered limit did not rest");
+        assertEq(book.activeQuoteCount(ALICE), 1, "resting quote count missing");
+    }
+
+    function testTriggeredLimitTakesThenRestsRemainder() public {
+        book.configureRisk(100, 20, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 102, 25);
+
+        vm.prank(ALICE);
+        uint64 orderId = book.placeTriggeredLimitOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            105,
+            103,
+            40
+        );
+
+        book.setMarkTick(105);
+        uint96 filled = book.executeConditionalOrder(orderId);
+        assertEq(filled, 25, "triggered limit aggressive portion mismatch");
+
+        (, uint96 resting,) = book.pools(ProRataOrderBook.Side.Bid, 103);
+        assertEq(resting, 15, "triggered limit remainder did not rest");
+
+        (int80 settled, int80 minPosition, int80 maxPosition) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 25, "triggered limit taker fill not materialized");
+        assertEq(int256(minPosition), 25, "triggered limit min envelope");
+        assertEq(int256(maxPosition), 40, "triggered limit reserved max envelope");
+    }
+
+    function testConditionalOrderTriggersPermissionlessly() public {
+        book.configureRisk(100, 10, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 104, 100);
+
+        vm.prank(ALICE);
+        uint64 orderId = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            105,
+            110,
+            40,
+            ProRataOrderBook.FillPolicy.IOC,
+            false
+        );
+
+        (bool early,) =
+            address(book).call(abi.encodeCall(book.executeConditionalOrder, (orderId)));
+        assertTrue(!early, "conditional executed before trigger");
+
+        book.setMarkTick(105);
+
+        uint96 filled = book.executeConditionalOrder(orderId);
+        assertEq(filled, 40, "conditional fill mismatch");
+        assertTrue(!book.conditionalOrderActive(orderId), "conditional remained active");
+
+        (int128 settled,,) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 40, "conditional owner position not updated");
+    }
+
+    function testOCOCancelsSiblingAndReleasesReservation() public {
+        book.configureRisk(100, 10, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 104, 100);
+
+        vm.prank(ALICE);
+        uint64 first = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            100,
+            110,
+            25,
+            ProRataOrderBook.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        uint64 second = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Bid,
+            false,
+            90,
+            110,
+            25,
+            ProRataOrderBook.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        book.linkOCO(first, second);
+
+        uint256 reservedBefore = book.reservedMargin(ALICE);
+        uint96 filled = book.executeConditionalOrder(first);
+        assertEq(filled, 25, "OCO primary fill mismatch");
+        assertTrue(!book.conditionalOrderActive(second), "OCO sibling remained active");
+        assertTrue(book.reservedMargin(ALICE) < reservedBefore, "OCO reservation not released");
+    }
+
+    function testReduceOnlyConditionalCannotFlipPosition() public {
+        book.configureRisk(100, 10, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        vm.prank(ALICE);
+        book.take(ProRataOrderBook.Side.Bid, 100, 60, ProRataOrderBook.FillPolicy.IOC);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
+
+        vm.prank(ALICE);
+        uint64 stopId = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            false,
+            95,
+            90,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        book.setMarkTick(95);
+        uint96 reduced = book.executeConditionalOrder(stopId);
+        assertEq(reduced, 60, "reduce-only conditional did not cap at position");
+
+        (int128 settled,,) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "reduce-only conditional flipped position");
+    }
+
+    function testTrailingStopUsesOnChainExtremaAndClosesReduceOnlyPosition() public {
+        MockERC20 token = new MockERC20();
+        MockExtremaOracle oracle = new MockExtremaOracle(100);
+
+        book.configureSettlement(address(token), address(oracle));
+        book.configureExtremaOracle(address(oracle));
+        book.configureRisk(100, 30, 1_000);
+
+        token.mint(ALICE, 100_000);
+        token.mint(BOB, 100_000);
+        token.mint(CAROL, 100_000);
+
+        vm.prank(ALICE);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(CAROL);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(CAROL);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 60);
+
+        vm.prank(ALICE);
+        book.take(ProRataOrderBook.Side.Bid, 100, 60, ProRataOrderBook.FillPolicy.IOC);
+
+        vm.prank(ALICE);
+        uint64 trailingId = book.placeTrailingOrder(
+            ProRataOrderBook.Side.Ask,
+            10,
+            80,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        oracle.setMarkTick(120);
+
+        (bool early,) =
+            address(book).call(abi.encodeCall(book.executeTrailingOrder, (trailingId)));
+        assertTrue(!early, "trailing stop fired at watermark");
+
+        vm.prank(CAROL);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 109, 60);
+
+        oracle.setMarkTick(109);
+
+        uint96 filled = book.executeTrailingOrder(trailingId);
+        assertEq(filled, 60, "trailing stop did not cap at reducible position");
+        assertEq(book.activeTrailingCount(ALICE), 0, "trailing count not cleared");
+
+        (int80 settled,,) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "trailing stop did not close long");
+    }
+
+    function testLiquidationCanAtomicallyCancelTrailingOrder() public {
+        MockERC20 token = new MockERC20();
+        MockExtremaOracle oracle = new MockExtremaOracle(100);
+
+        book.configureSettlement(address(token), address(oracle));
+        book.configureExtremaOracle(address(oracle));
+        book.configureRisk(100, 40, 2_000);
+        book.configureLiquidation(1_000);
+
+        token.mint(ALICE, 3_000);
+        token.mint(BOB, 100_000);
+        token.mint(CAROL, 100_000);
+
+        vm.prank(ALICE);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(ALICE);
+        book.depositCollateral(3_000);
+
+        vm.prank(BOB);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(CAROL);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(CAROL);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        vm.prank(ALICE);
+        book.take(ProRataOrderBook.Side.Bid, 100, 100, ProRataOrderBook.FillPolicy.IOC);
+
+        vm.prank(ALICE);
+        uint64 trailingId = book.placeTrailingOrder(
+            ProRataOrderBook.Side.Ask,
+            10,
+            50,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(CAROL);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 70, 100);
+
+        oracle.setMarkTick(70);
+        assertTrue(!book.isLiquidatable(ALICE), "active trailing order should require cleanup");
+
+        ProRataOrderBook.Side[] memory sides = new ProRataOrderBook.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](1);
+        trailings[0] = trailingId;
+
+        uint96 closed =
+            book.liquidateWithTrailing(ALICE, sides, ticks, conditionals, trailings);
+
+        assertEq(closed, 100, "liquidation did not close after trailing cleanup");
+        assertEq(book.activeTrailingCount(ALICE), 0, "trailing order not cancelled");
+
+        (int80 settled,,) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "liquidation left position open");
+    }
+
+    function testRiskRejectsUndercollateralizedQuote() public {
+        book.configureRisk(100, 10, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(500);
+
+        vm.prank(ALICE);
+        (bool ok,) = address(book).call(
+            abi.encodeCall(book.addLiquidity, (ProRataOrderBook.Side.Bid, uint16(99), uint96(100)))
+        );
+
+        assertTrue(!ok, "undercollateralized quote entered the book");
+
+        (bool hasBid,) = book.bestBid();
+        assertTrue(!hasBid, "failed quote left executable liquidity");
+    }
+
+    function testExecutionBandLeavesOutOfBandQuoteRestingButUnfilled() public {
+        book.configureRisk(100, 5, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 104, 100);
+
+        book.depositCollateral(100_000);
+        book.setMarkTick(90);
+
+        uint96 filled =
+            book.take(ProRataOrderBook.Side.Bid, 200, 100, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 0, "out-of-band quote executed");
+
+        (, uint96 remaining,) = book.pools(ProRataOrderBook.Side.Ask, 104);
+        assertEq(remaining, 100, "out-of-band quote was mutated");
+
+        book.setMarkTick(100);
+        filled = book.take(ProRataOrderBook.Side.Bid, 200, 100, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 100, "quote did not reactivate inside oracle band");
+    }
+
+    function testOracleRisePastPoolRiskCeilingFreezesOldLiquidity() public {
+        book.configureRisk(100, 5, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 104, 100);
+
+        assertEq(book.poolRiskCeilingTick(ProRataOrderBook.Side.Ask, 104), 105, "wrong pool ceiling");
+
+        book.depositCollateral(100_000);
+        book.setMarkTick(106);
+
+        uint96 filled =
+            book.take(ProRataOrderBook.Side.Bid, 200, 100, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 0, "stale risk pool executed above reserved ceiling");
+
+        (, uint96 remaining,) = book.pools(ProRataOrderBook.Side.Ask, 104);
+        assertEq(remaining, 100, "stale risk pool was mutated");
+    }
+
+    function testMakerRiskStateDoesNotChangeOnTakerFill() public {
+        book.configureRisk(100, 10, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
+
+        book.depositCollateral(100_000);
+
+        uint256 collateralBefore = book.collateralBalance(ALICE);
+        uint256 reservedBefore = book.reservedMargin(ALICE);
+        (int128 settledBefore, int128 minBefore, int128 maxBefore) = book.accountRisk(ALICE);
+
+        book.take(ProRataOrderBook.Side.Ask, 99, 60, ProRataOrderBook.FillPolicy.IOC);
+
+        assertEq(book.collateralBalance(ALICE), collateralBefore, "fill wrote maker collateral");
+        assertEq(book.reservedMargin(ALICE), reservedBefore, "fill wrote maker reserve");
+
+        (int128 settledAfter, int128 minAfter, int128 maxAfter) = book.accountRisk(ALICE);
+        assertEq(int256(settledAfter), int256(settledBefore), "fill materialized maker position");
+        assertEq(int256(minAfter), int256(minBefore), "fill mutated min envelope");
+        assertEq(int256(maxAfter), int256(maxBefore), "fill mutated max envelope");
+    }
+
+    function testSettlingFillTightensExposureEnvelope() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
+
+        book.take(ProRataOrderBook.Side.Ask, 99, 60, ProRataOrderBook.FillPolicy.IOC);
+
+        vm.prank(ALICE);
+        book.settle(ProRataOrderBook.Side.Bid, 99);
+
+        (int128 settled, int128 minPosition, int128 maxPosition) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 60, "settled position mismatch");
+        assertEq(int256(minPosition), 60, "minimum envelope did not tighten");
+        assertEq(int256(maxPosition), 100, "remaining bid envelope changed incorrectly");
+    }
+
+    function testRiskEnvelopeDoesNotMoveOnFill() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
+
+        (, int128 minBefore, int128 maxBefore) = book.accountRisk(ALICE);
+        assertEq(int256(minBefore), 0, "unexpected min bound");
+        assertEq(int256(maxBefore), 100, "unexpected max bound");
+
+        book.take(ProRataOrderBook.Side.Ask, 99, 60, ProRataOrderBook.FillPolicy.IOC);
+
+        (, int128 minAfter, int128 maxAfter) = book.accountRisk(ALICE);
+        assertEq(int256(minAfter), 0, "fill mutated min envelope");
+        assertEq(int256(maxAfter), 100, "fill mutated max envelope");
+
+        vm.prank(ALICE);
+        book.settle(ProRataOrderBook.Side.Bid, 99);
+
+        (int128 settled,, int128 maxSettled) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 60, "settled position");
+        assertEq(int256(maxSettled), 100, "reachable max should remain reserved");
+    }
+}
