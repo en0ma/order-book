@@ -432,15 +432,16 @@ contract DeployableCoreTest is TestBase {
 
         assertEq(lazyCore.activeQuoteCount(ALICE), 0, "settle did not retire lazy quote");
 
-        uint256 reserved = lazyCore.reservedMargin(ALICE);
-        uint256 withdrawable = uint256(lazyCore.accountEquity(ALICE)) - reserved;
+        uint256 requiredMargin = 1_200;
+        uint256 withdrawable =
+            uint256(lazyCore.accountEquity(ALICE)) - requiredMargin;
 
         vm.prank(ALICE);
         lazyCore.withdrawCollateral(withdrawable);
 
         assertEq(
             lazyCore.accountEquity(ALICE),
-            int256(reserved),
+            int256(requiredMargin),
             "withdrawal did not preserve open-position margin"
         );
     }
@@ -482,14 +483,15 @@ contract DeployableCoreTest is TestBase {
             "maker funding not materialized at settlement"
         );
 
-        uint256 reserved = lazyCore.reservedMargin(ALICE);
-        uint256 withdrawable = uint256(lazyCore.accountEquity(ALICE)) - reserved;
+        uint256 requiredMargin = 1_200;
+        uint256 withdrawable =
+            uint256(lazyCore.accountEquity(ALICE)) - requiredMargin;
 
         vm.prank(ALICE);
         lazyCore.withdrawCollateral(withdrawable);
         assertEq(
             lazyCore.accountEquity(ALICE),
-            int256(reserved),
+            int256(requiredMargin),
             "funded maker withdrawal did not preserve open-position margin"
         );
     }
