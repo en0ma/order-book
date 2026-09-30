@@ -14,9 +14,14 @@ The design keeps authoritative liquidity and matching entirely on-chain, but rep
 - O(1) maker cancellation with respect to maker count.
 - No linked-list tombstones or stale-order cleanup.
 - IOC and FOK taker flow.
-- Exposure-envelope bookkeeping for future margin reservation.
+- Exposure-envelope margin reservation.
+- Oracle-bounded execution with per-pool risk ceilings.
+- ERC-20 collateral custody.
+- Pluggable mark-oracle adapter.
+- Lazy funding attribution without maker writes during fills.
+- Active-quote withdrawal safety.
 - Foundry fuzz tests and explicit gas ceilings.
-- GitHub Actions mainnet-fork test using the repository ETH_RPC secret.
+- GitHub Actions mainnet-fork test using real WETH custody.
 
 ## Run
 
@@ -30,4 +35,4 @@ ETH_RPC=<mainnet-rpc> forge test --match-contract MainnetForkTest -vvv
 
 See docs/ARCHITECTURE.md for the design and current limitations.
 
-This is a research prototype, not audited production code. It currently models order-book accounting and risk envelopes but does not custody or transfer assets.
+This is a research prototype, not audited production code.
