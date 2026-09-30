@@ -324,6 +324,30 @@ contract ProRataOrderBookTest is TestBase {
         assertEq(book.accountEquity(address(this)), 100_000, "equity changed at execution mark");
     }
 
+    function testWithdrawalUsesMarkedEquityNotRawCollateral() public {
+        book.configureRisk(100, 20, 2_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(3_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        vm.prank(ALICE);
+        book.take(ProRataOrderBook.Side.Bid, 100, 100, ProRataOrderBook.FillPolicy.IOC);
+
+        book.setMarkTick(80);
+
+        vm.prank(ALICE);
+        (bool ok,) =
+            address(book).call(abi.encodeCall(book.withdrawCollateral, (uint256(1_500))));
+        assertTrue(!ok, "withdraw ignored mark-to-market loss");
+
+        assertEq(book.collateralBalance(ALICE), 3_000, "failed withdraw changed collateral");
+    }
+
     function testLiquidationClosesUnderwaterPositionAtOracleBandLiquidity() public {
         book.configureRisk(100, 20, 2_000);
         book.configureLiquidation(1_000);
