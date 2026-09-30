@@ -17,3 +17,8 @@ depth = 100
 
 [fmt]
 line_length = 100
+
+
+[profile.size]
+optimizer = true
+optimizer_runs = 1
