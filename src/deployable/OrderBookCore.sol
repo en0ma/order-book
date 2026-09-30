@@ -686,7 +686,31 @@ contract OrderBookCore is IOrderBookCore {
         if (claimAfter > claimBefore) revert InvalidShareAmount();
         q.claimLots = claimAfter;
 
-        _shrinkRisk(maker, side, claimBefore - claimAfter);
+        uint96 claimReduction = claimBefore - claimAfter;
+        if (claimReduction < removedLots) revert InvalidShareAmount();
+
+        uint96 burnAttributedFill = claimReduction - removedLots;
+        if (burnAttributedFill != 0) {
+            int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
+            _settleFundingForQuote(
+                maker,
+                side,
+                tick,
+                sharesToBurn,
+                burnAttributedFill,
+                currentFundingEntry
+            );
+            _applyMakerFill(maker, side, tick, burnAttributedFill);
+            emit MakerSettled(
+                maker,
+                side,
+                tick,
+                burnAttributedFill,
+                q.generation
+            );
+        }
+
+        _shrinkRisk(maker, side, removedLots);
         _refreshReservedMargin(maker);
 
         if (q.shares == 0) {
