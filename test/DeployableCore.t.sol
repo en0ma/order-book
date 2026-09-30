@@ -399,6 +399,87 @@ contract DeployableCoreTest is TestBase {
         riskCore.addLiquidity(IOrderBookCore.Side.Bid, 49, 80);
     }
 
+    function testWithdrawalBlockedUntilLazyMakerFillIsSettled() public {
+        MockERC20 lazyToken = new MockERC20();
+        MockMarkOracle lazyOracle = new MockMarkOracle(100);
+        OrderBookCore lazyCore =
+            new OrderBookCore(address(lazyToken), address(lazyOracle), 20, 1_000, 10, 5);
+
+        _fundOn(lazyCore, lazyToken, ALICE, 100_000);
+        _fundOn(lazyCore, lazyToken, BOB, 100_000);
+
+        vm.prank(ALICE);
+        lazyCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(BOB);
+        lazyCore.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        assertEq(lazyCore.activeQuoteCount(ALICE), 1, "lazy quote unexpectedly settled");
+
+        vm.prank(ALICE);
+        (bool beforeSettleOk,) = address(lazyCore).call(
+            abi.encodeCall(lazyCore.withdrawCollateral, (uint256(1)))
+        );
+        assertTrue(!beforeSettleOk, "maker withdrew against unsettled lazy fill");
+
+        vm.prank(ALICE);
+        lazyCore.settle(IOrderBookCore.Side.Ask, 100);
+
+        assertEq(lazyCore.activeQuoteCount(ALICE), 0, "settle did not retire lazy quote");
+
+        vm.prank(ALICE);
+        lazyCore.withdrawCollateral(100_005);
+
+        assertEq(lazyCore.accountEquity(ALICE), 0, "settled maker claim not fully withdrawable");
+    }
+
+    function testWithdrawalBlockedUntilLazyFundingIsMaterializedWithMakerFill() public {
+        MockERC20 lazyToken = new MockERC20();
+        MockMarkOracle lazyOracle = new MockMarkOracle(100);
+        OrderBookCore lazyCore =
+            new OrderBookCore(address(lazyToken), address(lazyOracle), 20, 1_000, 0, 0);
+
+        _fundOn(lazyCore, lazyToken, ALICE, 100_000);
+        _fundOn(lazyCore, lazyToken, BOB, 100_000);
+
+        vm.prank(ALICE);
+        lazyCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(BOB);
+        lazyCore.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        lazyCore.setFundingIndex(int128(3e18));
+
+        vm.prank(ALICE);
+        (bool beforeSettleOk,) = address(lazyCore).call(
+            abi.encodeCall(lazyCore.withdrawCollateral, (uint256(1)))
+        );
+        assertTrue(!beforeSettleOk, "maker withdrew before lazy funding settlement");
+
+        vm.prank(ALICE);
+        lazyCore.settle(IOrderBookCore.Side.Ask, 100);
+
+        assertEq(
+            lazyCore.accountEquity(ALICE),
+            100_300,
+            "maker funding not materialized at settlement"
+        );
+
+        vm.prank(ALICE);
+        lazyCore.withdrawCollateral(100_300);
+        assertEq(lazyCore.accountEquity(ALICE), 0, "funded maker claim not withdrawable");
+    }
+
     function testFundingUpdaterCanBeRotatedWithoutChangingOwner() public {
         address updater = address(0xF00D);
 
