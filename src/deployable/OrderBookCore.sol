@@ -197,13 +197,15 @@ contract OrderBookCore is IOrderBookCore {
 
         _settleExistingPositionFunding(msg.sender);
 
-        uint256 balance = collateralBalance[msg.sender];
-        if (amount > balance) revert InsufficientCollateral();
+        int256 settledCash =
+            int256(collateralBalance[msg.sender]) + tradeCashflow[msg.sender]
+                + fundingCashflow[msg.sender];
+        if (settledCash < int256(amount)) revert InsufficientCollateral();
 
         int256 equityAfter = accountEquity(msg.sender) - int256(amount);
         if (equityAfter < int256(reservedMargin[msg.sender])) revert InsufficientCollateral();
 
-        collateralBalance[msg.sender] = balance - amount;
+        _debitSettledCash(msg.sender, amount);
 
         if (!collateralToken.transfer(msg.sender, amount)) revert TokenTransferFailed();
 
@@ -792,6 +794,33 @@ contract OrderBookCore is IOrderBookCore {
         _accountMeta[maker].fundingCheckpointX18 = fundingIndexX18;
     }
 
+    function _debitSettledCash(address account, uint256 amount) internal {
+        uint256 balance = collateralBalance[account];
+        if (amount <= balance) {
+            collateralBalance[account] = balance - amount;
+            return;
+        }
+
+        uint256 remainder = amount - balance;
+        collateralBalance[account] = 0;
+
+        int256 trading = tradeCashflow[account];
+        if (trading > 0) {
+            uint256 available = uint256(trading);
+            uint256 debit = remainder < available ? remainder : available;
+            tradeCashflow[account] = trading - int256(debit);
+            remainder -= debit;
+        }
+
+        if (remainder != 0) {
+            int256 funding = fundingCashflow[account];
+            if (funding <= 0 || uint256(funding) < remainder) {
+                revert InsufficientCollateral();
+            }
+            fundingCashflow[account] = funding - int256(remainder);
+        }
+    }
+
     function _settleExistingPositionFunding(address account) internal {
         int128 currentIndex = fundingIndexX18;
         int128 checkpoint = _accountMeta[account].fundingCheckpointX18;
@@ -911,7 +940,7 @@ contract OrderBookCore is IOrderBookCore {
 
         uint256 previous = reservedMargin[account];
 
-        if (required > collateralBalance[account] && required > previous) {
+        if (required > previous && accountEquity(account) < int256(required)) {
             revert InsufficientCollateral();
         }
 

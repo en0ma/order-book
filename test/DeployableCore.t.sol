@@ -182,6 +182,56 @@ contract DeployableCoreTest is TestBase {
 
     }
 
+    function testProfitableFlatAccountCanWithdrawRealizedTradingPnL() public {
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 10);
+
+        vm.prank(BOB);
+        core.take(IOrderBookCore.Side.Bid, 100, 10, IOrderBookCore.FillPolicy.IOC);
+
+        core.addLiquidity(IOrderBookCore.Side.Bid, 110, 10);
+
+        vm.prank(BOB);
+        core.take(IOrderBookCore.Side.Ask, 110, 10, IOrderBookCore.FillPolicy.IOC);
+
+        assertEq(core.accountEquity(BOB), 100_100, "round-trip profit not reflected in equity");
+
+        vm.prank(BOB);
+        core.withdrawCollateral(100_100);
+
+        assertEq(token.balanceOf(BOB), 100_100, "realized trading profit not withdrawable");
+        assertEq(core.accountEquity(BOB), 0, "withdrawal did not debit internal cash");
+    }
+
+    function testNewRiskUsesAccountEquityRatherThanDepositLedger() public {
+        MockERC20 lossToken = new MockERC20();
+        MockMarkOracle lossOracle = new MockMarkOracle(100);
+        OrderBookCore lossCore =
+            new OrderBookCore(address(lossToken), address(lossOracle), 20, 1_000, 0, 0);
+
+        _fundOn(lossCore, lossToken, ALICE, 100_000);
+        _fundOn(lossCore, lossToken, BOB, 1_000);
+
+        vm.prank(ALICE);
+        lossCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 10);
+
+        vm.prank(BOB);
+        lossCore.take(IOrderBookCore.Side.Bid, 100, 10, IOrderBookCore.FillPolicy.IOC);
+
+        lossOracle.setMarkTick(50);
+        assertEq(lossCore.accountEquity(BOB), 500, "marked loss not reflected in equity");
+
+        vm.prank(BOB);
+        (bool ok,) = address(lossCore).call(
+            abi.encodeCall(
+                lossCore.addLiquidity,
+                (IOrderBookCore.Side.Bid, uint16(49), uint96(70))
+            )
+        );
+
+        assertTrue(!ok, "risk-increasing quote admitted against stale deposit balance");
+    }
+
     function testAdvancedModuleCanOnlyBeConfiguredOnce() public {
         (bool ok,) =
             address(core).call(abi.encodeCall(core.configureAdvancedModule, (address(0x1234))));
