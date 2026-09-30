@@ -28,6 +28,7 @@ The design keeps authoritative liquidity and matching entirely on-chain, but rep
 - ERC-20 collateral custody.
 - Pluggable mark-oracle adapter.
 - Lazy funding attribution without maker writes during fills.
+- Immutable taker-fee / maker-rebate accounting with lazy maker rebates.
 - Mark-to-market equity and configurable maintenance margin.
 - Atomic liquidation with caller-supplied maker tick / conditional IDs.
 - Active-order withdrawal safety.
@@ -84,7 +85,7 @@ The deployable path is split into:
 - `OrderBookMath`: shared pure side/tick/share/risk arithmetic used by the deployable contracts.
 - `SegmentTreeExtremaOracle`: bounded on-chain range high/low observations for trailing triggers.
 
-Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 21,482 bytes for the core, 18,617 bytes for the advanced module, 4,434 bytes for the market-maker module, 4,001 bytes for the liquidation module, and 2,152 bytes for the extrema oracle.
+Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 21,511 bytes for the core, 18,617 bytes for the advanced module, 4,434 bytes for the market-maker module, 4,001 bytes for the liquidation module, and 2,152 bytes for the extrema oracle.
 
 CI enforces stricter project budgets than EIP-170: 22,000 bytes for the core, 19,500 bytes for the advanced module, 5,000 bytes each for the market-maker and liquidation modules, and 4,000 bytes for the extrema oracle. New order-type or execution-policy logic should normally be added to specialized modules rather than expanding the matching core.
 
@@ -113,3 +114,24 @@ For latency-sensitive callers, MarketMakerModule also accepts a fixed-width pack
 For 16 quotes, calldata shrinks from 1,604 bytes with the typed ABI to 324 bytes packed, a 79.8% reduction. The packed and typed paths have essentially the same state-execution gas; the win is calldata size rather than fewer storage operations.
 
 Dedicated gas-regression tests cover 1, 4, 8 and 16 managed levels. Current whole-test gas scales approximately 402k, 1.01m, 1.74m and 3.20m respectively, and the four-level batched replacement path is asserted to be cheaper than four separate replacement calls.
+
+
+## Fees and rebates
+
+The deployable core supports an immutable fee schedule fixed at market deployment:
+
+- taker fee in basis points;
+- maker rebate in basis points;
+- maker rebate must not exceed the taker fee.
+
+Taker fees are charged immediately from the taker's signed trading cashflow. The core reserves the net protocol fee at the same time.
+
+Maker rebates remain lazy: no maker storage is touched during matching. When a maker later settles a fill, the rebate is derived from that maker's actual materialized notional at the quote tick and credited together with the trade cashflow.
+
+The fee path does not call an external fee contract from matching and does not add a second maker write to the taker loop.
+
+Integer rounding is conservative. The taker path reserves the maximum aggregate maker rebate, while individual maker rebates are floored when they materialize. Fuzz tests verify that credited rebates never exceed the amount reserved from the taker fee. Any rounding dust remains unallocated in core custody rather than being over-distributed.
+
+Protocol fee withdrawal/distribution is not implemented yet; `protocolFeesAccrued` is accounting state only.
+
+A recurring fee-enabled taker fill has a dedicated gas regression asserting less than 20,000 gas overhead versus the equivalent zero-fee fill after the protocol-fee storage slot has already been initialized.
