@@ -74,10 +74,10 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => AccountMeta) internal _accountMeta;
     mapping(address => mapping(Side => mapping(uint16 => ModuleLock))) internal moduleLocks;
 
-    mapping(address => uint256) public collateralBalance;
-    mapping(address => uint256) public reservedMargin;
-    mapping(address => int256) public fundingCashflow;
-    mapping(address => int256) public tradeCashflow;
+    mapping(address => uint256) internal collateralBalance;
+    mapping(address => uint256) internal reservedMargin;
+    mapping(address => int256) internal fundingCashflow;
+    mapping(address => int256) internal tradeCashflow;
 
     int128 public fundingIndexX18;
     mapping(Side => mapping(uint16 => int256)) internal fundingEntryPerShareX96;
@@ -386,6 +386,22 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         emit LiquidityRemoved(account, side, tick, removedLots, shares, p.generation);
+    }
+
+    function accountAccounting(address account)
+        external
+        view
+        returns (
+            uint256 collateral,
+            uint256 reserved,
+            int256 funding,
+            int256 trade
+        )
+    {
+        collateral = collateralBalance[account];
+        reserved = reservedMargin[account];
+        funding = fundingCashflow[account];
+        trade = tradeCashflow[account];
     }
 
     function accountEquity(address account) public view override returns (int256 equity) {
