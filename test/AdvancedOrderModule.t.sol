@@ -538,6 +538,55 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(uint256(locked), 0, "remaining entry not cancelled");
     }
 
+    function testFullyConsumedTriggeredLimitSyncMaterializesBeforeBracketExit() public {
+        vm.prank(ALICE);
+        uint64 parent = module.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            103,
+            100
+        );
+
+        vm.prank(ALICE);
+        uint64 exitId = module.placeConditionalOrder(
+            IOrderBookCore.Side.Ask,
+            true,
+            110,
+            105,
+            100,
+            IOrderBookCore.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        module.linkOTO(parent, exitId);
+
+        uint96 immediate = module.executeConditionalOrder(parent);
+        assertEq(immediate, 0, "entry should rest");
+
+        vm.prank(BOB);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            103,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        module.syncRestingOrder(parent);
+
+        assertEq(core.activeQuoteCount(ALICE), 0, "fully consumed parent remained unsettled");
+        assertEq(int256(_corePosition(ALICE)), 100, "parent fill not materialized");
+
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 110, 100);
+        oracle.record(110);
+
+        uint96 exited = module.executeConditionalOrder(exitId);
+        assertEq(exited, 100, "activated exit could not execute");
+        assertEq(int256(_corePosition(ALICE)), 0, "bracket exit did not flatten");
+    }
+
     function testStaleAdvancedLockCannotTouchFreshGenerationQuote() public {
         vm.prank(ALICE);
         uint64 parent = module.placeTriggeredLimitOrder(
