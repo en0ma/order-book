@@ -695,6 +695,42 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(int256(_corePosition(trader)), 0, "module liquidation position");
     }
 
+    function testLiquidationSurfacesTerminalBadDebtAfterFullClose() public {
+        address trader = address(0xBAD);
+        _fund(trader, 3_000);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(trader);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 10, 100);
+        oracle.record(10);
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](0);
+
+        uint96 closed =
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+
+        assertEq(closed, 100, "bad-debt liquidation did not fully close");
+        assertEq(int256(_corePosition(trader)), 0, "bad-debt account left position");
+        assertEq(
+            liquidation.terminalBadDebt(trader),
+            6_000,
+            "terminal bad debt not surfaced"
+        );
+    }
+
     function testModuleTrailingUsesSegmentTreeOracle() public {
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 60);
