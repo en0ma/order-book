@@ -452,7 +452,7 @@ contract AdvancedOrderModuleTest is TestBase {
 
     function testLiquidationClearsManagedQuoteMetadataForRequote() public {
         address trader = address(0xDAD1);
-        _fund(trader, 5_000);
+        _fund(trader, 3_000);
         module.configureLiquidation(500);
 
         vm.prank(BOB);
