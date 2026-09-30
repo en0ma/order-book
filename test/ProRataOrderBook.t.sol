@@ -560,6 +560,161 @@ contract ProRataOrderBookTest is TestBase {
         assertTrue(!book.conditionalOrderActive(child), "zero-fill child became active");
     }
 
+    function testRestingTriggeredLimitLazilyExpandsBracketOnMakerSettlement() public {
+        book.configureRisk(100, 30, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+        vm.prank(CAROL);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        uint64 parent = book.placeTriggeredLimitOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            100,
+            103,
+            100
+        );
+
+        vm.prank(ALICE);
+        uint64 takeProfit = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            true,
+            110,
+            105,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        uint64 stopLoss = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            false,
+            90,
+            80,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        book.linkOCO(takeProfit, stopLoss);
+        vm.prank(ALICE);
+        book.linkOTO(parent, takeProfit);
+        vm.prank(ALICE);
+        book.linkOTO(parent, stopLoss);
+
+        uint96 immediate = book.executeConditionalOrder(parent);
+        assertEq(immediate, 0, "parent should rest without immediate fill");
+        assertTrue(!book.conditionalOrderActive(takeProfit), "TP should stay dormant");
+        assertTrue(!book.conditionalOrderActive(stopLoss), "SL should stay dormant");
+        assertEq(
+            book.restingBracketAt(ALICE, ProRataOrderBook.Side.Bid, 103),
+            parent,
+            "resting bracket link missing"
+        );
+
+        vm.prank(BOB);
+        uint96 firstFill =
+            book.take(ProRataOrderBook.Side.Ask, 103, 40, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(firstFill, 40, "first maker fill mismatch");
+
+        vm.prank(ALICE);
+        book.settle(ProRataOrderBook.Side.Bid, 103);
+
+        assertTrue(book.conditionalOrderActive(takeProfit), "TP did not activate after settlement");
+        assertTrue(book.conditionalOrderActive(stopLoss), "SL did not activate after settlement");
+
+        (, uint96 tpLots,,,,,,,) = book.conditionalOrders(takeProfit);
+        (, uint96 slLots,,,,,,,) = book.conditionalOrders(stopLoss);
+        assertEq(tpLots, 40, "TP size after first maker settlement");
+        assertEq(slLots, 40, "SL size after first maker settlement");
+
+        vm.prank(BOB);
+        uint96 secondFill =
+            book.take(ProRataOrderBook.Side.Ask, 103, 30, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(secondFill, 30, "second maker fill mismatch");
+
+        vm.prank(ALICE);
+        book.syncRestingBracket(parent);
+
+        (, tpLots,,,,,,,) = book.conditionalOrders(takeProfit);
+        (, slLots,,,,,,,) = book.conditionalOrders(stopLoss);
+        assertEq(tpLots, 70, "TP did not lazily expand");
+        assertEq(slLots, 70, "SL did not lazily expand");
+
+        (, uint96 remainingEntry,) = book.pools(ProRataOrderBook.Side.Bid, 103);
+        assertEq(remainingEntry, 30, "entry remainder mismatch");
+
+        vm.prank(CAROL);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 110, 70);
+
+        book.setMarkTick(110);
+        uint96 exited = book.executeConditionalOrder(takeProfit);
+        assertEq(exited, 70, "TP did not close cumulative filled entry");
+        assertTrue(!book.conditionalOrderActive(stopLoss), "OCO sibling remained active");
+
+        (, uint96 entryAfterExit,) = book.pools(ProRataOrderBook.Side.Bid, 103);
+        assertEq(entryAfterExit, 0, "resting entry remainder was not cancelled");
+
+        (int80 settled,,) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "lazy bracket did not close position");
+    }
+
+    function testGenericCancelIsBlockedForBracketLinkedShareSlice() public {
+        book.configureRisk(100, 30, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        uint64 parent = book.placeTriggeredLimitOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            100,
+            103,
+            50
+        );
+
+        vm.prank(ALICE);
+        uint64 child = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            true,
+            110,
+            105,
+            50,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        book.linkOTO(parent, child);
+
+        book.executeConditionalOrder(parent);
+
+        (uint128 shares,,,) = book.quotes(ALICE, ProRataOrderBook.Side.Bid, 103);
+
+        vm.prank(ALICE);
+        (bool genericCancel,) = address(book).call(
+            abi.encodeCall(
+                book.removeShares,
+                (ProRataOrderBook.Side.Bid, uint16(103), shares)
+            )
+        );
+        assertTrue(!genericCancel, "generic cancellation bypassed bracket share lock");
+
+        vm.prank(ALICE);
+        uint96 removed = book.cancelRestingBracket(parent);
+        assertEq(removed, 50, "explicit bracket cancellation mismatch");
+
+        (, uint96 remaining,) = book.pools(ProRataOrderBook.Side.Bid, 103);
+        assertEq(remaining, 0, "bracket liquidity remained after explicit cancellation");
+    }
+
     function testTriggeredLimitActivatesIntoRestingBook() public {
         book.configureRisk(100, 20, 1_000);
 
