@@ -455,8 +455,9 @@ contract ProRataOrderBook {
         activeConditionalCount[order.owner] -= 1;
 
         if (restingLimit) {
-            (filledLots, uint96 restingLots, uint128 restingShares) =
-                _activateTriggeredLimit(order);
+            uint96 restingLots;
+            uint128 restingShares;
+            (filledLots, restingLots, restingShares) = _activateTriggeredLimit(order);
             emit TriggeredLimitActivated(orderId, filledLots, restingLots, restingShares);
         } else {
             filledLots = _takeFor(
