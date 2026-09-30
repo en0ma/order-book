@@ -68,6 +68,8 @@ contract OrderBookCore is IOrderBookCore {
     IMarkOracle public immutable markOracle;
     uint16 internal immutable executionBandTicks;
     uint16 internal immutable initialMarginBps;
+    uint128 public collateralUnitsPerLotTick;
+    bool public unitScaleLocked;
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
@@ -131,6 +133,7 @@ contract OrderBookCore is IOrderBookCore {
     event ProtocolFeesAllocatedToInsurance(uint256 amount);
     event BadDebtCovered(address indexed account, uint256 amount);
     event LiquidationRewardPaid(address indexed liquidator, uint256 amount);
+    event AccountingUnitScaleConfigured(uint128 collateralUnitsPerLotTick);
 
     constructor(
         address collateralToken_,
@@ -152,6 +155,7 @@ contract OrderBookCore is IOrderBookCore {
         markOracle = IMarkOracle(markOracle_);
         executionBandTicks = executionBandTicks_;
         initialMarginBps = initialMarginBps_;
+        collateralUnitsPerLotTick = 1;
         feeSchedulePacked =
             uint32(takerFeeBps_) | (uint32(makerRebateBps_) << 16);
     }
@@ -171,6 +175,13 @@ contract OrderBookCore is IOrderBookCore {
         if (advancedModule != address(0)) revert ModuleAlreadyConfigured();
         advancedModule = module;
         emit AdvancedModuleConfigured(module);
+    }
+
+    function configureAccountingUnitScale(uint128 collateralUnitsPerLotTick_) external onlyOwner {
+        if (unitScaleLocked || collateralUnitsPerLotTick_ == 0) revert InvalidRiskConfig();
+        collateralUnitsPerLotTick = collateralUnitsPerLotTick_;
+        unitScaleLocked = true;
+        emit AccountingUnitScaleConfigured(collateralUnitsPerLotTick_);
     }
 
     function setFundingUpdater(address nextUpdater) external onlyOwner {
@@ -196,6 +207,7 @@ contract OrderBookCore is IOrderBookCore {
 
     function depositCollateral(uint256 amount) external {
         if (amount == 0) revert ZeroAmount();
+        if (!unitScaleLocked) unitScaleLocked = true;
 
         IERC20Minimal token = collateralToken;
         uint256 beforeBalance = token.balanceOf(address(this));
@@ -209,6 +221,7 @@ contract OrderBookCore is IOrderBookCore {
 
     function fundInsurance(uint256 amount) external {
         if (amount == 0) revert ZeroAmount();
+        if (!unitScaleLocked) unitScaleLocked = true;
 
         IERC20Minimal token = collateralToken;
         uint256 beforeBalance = token.balanceOf(address(this));
@@ -488,9 +501,24 @@ contract OrderBookCore is IOrderBookCore {
                     - int256(_accountMeta[account].fundingCheckpointX18))
                 / FUNDING_SCALE);
 
+        int256 markedPositionValue;
+        if (a.settledPosition != 0) {
+            uint96 absLots = uint96(uint80(OrderBookMath.absPosition(a.settledPosition)));
+            int256 value = int256(notionalValue(absLots, currentMarkTick()));
+            markedPositionValue = a.settledPosition > 0 ? value : -value;
+        }
+
         equity = int256(collateralBalance[account]) + tradeCashflow[account]
-            + fundingCashflow[account] + pendingFunding
-            + int256(a.settledPosition) * int256(uint256(currentMarkTick()));
+            + fundingCashflow[account] + pendingFunding + markedPositionValue;
+    }
+
+    function notionalValue(uint96 lots, uint16 tick)
+        public
+        view
+        override
+        returns (uint256)
+    {
+        return uint256(lots) * uint256(tick) * uint256(collateralUnitsPerLotTick);
     }
 
     function _takeFor(
@@ -552,7 +580,7 @@ contract OrderBookCore is IOrderBookCore {
                 filledLots += fill;
             }
 
-            notional += uint256(fill) * uint256(tick);
+            notional += notionalValue(fill, tick);
             emit Trade(account, takerSide, tick, fill);
         }
     }
@@ -964,7 +992,7 @@ contract OrderBookCore is IOrderBookCore {
 
         AccountRisk storage a = accountRisk[maker];
         int80 amount = _positionAmount(filledLots);
-        int256 notional = int256(uint256(filledLots) * uint256(tick));
+        int256 notional = int256(notionalValue(filledLots, tick));
 
         uint256 makerRebate =
             uint256(notional) * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
@@ -1017,8 +1045,10 @@ contract OrderBookCore is IOrderBookCore {
             );
         }
 
+        uint256 worstNotional =
+            uint256(worstLots) * worstPrice * uint256(collateralUnitsPerLotTick);
         uint256 required =
-            worstLots * worstPrice * uint256(initialMarginBps) / 10_000;
+            worstNotional * uint256(initialMarginBps) / 10_000;
 
         uint256 previous = reservedMargin[account];
 

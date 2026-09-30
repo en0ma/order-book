@@ -289,6 +289,82 @@ contract DeployableCoreTest is TestBase {
         assertEq(feeToken.balanceOf(liquidator), 2, "liquidator did not receive reward");
     }
 
+    function testAccountingUnitScaleNormalizesMarginAndFees() public {
+        MockERC20 unitToken = new MockERC20();
+        MockMarkOracle unitOracle = new MockMarkOracle(100);
+        OrderBookCore unitCore =
+            new OrderBookCore(address(unitToken), address(unitOracle), 20, 1_000, 10, 5);
+
+        unitCore.configureAccountingUnitScale(1_000);
+        assertEq(
+            unitCore.notionalValue(10, 100),
+            1_000_000,
+            "normalized notional mismatch"
+        );
+
+        _fundOn(unitCore, unitToken, ALICE, 2_000_000);
+        _fundOn(unitCore, unitToken, BOB, 2_000_000);
+
+        vm.prank(ALICE);
+        unitCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 10);
+
+        vm.prank(BOB);
+        unitCore.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            10,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        assertEq(
+            unitCore.accountEquity(BOB),
+            1_999_000,
+            "normalized taker fee/equity mismatch"
+        );
+        assertEq(
+            unitCore.protocolFeesAccrued(),
+            500,
+            "normalized protocol fee mismatch"
+        );
+    }
+
+    function testAccountingUnitScaleLocksWhenCustodyStarts() public {
+        MockERC20 unitToken = new MockERC20();
+        MockMarkOracle unitOracle = new MockMarkOracle(100);
+        OrderBookCore unitCore =
+            new OrderBookCore(address(unitToken), address(unitOracle), 20, 1_000, 0, 0);
+
+        _fundOn(unitCore, unitToken, ALICE, 100_000);
+
+        (bool ok,) = address(unitCore).call(
+            abi.encodeCall(unitCore.configureAccountingUnitScale, (uint128(1_000)))
+        );
+        assertTrue(!ok, "accounting scale changed after custody started");
+        assertEq(unitCore.notionalValue(10, 100), 1_000, "default scale changed");
+    }
+
+    function testNormalizedMarginRejectsUndercollateralizedQuote() public {
+        MockERC20 unitToken = new MockERC20();
+        MockMarkOracle unitOracle = new MockMarkOracle(100);
+        OrderBookCore unitCore =
+            new OrderBookCore(address(unitToken), address(unitOracle), 20, 1_000, 0, 0);
+
+        unitCore.configureAccountingUnitScale(1_000);
+        _fundOn(unitCore, unitToken, ALICE, 100_000);
+
+        vm.prank(ALICE);
+        unitCore.addLiquidity(IOrderBookCore.Side.Bid, 99, 8);
+
+        vm.prank(ALICE);
+        (bool ok,) = address(unitCore).call(
+            abi.encodeCall(
+                unitCore.addLiquidity,
+                (IOrderBookCore.Side.Bid, uint16(98), uint96(3))
+            )
+        );
+        assertTrue(!ok, "normalized margin admitted excess quote");
+    }
+
     function testFundingUpdaterCanBeRotatedWithoutChangingOwner() public {
         address updater = address(0xF00D);
 

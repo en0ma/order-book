@@ -96,7 +96,7 @@ contract LiquidationModule {
         (int80 position,,) = core.accountRisk(account);
         uint256 absPosition = uint256(OrderBookMath.absPosition(position));
 
-        return absPosition * uint256(core.currentMarkTick())
+        return core.notionalValue(uint96(absPosition), core.currentMarkTick())
             * uint256(maintenanceMarginBps) / 10_000;
     }
 
@@ -201,7 +201,7 @@ contract LiquidationModule {
         uint16 rewardBps = liquidatorRewardBps;
         if (closedLots != 0 && rewardBps != 0) {
             uint256 requestedReward =
-                uint256(closedLots) * uint256(core.currentMarkTick())
+                core.notionalValue(closedLots, core.currentMarkTick())
                     * uint256(rewardBps) / 10_000;
             uint256 paid =
                 gateway.liquidationPayReward(msg.sender, requestedReward);

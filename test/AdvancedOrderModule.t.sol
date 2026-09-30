@@ -851,6 +851,42 @@ contract AdvancedOrderModuleTest is TestBase {
         assertTrue(!ok, "liquidator reward was reconfigured");
     }
 
+    function testMaintenanceMarginUsesNormalizedCollateralUnits() public {
+        MockERC20 unitToken = new MockERC20();
+        SegmentTreeExtremaOracle unitOracle =
+            new SegmentTreeExtremaOracle(address(this), 100, 3_600);
+        OrderBookCore unitCore =
+            new OrderBookCore(address(unitToken), address(unitOracle), 40, 1_000, 0, 0);
+        AdvancedOrderModule unitModule =
+            new AdvancedOrderModule(address(unitCore), address(unitOracle));
+        LiquidationModule unitLiquidation =
+            new LiquidationModule(address(unitCore), address(unitModule), 500);
+
+        unitCore.configureAccountingUnitScale(1_000);
+        unitCore.configureAdvancedModule(address(unitModule));
+        unitModule.configureLiquidationModule(address(unitLiquidation));
+
+        _fundOn(unitCore, unitToken, ALICE, 2_000_000);
+        _fundOn(unitCore, unitToken, BOB, 2_000_000);
+
+        vm.prank(BOB);
+        unitCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 10);
+
+        vm.prank(ALICE);
+        unitCore.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            10,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        assertEq(
+            unitLiquidation.maintenanceRequirement(ALICE),
+            50_000,
+            "maintenance margin ignored accounting scale"
+        );
+    }
+
     function testModuleTrailingUsesSegmentTreeOracle() public {
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 60);
