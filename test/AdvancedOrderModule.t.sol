@@ -331,6 +331,52 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(int256(_corePosition(ALICE)), 0, "rounding-only consumption invented fill");
     }
 
+    function testManagedQuoteCanCancelZeroFloorRedemptionSliceWithoutSyntheticFill() public {
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](1);
+        updates[0] = MarketMakerModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Bid,
+            tick: 95,
+            lots: 1
+        });
+
+        vm.prank(ALICE);
+        marketMaker.batchReplaceQuotes(updates);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 95, 2);
+
+        vm.prank(CAROL);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            95,
+            1,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        updates[0].lots = 0;
+        vm.prank(ALICE);
+        marketMaker.batchReplaceQuotes(updates);
+
+        (uint128 aliceShares,,) =
+            core.quotes(ALICE, IOrderBookCore.Side.Bid, 95);
+        (, uint96 remaining,) =
+            core.pools(IOrderBookCore.Side.Bid, 95);
+
+        assertEq(uint256(aliceShares), 0, "zero-floor managed slice not cancelled");
+        assertEq(remaining, 2, "zero-floor cancellation removed whole pool lot");
+
+        vm.prank(BOB);
+        core.settle(IOrderBookCore.Side.Bid, 95);
+        assertEq(int256(_corePosition(BOB)), 0, "cancellation fabricated counterparty fill");
+
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "cancel changed settled position");
+        assertEq(int256(minPosition), 0, "cancel left min reservation");
+        assertEq(int256(maxPosition), 0, "cancel left max reservation");
+    }
+
     function testManagedQuoteUnchangedTargetPreservesShareSlice() public {
         MarketMakerModule.QuoteUpdate[] memory updates =
             new MarketMakerModule.QuoteUpdate[](1);
