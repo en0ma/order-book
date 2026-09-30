@@ -55,6 +55,74 @@ contract DeployableCoreTest is TestBase {
         assertEq(int256(_corePosition(address(this))), 40, "taker position mismatch");
     }
 
+    function testFeesChargeTakerImmediatelyAndRebateMakerLazily() public {
+        MockERC20 feeToken = new MockERC20();
+        MockMarkOracle feeOracle = new MockMarkOracle(100);
+        OrderBookCore feeCore =
+            new OrderBookCore(address(feeToken), address(feeOracle), 20, 1_000, 10, 5);
+
+        _fundOn(feeCore, feeToken, ALICE, 100_000);
+        _fundOn(feeCore, feeToken, BOB, 100_000);
+
+        vm.prank(ALICE);
+        feeCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(BOB);
+        uint96 filled =
+            feeCore.take(IOrderBookCore.Side.Bid, 100, 40, IOrderBookCore.FillPolicy.IOC);
+        assertEq(filled, 40, "fee fill mismatch");
+
+        (,,, int256 takerTrade) = feeCore.accountAccounting(BOB);
+        (,,, int256 makerTradeBefore) = feeCore.accountAccounting(ALICE);
+
+        assertEq(takerTrade, -4_004, "taker fee not charged immediately");
+        assertEq(makerTradeBefore, 0, "maker rebate materialized before settlement");
+        assertEq(feeCore.protocolFeesAccrued(), 2, "protocol net fee after taker fill");
+
+        vm.prank(ALICE);
+        feeCore.settle(IOrderBookCore.Side.Ask, 100);
+
+        (,,, int256 makerTradeAfter) = feeCore.accountAccounting(ALICE);
+        assertEq(makerTradeAfter, 4_002, "maker rebate not applied on settlement");
+        assertEq(feeCore.protocolFeesAccrued(), 2, "maker settlement double-counted protocol fee");
+    }
+
+    function testFeesAcrossPartialMakerSettlementsAccrueExactlyOnce() public {
+        MockERC20 feeToken = new MockERC20();
+        MockMarkOracle feeOracle = new MockMarkOracle(100);
+        OrderBookCore feeCore =
+            new OrderBookCore(address(feeToken), address(feeOracle), 20, 1_000, 10, 5);
+
+        _fundOn(feeCore, feeToken, ALICE, 100_000);
+        _fundOn(feeCore, feeToken, BOB, 100_000);
+        _fundOn(feeCore, feeToken, address(this), 100_000);
+
+        vm.prank(ALICE);
+        feeCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(BOB);
+        feeCore.take(IOrderBookCore.Side.Bid, 100, 40, IOrderBookCore.FillPolicy.IOC);
+
+        vm.prank(ALICE);
+        feeCore.settle(IOrderBookCore.Side.Ask, 100);
+
+        feeCore.take(IOrderBookCore.Side.Bid, 100, 20, IOrderBookCore.FillPolicy.IOC);
+
+        vm.prank(ALICE);
+        feeCore.settle(IOrderBookCore.Side.Ask, 100);
+
+        (,,, int256 makerTrade) = feeCore.accountAccounting(ALICE);
+        assertEq(makerTrade, 6_003, "partial-settlement maker rebate accounting");
+        assertEq(feeCore.protocolFeesAccrued(), 3, "protocol fees across partial fills");
+
+        vm.prank(ALICE);
+        feeCore.settle(IOrderBookCore.Side.Ask, 100);
+
+        (,,, int256 makerTradeAgain) = feeCore.accountAccounting(ALICE);
+        assertEq(makerTradeAgain, 6_003, "repeated settle duplicated rebate");
+        assertEq(feeCore.protocolFeesAccrued(), 3, "repeated settle duplicated protocol fee");
+    }
+
     function testModuleCanReserveThenExecuteForAccount() public {
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 105, 100);
@@ -117,6 +185,19 @@ contract DeployableCoreTest is TestBase {
             address(core).call(abi.encodeCall(core.configureAdvancedModule, (address(0x1234))));
         assertTrue(!ok, "advanced module was replaceable");
     }
+    function _fundOn(
+        OrderBookCore target,
+        MockERC20 targetToken,
+        address account,
+        uint256 amount
+    ) internal {
+        targetToken.mint(account, amount);
+        vm.prank(account);
+        targetToken.approve(address(target), type(uint256).max);
+        vm.prank(account);
+        target.depositCollateral(amount);
+    }
+
     function _corePosition(address account) internal view returns (int80 position) {
         (position,,) = core.accountRisk(account);
     }
