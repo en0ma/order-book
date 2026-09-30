@@ -159,15 +159,20 @@ contract ProRataOrderBookTest is TestBase {
         assertEq(book.collateralBalance(ALICE), 50_000, "internal collateral mismatch");
 
         vm.prank(ALICE);
-        book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
+        uint128 shares = book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
 
         uint256 reserved = book.reservedMargin(ALICE);
         assertTrue(reserved > 0, "margin was not reserved");
 
         vm.prank(ALICE);
         (bool ok,) =
-            address(book).call(abi.encodeCall(book.withdrawCollateral, (50_000)));
-        assertTrue(!ok, "withdraw ignored reserved margin");
+            address(book).call(abi.encodeCall(book.withdrawCollateral, (1_000)));
+        assertTrue(!ok, "withdraw ignored unsettled quote state");
+
+        vm.prank(ALICE);
+        book.removeShares(ProRataOrderBook.Side.Bid, 99, shares);
+
+        assertEq(book.activeQuoteCount(ALICE), 0, "quote count did not clear");
 
         vm.prank(ALICE);
         book.withdrawCollateral(1_000);
@@ -328,6 +333,21 @@ contract ProRataOrderBookTest is TestBase {
         assertEq(int256(settledAfter), int256(settledBefore), "fill materialized maker position");
         assertEq(int256(minAfter), int256(minBefore), "fill mutated min envelope");
         assertEq(int256(maxAfter), int256(maxBefore), "fill mutated max envelope");
+    }
+
+    function testSettlingFillTightensExposureEnvelope() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
+
+        book.take(ProRataOrderBook.Side.Ask, 99, 60, ProRataOrderBook.FillPolicy.IOC);
+
+        vm.prank(ALICE);
+        book.settle(ProRataOrderBook.Side.Bid, 99);
+
+        (int128 settled, int128 minPosition, int128 maxPosition) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 60, "settled position mismatch");
+        assertEq(int256(minPosition), 60, "minimum envelope did not tighten");
+        assertEq(int256(maxPosition), 100, "remaining bid envelope changed incorrectly");
     }
 
     function testRiskEnvelopeDoesNotMoveOnFill() public {
