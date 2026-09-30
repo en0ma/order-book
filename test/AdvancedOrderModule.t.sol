@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {OrderBookCore} from "../src/deployable/OrderBookCore.sol";
 import {AdvancedOrderModule} from "../src/deployable/AdvancedOrderModule.sol";
+import {MarketMakerModule} from "../src/deployable/MarketMakerModule.sol";
 import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
 import {SegmentTreeExtremaOracle} from "../src/SegmentTreeExtremaOracle.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
@@ -11,6 +12,7 @@ import {TestBase} from "./TestBase.sol";
 contract AdvancedOrderModuleTest is TestBase {
     OrderBookCore internal core;
     AdvancedOrderModule internal module;
+    MarketMakerModule internal marketMaker;
     SegmentTreeExtremaOracle internal oracle;
     MockERC20 internal token;
 
@@ -23,8 +25,10 @@ contract AdvancedOrderModuleTest is TestBase {
         oracle = new SegmentTreeExtremaOracle(address(this), 100, 3_600);
         core = new OrderBookCore(address(token), address(oracle), 40, 1_000);
         module = new AdvancedOrderModule(address(core), address(oracle));
+        marketMaker = new MarketMakerModule(address(core), address(module));
 
         core.configureAdvancedModule(address(module));
+        module.configureMarketMakerModule(address(marketMaker));
 
         _fund(ALICE, 1_000_000);
         _fund(BOB, 1_000_000);
@@ -120,26 +124,26 @@ contract AdvancedOrderModuleTest is TestBase {
     }
 
     function testBatchReplaceQuotesCreatesUpdatesAndCancelsManagedSlices() public {
-        AdvancedOrderModule.QuoteUpdate[] memory updates =
-            new AdvancedOrderModule.QuoteUpdate[](3);
-        updates[0] = AdvancedOrderModule.QuoteUpdate({
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](3);
+        updates[0] = MarketMakerModule.QuoteUpdate({
             side: IOrderBookCore.Side.Bid,
             tick: 95,
             lots: 30
         });
-        updates[1] = AdvancedOrderModule.QuoteUpdate({
+        updates[1] = MarketMakerModule.QuoteUpdate({
             side: IOrderBookCore.Side.Bid,
             tick: 96,
             lots: 40
         });
-        updates[2] = AdvancedOrderModule.QuoteUpdate({
+        updates[2] = MarketMakerModule.QuoteUpdate({
             side: IOrderBookCore.Side.Ask,
             tick: 105,
             lots: 50
         });
 
         vm.prank(ALICE);
-        module.batchReplaceQuotes(updates);
+        marketMaker.batchReplaceQuotes(updates);
 
         (, uint96 bid95,) = core.pools(IOrderBookCore.Side.Bid, 95);
         (, uint96 bid96,) = core.pools(IOrderBookCore.Side.Bid, 96);
@@ -153,7 +157,7 @@ contract AdvancedOrderModuleTest is TestBase {
         updates[2].lots = 60;
 
         vm.prank(ALICE);
-        module.batchReplaceQuotes(updates);
+        marketMaker.batchReplaceQuotes(updates);
 
         (, bid95,) = core.pools(IOrderBookCore.Side.Bid, 95);
         (, bid96,) = core.pools(IOrderBookCore.Side.Bid, 96);
@@ -164,16 +168,16 @@ contract AdvancedOrderModuleTest is TestBase {
     }
 
     function testManagedQuoteReplaceAfterPartialFillSettlesThenRestoresTarget() public {
-        AdvancedOrderModule.QuoteUpdate[] memory updates =
-            new AdvancedOrderModule.QuoteUpdate[](1);
-        updates[0] = AdvancedOrderModule.QuoteUpdate({
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](1);
+        updates[0] = MarketMakerModule.QuoteUpdate({
             side: IOrderBookCore.Side.Ask,
             tick: 105,
             lots: 100
         });
 
         vm.prank(ALICE);
-        module.batchReplaceQuotes(updates);
+        marketMaker.batchReplaceQuotes(updates);
 
         vm.prank(BOB);
         core.take(
@@ -185,7 +189,7 @@ contract AdvancedOrderModuleTest is TestBase {
 
         updates[0].lots = 80;
         vm.prank(ALICE);
-        module.batchReplaceQuotes(updates);
+        marketMaker.batchReplaceQuotes(updates);
 
         (, uint96 remaining,) = core.pools(IOrderBookCore.Side.Ask, 105);
         assertEq(remaining, 80, "managed quote target not restored");
@@ -203,15 +207,15 @@ contract AdvancedOrderModuleTest is TestBase {
         );
         module.executeConditionalOrder(parent);
 
-        AdvancedOrderModule.QuoteUpdate[] memory updates =
-            new AdvancedOrderModule.QuoteUpdate[](1);
-        updates[0] = AdvancedOrderModule.QuoteUpdate({
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](1);
+        updates[0] = MarketMakerModule.QuoteUpdate({
             side: IOrderBookCore.Side.Bid,
             tick: 99,
             lots: 30
         });
         vm.prank(ALICE);
-        module.batchReplaceQuotes(updates);
+        marketMaker.batchReplaceQuotes(updates);
 
         vm.prank(BOB);
         core.take(
@@ -223,7 +227,7 @@ contract AdvancedOrderModuleTest is TestBase {
 
         updates[0].lots = 0;
         vm.prank(ALICE);
-        module.batchReplaceQuotes(updates);
+        marketMaker.batchReplaceQuotes(updates);
 
         (uint96 newlyFilled, uint96 cumulativeFilled) =
             module.syncRestingOrder(parent);
@@ -236,16 +240,16 @@ contract AdvancedOrderModuleTest is TestBase {
     }
 
     function testStaleManagedCancelCannotTouchFreshOrdinaryQuote() public {
-        AdvancedOrderModule.QuoteUpdate[] memory updates =
-            new AdvancedOrderModule.QuoteUpdate[](1);
-        updates[0] = AdvancedOrderModule.QuoteUpdate({
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](1);
+        updates[0] = MarketMakerModule.QuoteUpdate({
             side: IOrderBookCore.Side.Bid,
             tick: 95,
             lots: 25
         });
 
         vm.prank(ALICE);
-        module.batchReplaceQuotes(updates);
+        marketMaker.batchReplaceQuotes(updates);
 
         vm.prank(BOB);
         core.take(
@@ -261,7 +265,7 @@ contract AdvancedOrderModuleTest is TestBase {
 
         updates[0].lots = 0;
         vm.prank(ALICE);
-        module.batchReplaceQuotes(updates);
+        marketMaker.batchReplaceQuotes(updates);
 
         (uint128 sharesAfter,,) =
             core.quotes(ALICE, IOrderBookCore.Side.Bid, 95);
@@ -466,15 +470,15 @@ contract AdvancedOrderModuleTest is TestBase {
             IOrderBookCore.FillPolicy.IOC
         );
 
-        AdvancedOrderModule.QuoteUpdate[] memory updates =
-            new AdvancedOrderModule.QuoteUpdate[](1);
-        updates[0] = AdvancedOrderModule.QuoteUpdate({
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](1);
+        updates[0] = MarketMakerModule.QuoteUpdate({
             side: IOrderBookCore.Side.Ask,
             tick: 110,
             lots: 20
         });
         vm.prank(trader);
-        module.batchReplaceQuotes(updates);
+        marketMaker.batchReplaceQuotes(updates);
 
         vm.prank(CAROL);
         core.addLiquidity(IOrderBookCore.Side.Bid, 70, 100);
@@ -492,7 +496,7 @@ contract AdvancedOrderModuleTest is TestBase {
         updates[0].tick = 90;
         updates[0].lots = 10;
         vm.prank(trader);
-        module.batchReplaceQuotes(updates);
+        marketMaker.batchReplaceQuotes(updates);
 
         (, uint96 remaining,) = core.pools(IOrderBookCore.Side.Ask, 90);
         assertEq(remaining, 10, "requote failed after liquidation cleanup");
