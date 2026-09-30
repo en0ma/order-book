@@ -1669,7 +1669,7 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(core.activeQuoteCount(trader), 0, "liquidation cleanup stranded core quote");
     }
 
-    function testFailedOTOExitFOKRestoresRestingParentAndGraph() public {
+    function testOTOExitFOKFailureRestoresRestingParentAndGraph() public {
         vm.prank(ALICE);
         uint64 parent = module.placeTriggeredLimitOrder(
             IOrderBookCore.Side.Bid,
