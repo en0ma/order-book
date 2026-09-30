@@ -18,6 +18,8 @@ The design keeps authoritative liquidity and matching entirely on-chain, but rep
 - Reduce-only execution that cannot cross through zero.
 - Fully on-chain conditional trigger state with permissionless execution.
 - Pairwise OCO conditional orders.
+- True triggered-limit activation: take up to the limit, then rest the remainder.
+- One-slot packed risk envelope and one-slot packed account metadata.
 - Exposure-envelope margin reservation.
 - Oracle-bounded execution with per-pool risk ceilings.
 - ERC-20 collateral custody.
@@ -31,9 +33,12 @@ The design keeps authoritative liquidity and matching entirely on-chain, but rep
 
 ## Conditional semantics
 
-Conditional orders currently execute as bounded aggressive IOC/FOK orders after the on-chain mark satisfies the trigger.
+Conditional orders support two activation modes after the on-chain mark satisfies the trigger:
 
-This supports stop-market / take-profit-market style behavior with an explicit worst execution tick. A true stop-limit order that activates into resting maker liquidity is intentionally not implemented yet.
+- bounded aggressive IOC/FOK execution for stop-market / take-profit-market behavior;
+- triggered limit execution that first takes marketable liquidity up to the limit and then rests any unfilled quantity in the ordinary maker pool.
+
+Both modes are fully on-chain and permissionlessly executable.
 
 ## Run
 
