@@ -23,4 +23,23 @@ contract AdvancedOrderModuleHarness is AdvancedOrderModule {
         parentOfChild = otoParent[childOrderId];
         childMaxLots = otoChildMaxLots[childOrderId];
     }
+
+    function restingLinkTest(uint64 parentOrderId)
+        external
+        view
+        returns (
+            uint128 shares,
+            uint96 remainingClaimLots,
+            uint96 cumulativeFilledLots,
+            uint32 generation,
+            bool active
+        )
+    {
+        RestingLink storage link = restingLinks[parentOrderId];
+        shares = link.shares;
+        remainingClaimLots = link.remainingClaimLots;
+        cumulativeFilledLots = link.cumulativeFilledLots;
+        generation = link.generation;
+        active = link.active;
+    }
 }
