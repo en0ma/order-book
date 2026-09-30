@@ -89,13 +89,16 @@ contract FeeAccountingPropertyTest is TestBase {
 
     function _makerRebate(address maker) internal view returns (uint256 rebate) {
         (int80 position,,) = core.accountRisk(maker);
-        (,,, int256 trade) = core.accountAccounting(maker);
-
         uint256 filledLots = uint256(uint80(-position));
-        uint256 makerNotional = filledLots * 105;
 
-        assertTrue(trade >= int256(makerNotional), "maker trade below notional");
-        rebate = uint256(trade - int256(makerNotional));
+        // At execution tick 105 with mark 100, maker equity before rebate
+        // increases by 5 per filled lot from marked trading PnL.
+        int256 baselineEquity =
+            int256(10_000_000 + filledLots * 5);
+        int256 equity = core.accountEquity(maker);
+
+        assertTrue(equity >= baselineEquity, "maker equity below fee-free baseline");
+        rebate = uint256(equity - baselineEquity);
     }
 
     function _fund(address account) internal {
