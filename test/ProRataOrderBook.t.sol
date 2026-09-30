@@ -108,11 +108,8 @@ contract ProRataOrderBookTest is TestBase {
         );
         assertTrue(!ok, "FOK should fail when aggregate liquidity is insufficient");
 
-        (uint128 s0, uint96 l0, uint32 g0, uint128 i0, uint128 r0) =
-            book.pools(ProRataOrderBook.Side.Ask, 100);
-        (uint128 s1, uint96 l1, uint32 g1, uint128 i1, uint128 r1) =
-            book.pools(ProRataOrderBook.Side.Ask, 101);
-        s0; g0; i0; r0; s1; g1; i1; r1;
+        (, uint96 l0,) = book.pools(ProRataOrderBook.Side.Ask, 100);
+        (, uint96 l1,) = book.pools(ProRataOrderBook.Side.Ask, 101);
 
         assertEq(l0, 40, "FOK mutated first level");
         assertEq(l1, 50, "FOK mutated second level");
@@ -133,7 +130,7 @@ contract ProRataOrderBookTest is TestBase {
             book.take(ProRataOrderBook.Side.Bid, 500, fill, ProRataOrderBook.FillPolicy.IOC);
         }
 
-        (, uint96 remaining,,,) = book.pools(ProRataOrderBook.Side.Ask, 500);
+        (, uint96 remaining,) = book.pools(ProRataOrderBook.Side.Ask, 500);
 
         assertEq(
             book.totalAddedLots(),
