@@ -371,7 +371,7 @@ The deployable contracts are compiled with the Foundry size profile (optimizer_r
 Current measured size-profile runtime sizes:
 - OrderBookCore: about 21,482 bytes;
 - AdvancedOrderModule: about 18,617 bytes;
-- MarketMakerModule: about 3,653 bytes;
+- MarketMakerModule: about 4,434 bytes;
 - LiquidationModule: about 4,001 bytes;
 - SegmentTreeExtremaOracle: about 2,152 bytes.
 
@@ -430,6 +430,22 @@ The batch API uses target remaining lots rather than cancel/add instructions. Fo
 If the target is unchanged, no liquidity mutation is needed. If the target increases, only the delta is reserved and added. If the target decreases, the slice is removed and rebuilt to the exact target because partial share redemption is integer-rounded.
 
 Risk reservation is aggregated across the batch and performed once per side.
+
+Quote records must be strictly sorted by side/tick key and unique inside a batch. This makes duplicate-target behavior impossible and keeps validation O(N).
+
+The market-maker module exposes both:
+- a typed QuoteUpdate[] ABI for normal integrations;
+- a packed bytes ABI for latency/calldata-sensitive integrations.
+
+Both normalize into the same internal uint128 representation and the same refresh engine.
+
+Packed record layout:
+- bits 0..95: lots;
+- bits 96..111: tick;
+- bit 112: side (0 bid, 1 ask);
+- bits 113..127: reserved and required to be zero.
+
+Each packed quote is therefore exactly 16 calldata bytes. For a 16-level refresh, total function calldata is 324 bytes versus 1,604 bytes for the typed ABI, a 79.8% reduction. Execution gas remains effectively unchanged because the same storage/risk work is performed; the optimization targets calldata cost and rollup data footprint.
 
 The dedicated deployable gas-regression suite covers 1, 4, 8 and 16 managed quote levels. Current total test gas is approximately:
 - 1 level: 402k;
