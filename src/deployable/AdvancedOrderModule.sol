@@ -73,7 +73,7 @@ contract AdvancedOrderModule {
     error MinimumFillNotMet();
 
     IOrderBookCore public immutable core;
-    IExtremaOracle public immutable extremaOracle;
+    IExtremaOracle internal immutable extremaOracle;
     address internal immutable owner;
 
     uint16 internal maintenanceMarginBps;
