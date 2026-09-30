@@ -188,9 +188,12 @@ contract ProRataOrderBookTest is TestBase {
         book.configureRisk(1, 5, 1_000);
 
         token.mint(ALICE, 100_000);
+        token.mint(address(this), 100_000);
         vm.prank(ALICE);
         token.approve(address(book), type(uint256).max);
         vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        token.approve(address(book), type(uint256).max);
         book.depositCollateral(100_000);
 
         vm.prank(ALICE);
@@ -275,6 +278,36 @@ contract ProRataOrderBookTest is TestBase {
         assertEq(book.fundingCashflow(ALICE), 80, "materialized position funding mismatch");
     }
 
+    function testAggressiveTakeMaterializesTakerPosition() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        uint96 filled =
+            book.take(ProRataOrderBook.Side.Bid, 100, 40, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 40, "wrong taker fill");
+
+        (int128 settled, int128 minPosition, int128 maxPosition) = book.accountRisk(address(this));
+        assertEq(int256(settled), 40, "taker position not materialized");
+        assertEq(int256(minPosition), 40, "taker min envelope");
+        assertEq(int256(maxPosition), 40, "taker max envelope");
+    }
+
+    function testReduceOnlyCannotFlipPosition() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+        book.take(ProRataOrderBook.Side.Bid, 100, 60, ProRataOrderBook.FillPolicy.IOC);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
+
+        uint96 reduced =
+            book.takeReduceOnly(ProRataOrderBook.Side.Ask, 99, 100, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(reduced, 60, "reduce-only did not cap at position");
+
+        (int128 settled,,) = book.accountRisk(address(this));
+        assertEq(int256(settled), 0, "reduce-only flipped position");
+    }
+
     function testRiskRejectsUndercollateralizedQuote() public {
         book.configureRisk(100, 10, 1_000);
 
@@ -301,6 +334,7 @@ contract ProRataOrderBookTest is TestBase {
         vm.prank(ALICE);
         book.addLiquidity(ProRataOrderBook.Side.Ask, 104, 100);
 
+        book.depositCollateral(100_000);
         book.setMarkTick(90);
 
         uint96 filled =
@@ -326,6 +360,7 @@ contract ProRataOrderBookTest is TestBase {
 
         assertEq(book.poolRiskCeilingTick(ProRataOrderBook.Side.Ask, 104), 105, "wrong pool ceiling");
 
+        book.depositCollateral(100_000);
         book.setMarkTick(106);
 
         uint96 filled =
@@ -344,6 +379,8 @@ contract ProRataOrderBookTest is TestBase {
 
         vm.prank(ALICE);
         book.addLiquidity(ProRataOrderBook.Side.Bid, 99, 100);
+
+        book.depositCollateral(100_000);
 
         uint256 collateralBefore = book.collateralBalance(ALICE);
         uint256 reservedBefore = book.reservedMargin(ALICE);
