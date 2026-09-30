@@ -8,7 +8,7 @@ contract SegmentTreeExtremaOracleTest is TestBase {
     SegmentTreeExtremaOracle internal oracle;
 
     function setUp() public {
-        oracle = new SegmentTreeExtremaOracle(address(this), 100);
+        oracle = new SegmentTreeExtremaOracle(address(this), 100, 3_600);
     }
 
     function testRangeExtremaAcrossUpdates() public {
