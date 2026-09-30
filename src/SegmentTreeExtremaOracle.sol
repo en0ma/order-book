@@ -17,8 +17,8 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
     uint16 public override markTick;
     uint64 public override currentObservationId;
 
-    // Packed node: high in bits [31:16], low in [15:0].
-    mapping(uint256 => uint32) internal _tree;
+    // Packed node uses two 17-bit (tick + 1) fields so zero is an empty sentinel.
+    mapping(uint256 => uint64) internal _tree;
 
     error Unauthorized();
     error ZeroObservation();
@@ -54,15 +54,15 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
         uint256 start = uint256(observationId - 1) & MASK;
         uint256 end = uint256(current - 1) & MASK;
 
-        uint32 packed;
+        uint64 packed;
         if (start <= end) {
             packed = _query(start, end);
         } else {
             packed = _merge(_query(start, CAPACITY - 1), _query(0, end));
         }
 
-        highTick = uint16(packed >> 16);
-        lowTick = uint16(packed);
+        highTick = uint16(((packed >> 17) & 0x1ffff) - 1);
+        lowTick = uint16((packed & 0x1ffff) - 1);
     }
 
     function _record(uint16 tick) internal returns (uint64 observationId) {
@@ -87,7 +87,7 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
     function _query(uint256 leftIndex, uint256 rightIndex)
         internal
         view
-        returns (uint32 result)
+        returns (uint64 result)
     {
         uint256 left = TREE_BASE + leftIndex;
         uint256 right = TREE_BASE + rightIndex;
@@ -113,21 +113,23 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
         }
     }
 
-    function _merge(uint32 a, uint32 b) internal pure returns (uint32) {
+    function _merge(uint64 a, uint64 b) internal pure returns (uint64) {
         if (a == 0) return b;
         if (b == 0) return a;
 
-        uint16 highA = uint16(a >> 16);
-        uint16 lowA = uint16(a);
-        uint16 highB = uint16(b >> 16);
-        uint16 lowB = uint16(b);
+        uint16 highA = uint16(((a >> 17) & 0x1ffff) - 1);
+        uint16 lowA = uint16((a & 0x1ffff) - 1);
+        uint16 highB = uint16(((b >> 17) & 0x1ffff) - 1);
+        uint16 lowB = uint16((b & 0x1ffff) - 1);
 
         uint16 high = highA > highB ? highA : highB;
         uint16 low = lowA < lowB ? lowA : lowB;
         return _pack(high, low);
     }
 
-    function _pack(uint16 high, uint16 low) internal pure returns (uint32) {
-        return (uint32(high) << 16) | uint32(low);
+    function _pack(uint16 high, uint16 low) internal pure returns (uint64) {
+        uint64 encodedHigh = uint64(high) + 1;
+        uint64 encodedLow = uint64(low) + 1;
+        return (encodedHigh << 17) | encodedLow;
     }
 }
