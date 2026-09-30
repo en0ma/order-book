@@ -77,7 +77,7 @@ contract AdvancedOrderModule {
     address internal immutable owner;
 
     uint16 internal maintenanceMarginBps;
-    mapping(address => uint32) public activeAdvancedCount;
+    mapping(address => uint32) internal activeAdvancedCount;
 
     uint64 internal nextConditionalOrderId = 1;
     uint64 internal nextTrailingOrderId = 1;
