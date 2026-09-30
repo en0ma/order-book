@@ -30,4 +30,26 @@ contract OrderBookCoreHarness is OrderBookCore {
         collateral = collateralBalance[account];
         reserved = reservedMargin[account];
     }
+
+    function accountingStateTest(address account)
+        external
+        view
+        returns (
+            uint256 collateral,
+            int256 trading,
+            int256 funding,
+            uint256 reserved,
+            int128 fundingCheckpoint
+        )
+    {
+        collateral = collateralBalance[account];
+        trading = tradeCashflow[account];
+        funding = fundingCashflow[account];
+        reserved = reservedMargin[account];
+        fundingCheckpoint = _accountMeta[account].fundingCheckpointX18;
+    }
+
+    function fundingIndexTest() external view returns (int128) {
+        return fundingIndexX18;
+    }
 }
