@@ -366,28 +366,37 @@ contract DeployableCoreTest is TestBase {
     }
 
     function testRiskCeilingClearsWhenReachableExposureCollapses() public {
-        vm.prank(ALICE);
-        core.addLiquidity(IOrderBookCore.Side.Bid, 99, 50);
+        MockERC20 riskToken = new MockERC20();
+        MockMarkOracle riskOracle = new MockMarkOracle(100);
+        OrderBookCore riskCore =
+            new OrderBookCore(address(riskToken), address(riskOracle), 20, 1_000, 0, 0);
+
+        _fundOn(riskCore, riskToken, ALICE, 600);
 
         vm.prank(ALICE);
-        (uint128 shares,,) = core.quotes(
+        riskCore.addLiquidity(IOrderBookCore.Side.Bid, 99, 50);
+
+        vm.prank(ALICE);
+        (uint128 shares,,) = riskCore.quotes(
             ALICE,
             IOrderBookCore.Side.Bid,
             99
         );
 
         vm.prank(ALICE);
-        core.removeShares(IOrderBookCore.Side.Bid, 99, shares);
+        riskCore.removeShares(IOrderBookCore.Side.Bid, 99, shares);
 
         (int80 settled, int80 minPosition, int80 maxPosition) =
-            core.accountRisk(ALICE);
+            riskCore.accountRisk(ALICE);
         assertEq(int256(settled), int256(minPosition), "min envelope not collapsed");
         assertEq(int256(settled), int256(maxPosition), "max envelope not collapsed");
 
-        oracle.setMarkTick(50);
+        riskOracle.setMarkTick(50);
 
+        // New requirement is 80 * (50 + 20) * 10% = 560.
+        // A stale historical ceiling of 120 would require 960 and reject this.
         vm.prank(ALICE);
-        core.addLiquidity(IOrderBookCore.Side.Bid, 49, 10);
+        riskCore.addLiquidity(IOrderBookCore.Side.Bid, 49, 80);
     }
 
     function testFundingUpdaterCanBeRotatedWithoutChangingOwner() public {
