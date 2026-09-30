@@ -14,14 +14,26 @@ The design keeps authoritative liquidity and matching entirely on-chain, but rep
 - O(1) maker cancellation with respect to maker count.
 - No linked-list tombstones or stale-order cleanup.
 - IOC and FOK taker flow.
+- Immediate aggressive-taker position and execution-notional accounting.
+- Reduce-only execution that cannot cross through zero.
+- Fully on-chain conditional trigger state with permissionless execution.
+- Pairwise OCO conditional orders.
 - Exposure-envelope margin reservation.
 - Oracle-bounded execution with per-pool risk ceilings.
 - ERC-20 collateral custody.
 - Pluggable mark-oracle adapter.
 - Lazy funding attribution without maker writes during fills.
-- Active-quote withdrawal safety.
+- Mark-to-market equity and configurable maintenance margin.
+- Atomic liquidation with caller-supplied maker tick / conditional IDs.
+- Active-order withdrawal safety.
 - Foundry fuzz tests and explicit gas ceilings.
 - GitHub Actions mainnet-fork test using real WETH custody.
+
+## Conditional semantics
+
+Conditional orders currently execute as bounded aggressive IOC/FOK orders after the on-chain mark satisfies the trigger.
+
+This supports stop-market / take-profit-market style behavior with an explicit worst execution tick. A true stop-limit order that activates into resting maker liquidity is intentionally not implemented yet.
 
 ## Run
 
@@ -33,6 +45,6 @@ forge snapshot
 
 ETH_RPC=<mainnet-rpc> forge test --match-contract MainnetForkTest -vvv
 
-See docs/ARCHITECTURE.md for the design and current limitations.
+See docs/ARCHITECTURE.md for the design, accounting model, liquidation flow, and current limitations.
 
 This is a research prototype, not audited production code.
