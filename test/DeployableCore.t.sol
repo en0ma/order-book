@@ -18,7 +18,7 @@ contract DeployableCoreTest is TestBase {
     function setUp() public {
         token = new MockERC20();
         oracle = new MockMarkOracle(100);
-        core = new OrderBookCore(address(token), address(oracle), 20, 1_000);
+        core = new OrderBookCore(address(token), address(oracle), 20, 1_000, 0, 0);
         core.configureAdvancedModule(address(this));
 
         _fund(ALICE, 100_000);
