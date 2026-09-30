@@ -176,18 +176,18 @@ contract AdvancedOrderModuleTest is TestBase {
             new MarketMakerModule.QuoteUpdate[](3);
         updates[0] = MarketMakerModule.QuoteUpdate({
             side: IOrderBookCore.Side.Bid,
+            tick: 94,
+            lots: 50
+        });
+        updates[1] = MarketMakerModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Bid,
             tick: 95,
             lots: 30
         });
-        updates[1] = MarketMakerModule.QuoteUpdate({
+        updates[2] = MarketMakerModule.QuoteUpdate({
             side: IOrderBookCore.Side.Ask,
             tick: 105,
             lots: 40
-        });
-        updates[2] = MarketMakerModule.QuoteUpdate({
-            side: IOrderBookCore.Side.Bid,
-            tick: 94,
-            lots: 50
         });
 
         vm.prank(ALICE);
@@ -201,9 +201,9 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(ask105, 40, "packed ask105");
         assertEq(bid94, 50, "packed bid94");
 
-        updates[0].lots = 35;
-        updates[1].lots = 0;
-        updates[2].lots = 45;
+        updates[0].lots = 45;
+        updates[1].lots = 35;
+        updates[2].lots = 0;
 
         vm.prank(ALICE);
         marketMaker.batchReplaceQuotesPacked(_packUpdates(updates));
@@ -215,6 +215,28 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(bid95, 35, "packed increase");
         assertEq(ask105, 0, "packed cancel");
         assertEq(bid94, 45, "packed decrease");
+    }
+
+    function testManagedQuoteBatchRejectsDuplicateKeys() public {
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](2);
+        updates[0] = MarketMakerModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Bid,
+            tick: 95,
+            lots: 10
+        });
+        updates[1] = MarketMakerModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Bid,
+            tick: 95,
+            lots: 20
+        });
+
+        vm.prank(ALICE);
+        (bool ok,) = address(marketMaker).call(
+            abi.encodeCall(marketMaker.batchReplaceQuotes, (updates))
+        );
+
+        assertTrue(!ok, "duplicate quote keys accepted");
     }
 
     function testPackedManagedQuoteBatchRejectsMalformedPayload() public {
