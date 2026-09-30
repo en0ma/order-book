@@ -18,21 +18,21 @@ Best bid and ask discovery is therefore bounded and does not require a tree of s
 
 ## Tick pool
 
-Each active side/tick has exact integer remainingLots, totalShares, a cumulative fillIndexX96 for lazy maker attribution, a carried division remainder, and a generation counter.
+Each active side/tick is a one-slot pool containing totalShares, exact integer remainingLots, and a generation counter.
 
-Taker fills mutate aggregate tick state and never touch maker storage.
+Taker fills only decrease remainingLots. They never touch maker storage and partial fills do not require a second tick-state slot.
 
 ## Maker shares
 
-A maker owns shares of one side/tick pool. Late makers mint at the current totalShares / remainingLots ratio and checkpoint the current fill index, so they do not inherit historical fills.
+A maker owns shares of one side/tick pool and stores a materialized claimLots value. Late makers mint at the current totalShares / remainingLots ratio.
 
-Cancellation burns shares and redeems the maker's current pro-rata share of unfilled integer lots. There are no linked-list nodes, tombstones, or stale-order cleanup.
+A maker's pending fill is derived lazily from the loss in redeemable pool assets: last materialized claimLots minus the maker's current pro-rata redeemable lots. Cancellation first settles that loss, then burns shares and redeems current unfilled lots. There are no linked-list nodes, tombstones, or stale-order cleanup.
 
 ## Generation rollover
 
-If a taker fully depletes a pool, the pool stores a compact closed-generation record containing the terminal fill index and outstanding shares. The hot pool immediately rolls to a new generation.
+If a taker fully depletes a pool, remainingLots becomes zero, totalShares is cleared, the generation increments, and the tick is removed from the occupancy bitmap.
 
-A maker from the closed generation settles lazily later. Once all old shares have settled, the terminal record is deleted.
+No historical generation record is needed. A maker quote carrying an older generation is known to have been fully filled, so its full remaining claimLots can be materialized when the maker next interacts.
 
 ## Risk envelope
 
@@ -46,7 +46,7 @@ The current contract tracks the envelope but does not yet enforce collateral or 
 
 remainingLots is exact integer state. Taker fills therefore never depend on fixed-point rounding.
 
-The fill index is only an attribution mechanism. Fractional maker claims are carried with per-maker remainders while a quote remains active. Sub-lot dust forfeited when a quote exits is tracked separately as protocol dust.
+Maker attribution uses vault-style share accounting. The current redeemable claim is floor(shares * remainingLots / totalShares). Rounding can create tiny share-price dust on joins/exits, but it cannot create executable liquidity because remainingLots is authoritative.
 
 ## Current scope
 
