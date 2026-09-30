@@ -20,7 +20,7 @@ Best bid and ask discovery is therefore bounded and does not require a tree of s
 
 Each active side/tick is a one-slot pool containing totalShares, exact integer remainingLots, and a generation counter.
 
-Taker fills only decrease remainingLots. They never touch maker storage and partial fills do not require a second tick-state slot.
+Taker fills decrease remainingLots and update one aggregate funding-entry accumulator for that tick. They still never touch maker storage.
 
 ## Maker shares
 
@@ -32,21 +32,79 @@ A maker's pending fill is derived lazily from the loss in redeemable pool assets
 
 If a taker fully depletes a pool, remainingLots becomes zero, totalShares is cleared, the generation increments, and the tick is removed from the occupancy bitmap.
 
-No historical generation record is needed. A maker quote carrying an older generation is known to have been fully filled, so its full remaining claimLots can be materialized when the maker next interacts.
+Funding uses a compact terminal accumulator keyed by tick and generation so makers from the completed generation can settle later. The terminal accumulator is deleted once all outstanding shares from that generation settle.
 
 ## Risk envelope
 
 Resting maker liquidity expands an account's reachable position interval. Bids increase maxPosition and asks decrease minPosition.
 
-Fills do not mutate this envelope. Settlement materializes the exact filled position. Cancelling remaining liquidity shrinks the envelope.
+Fills do not mutate the maker account on the taker path. Settlement materializes the exact filled position and tightens the envelope:
+- settled bid fills move minPosition upward;
+- settled ask fills move maxPosition downward.
 
-The current contract tracks the envelope but does not yet enforce collateral or oracle-priced initial margin. Those are the next risk-layer components.
+Cancelling remaining liquidity also shrinks the envelope.
+
+## Collateral reservation and oracle execution bounds
+
+Once risk is enabled:
+
+- makers must hold enough collateral to reserve initial margin before quotes can rest;
+- required margin is based on the worst absolute endpoint of the reachable position interval;
+- each new tick pool receives a fixed risk ceiling derived from the current mark plus the configured execution band;
+- matching only considers ticks inside the current oracle band;
+- if the mark later rises above a pool's reserved ceiling, that pool remains on-chain but becomes non-executable until makers cancel/requote under a new ceiling.
+
+This prevents an old quote from silently becoming executable under a more expensive risk regime than the one it was collateralized for.
+
+## ERC-20 custody
+
+Settlement can be configured with a collateral ERC-20 and mark-oracle adapter.
+
+After configuration:
+- depositCollateral transfers the configured ERC-20 into the contract;
+- withdrawCollateral transfers it back out;
+- fee-on-transfer style behavior is rejected by comparing the amount requested with the actual token balance delta.
+
+The mainnet-fork test now uses real WETH: the test wraps ETH, approves the order book, deposits WETH into the contract, and then executes an order-book trade.
+
+## Withdrawal safety
+
+A maker with active quote positions cannot withdraw collateral while risk is enabled.
+
+The maker must first settle/cancel those quote positions. This ensures lazy fills and their funding effects are materialized before collateral leaves the contract.
+
+Withdrawal then checks:
+- token-backed collateral balance;
+- accumulated funding cashflow;
+- reserved margin on the now-materialized risk state.
+
+This is intentionally conservative.
+
+## Lazy funding
+
+Funding is represented by a signed global cumulative funding index.
+
+On each taker fill:
+- no maker state is updated;
+- the tick receives a weighted per-share funding-entry accumulator update.
+
+When a maker later settles:
+- the maker's filled quantity is reconstructed from share-value loss;
+- the weighted funding index of those fills is reconstructed from the tick accumulator;
+- funding between fill-time and settlement-time is applied to fundingCashflow;
+- already-materialized position funding is then accrued from the account's own funding checkpoint.
+
+This keeps maker-count-independent matching while preserving the time dimension of funding.
+
+The accumulator uses fixed-point arithmetic and symmetric nearest rounding for final maker attribution. Exact executable liquidity remains integer-denominated in remainingLots and is never derived from the funding accumulator.
 
 ## Conservation and rounding
 
 remainingLots is exact integer state. Taker fills therefore never depend on fixed-point rounding.
 
-Maker attribution uses vault-style share accounting. The current redeemable claim is floor(shares * remainingLots / totalShares). Rounding can create tiny share-price dust on joins/exits, but it cannot create executable liquidity because remainingLots is authoritative.
+Maker fill attribution uses vault-style share accounting. The current redeemable claim is floor(shares * remainingLots / totalShares). Rounding can create tiny share-price dust on joins/exits, but it cannot create executable liquidity because remainingLots is authoritative.
+
+Funding attribution has its own fixed-point accumulator and does not alter executable lots.
 
 ## Current scope
 
@@ -60,40 +118,27 @@ Implemented:
 - lazy maker settlement
 - generation rollover
 - exposure-envelope accounting
+- collateral reservation
+- oracle execution bands
+- per-pool risk ceilings
+- ERC-20 collateral custody
+- pluggable mark-oracle adapter
+- lazy funding-entry accumulators
+- active-quote withdrawal safety
 - fuzz/property tests
 - gas ceilings
-- Ethereum mainnet-fork CI
+- Ethereum mainnet fork with real WETH custody
 
 Not yet implemented:
-- token custody and settlement transfers
 - fees
-- collateral enforcement
-- oracle/mark-price execution bounds
-- funding accumulators
 - liquidation
 - conditional orders
 - stop, take-profit and trailing orders
 - OCO and brackets
 - reduce-only
-- multi-market portfolio margin
+- portfolio margin / cross-market netting
+- permissionless oracle adapters and stale-price validation
+- production-grade token decimal normalization
+- audited funding precision bounds
 
-The next milestone should add collateral reservation and an oracle-bounded execution rule while preserving zero maker writes on the taker path.
-
-
-## Collateral reservation and oracle execution bounds
-
-The risk layer is optional until configured. Once enabled:
-
-- makers credit accounting collateral before placing quotes;
-- resting bids expand maxPosition and resting asks expand minPosition;
-- required initial margin is reserved against the worst absolute endpoint of that reachable interval;
-- each newly activated tick pool receives a fixed risk-ceiling tick derived from the mark plus the configured execution band;
-- maker account reserve uses the highest pool risk ceiling the account has touched;
-- taker matching only considers ticks inside the current oracle execution band;
-- if the mark rises above a pool's reserved risk ceiling, that pool remains on-chain but becomes non-executable until makers cancel/requote under a fresh ceiling.
-
-The last rule is important: changing the oracle mark must not silently make previously reserved maker liquidity executable under a more expensive risk regime.
-
-Taker fills still do not write maker collateral, maker reserved margin, or maker position state. Maker state is only materialized on settlement or quote mutation.
-
-The current collateral functions are accounting-only and do not yet transfer ERC-20 tokens. Production custody remains a separate layer.
+The next milestone should add conditional/reduce-only order semantics and liquidation while preserving the same hot-path property: taker execution must not write maker state.
