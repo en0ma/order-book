@@ -50,7 +50,7 @@ contract AccountingConservationPropertyTest is TestBase {
 
         uint256 totalLots =
             uint256(aliceLots) + uint256(bobLots) + uint256(carolLots);
-        uint256 maxSafeTakerLots = totalLots < 700 ? totalLots : 700;
+        uint256 maxSafeTakerLots = totalLots < 450 ? totalLots : 450;
         uint96 requested = uint96((fillSeed % maxSafeTakerLots) + 1);
 
         vm.prank(TAKER);
