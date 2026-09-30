@@ -823,14 +823,11 @@ contract OrderBookCore is IOrderBookCore {
         int80 amount = _positionAmount(filledLots);
 
         uint32 fees = feeSchedulePacked;
-        uint16 takerFeeBps = uint16(fees);
-        if (takerFeeBps != 0) {
-            uint256 takerFee =
-                notional * uint256(takerFeeBps) / 10_000;
+        uint256 takerFee =
+            notional * uint256(uint16(fees)) / 10_000;
+        if (takerFee != 0) {
             uint256 makerRebate =
                 notional * uint256(uint16(fees >> 16)) / 10_000;
-
-            tradeCashflow[account] -= int256(takerFee);
             protocolFeesAccrued += takerFee - makerRebate;
         }
 
@@ -838,12 +835,11 @@ contract OrderBookCore is IOrderBookCore {
             a.settledPosition += amount;
             a.minPosition += amount;
             if (!preReserved) a.maxPosition += amount;
-            tradeCashflow[account] -= int256(notional);
+            tradeCashflow[account] -= int256(notional + takerFee);
         } else {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
-            if (!preReserved) a.minPosition -= amount;
-            tradeCashflow[account] += int256(notional);
+            tradeCashflow[account] += int256(notional) - int256(takerFee);
         }
 
         _refreshReservedMargin(account);
@@ -858,20 +854,17 @@ contract OrderBookCore is IOrderBookCore {
         int80 amount = _positionAmount(filledLots);
         int256 notional = int256(uint256(filledLots) * uint256(tick));
 
-        uint16 makerRebateBps = uint16(feeSchedulePacked >> 16);
-        if (makerRebateBps != 0) {
-            tradeCashflow[maker] +=
-                int256(uint256(notional) * uint256(makerRebateBps) / 10_000);
-        }
+        uint256 makerRebate =
+            uint256(notional) * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
 
         if (side == Side.Bid) {
             a.settledPosition += amount;
             a.minPosition += amount;
-            tradeCashflow[maker] -= notional;
+            tradeCashflow[maker] += int256(makerRebate) - notional;
         } else {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
-            tradeCashflow[maker] += notional;
+            tradeCashflow[maker] += notional + int256(makerRebate);
         }
     }
 
