@@ -253,7 +253,7 @@ contract MarketMakerModule {
         }
 
         uint96 currentLots =
-            OrderBookMath.redeemableLots(managed.shares, remainingLots, totalShares);
+            OrderBookMath.redeemableLotsCeil(managed.shares, remainingLots, totalShares);
 
         if (targetLots >= currentLots) {
             return targetLots - currentLots;
