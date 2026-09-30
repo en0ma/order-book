@@ -152,7 +152,7 @@ contract RebateFundingRoundingInvariantTest is TestBase {
 
         vm.prank(ALICE);
         core.settle(IOrderBookCore.Side.Ask, 10_000);
-        (,, int256 tradingAfterRepeat,,) =
+        (, int256 tradingAfterRepeat,,,) =
             core.accountingStateTest(ALICE);
         assertEq(
             tradingAfterRepeat,
