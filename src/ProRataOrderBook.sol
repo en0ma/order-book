@@ -53,6 +53,15 @@ contract ProRataOrderBook {
         bool enabled;
     }
 
+    /// @dev Account metadata packed into one slot:
+    /// int128 + uint32 + uint32 + uint16 = 208 bits.
+    struct AccountMeta {
+        int128 fundingCheckpointX18;
+        uint32 activeQuoteCount;
+        uint32 activeConditionalCount;
+        uint16 riskCeilingTick;
+    }
+
     /// @dev Triggered orders are stored fully on-chain and executed permissionlessly.
     /// flags: bit0 active, bit1 triggerAboveOrEqual, bit2 reduceOnly, bit3 restingLimit.
     struct ConditionalOrder {
@@ -95,7 +104,7 @@ contract ProRataOrderBook {
     mapping(address => AccountRisk) public accountRisk;
     mapping(address => uint256) public collateralBalance;
     mapping(address => uint256) public reservedMargin;
-    mapping(address => uint16) public accountRiskCeilingTick;
+    mapping(address => AccountMeta) internal _accountMeta;
     mapping(Side => mapping(uint16 => uint16)) public poolRiskCeilingTick;
 
     // Lazy funding attribution. These mappings intentionally sit outside TickPool/MakerQuote
@@ -104,11 +113,8 @@ contract ProRataOrderBook {
     mapping(Side => mapping(uint16 => int256)) public fundingEntryPerShareX96;
     mapping(Side => mapping(uint16 => mapping(uint32 => int256))) public closedFundingEntryPerShareX96;
     mapping(address => mapping(Side => mapping(uint16 => int256))) public quoteFundingCheckpointX96;
-    mapping(address => int128) public accountFundingCheckpointX18;
     mapping(address => int256) public fundingCashflow;
     mapping(address => int256) public tradeCashflow;
-    mapping(address => uint32) public activeQuoteCount;
-    mapping(address => uint32) public activeConditionalCount;
     mapping(Side => mapping(uint16 => mapping(uint32 => uint128))) public closedFundingOutstandingShares;
 
     uint16 public maintenanceMarginBps;
@@ -268,7 +274,7 @@ contract ProRataOrderBook {
         if (amount == 0) revert ZeroAmount();
         if (
             riskConfig.enabled
-                && (activeQuoteCount[msg.sender] != 0 || activeConditionalCount[msg.sender] != 0)
+                && (_accountMeta[msg.sender].activeQuoteCount != 0 || _accountMeta[msg.sender].activeConditionalCount != 0)
         ) revert UnsettledQuotes();
 
         _settleExistingPositionFunding(msg.sender);
@@ -311,8 +317,8 @@ contract ProRataOrderBook {
                 if (ceiling > type(uint16).max) ceiling = type(uint16).max;
                 riskCeiling = uint16(ceiling);
 
-                if (riskCeiling > accountRiskCeilingTick[msg.sender]) {
-                    accountRiskCeilingTick[msg.sender] = riskCeiling;
+                if (riskCeiling > _accountMeta[msg.sender].riskCeilingTick) {
+                    _accountMeta[msg.sender].riskCeilingTick = riskCeiling;
                 }
             }
 
@@ -336,7 +342,7 @@ contract ProRataOrderBook {
             flags: flags
         });
 
-        activeConditionalCount[msg.sender] += 1;
+        _accountMeta[msg.sender].activeConditionalCount += 1;
 
         emit ConditionalOrderPlaced(
             orderId,
@@ -368,8 +374,8 @@ contract ProRataOrderBook {
             if (ceiling > type(uint16).max) ceiling = type(uint16).max;
             riskCeiling = uint16(ceiling);
 
-            if (riskCeiling > accountRiskCeilingTick[msg.sender]) {
-                accountRiskCeilingTick[msg.sender] = riskCeiling;
+            if (riskCeiling > _accountMeta[msg.sender].riskCeilingTick) {
+                _accountMeta[msg.sender].riskCeilingTick = riskCeiling;
             }
         }
         _refreshReservedMargin(msg.sender);
@@ -390,7 +396,7 @@ contract ProRataOrderBook {
             flags: flags
         });
 
-        activeConditionalCount[msg.sender] += 1;
+        _accountMeta[msg.sender].activeConditionalCount += 1;
 
         emit ConditionalOrderPlaced(
             orderId,
@@ -444,7 +450,7 @@ contract ProRataOrderBook {
 
         bool reduceOnly = (order.flags & 4) != 0;
         if (reduceOnly) {
-            if (activeQuoteCount[order.owner] != 0) revert UnsettledQuotes();
+            if (_accountMeta[order.owner].activeQuoteCount != 0) revert UnsettledQuotes();
         } else if (order.riskCeilingTick != 0 && mark > order.riskCeilingTick) {
             revert InvalidRiskConfig();
         }
@@ -452,7 +458,7 @@ contract ProRataOrderBook {
         bool restingLimit = (order.flags & 8) != 0;
 
         stored.flags &= ~uint8(1);
-        activeConditionalCount[order.owner] -= 1;
+        _accountMeta[order.owner].activeConditionalCount -= 1;
 
         if (restingLimit) {
             uint96 restingLots;
@@ -613,7 +619,7 @@ contract ProRataOrderBook {
 
         q.shares += mintedShares;
         q.claimLots += lots;
-        if (isNewMakerQuote) activeQuoteCount[maker] += 1;
+        if (isNewMakerQuote) _accountMeta[maker].activeQuoteCount += 1;
     }
 
     function _preparePoolRiskCeiling(
@@ -650,8 +656,8 @@ contract ProRataOrderBook {
             }
         }
 
-        if (riskCeiling > accountRiskCeilingTick[maker]) {
-            accountRiskCeilingTick[maker] = riskCeiling;
+        if (riskCeiling > _accountMeta[maker].riskCeilingTick) {
+            _accountMeta[maker].riskCeilingTick = riskCeiling;
         }
     }
 
@@ -686,7 +692,7 @@ contract ProRataOrderBook {
         if (q.shares == 0) {
             delete quotes[msg.sender][side][tick];
             delete quoteFundingCheckpointX96[msg.sender][side][tick];
-            activeQuoteCount[msg.sender] -= 1;
+            _accountMeta[msg.sender].activeQuoteCount -= 1;
         }
 
         if (p.totalShares == 0) {
@@ -717,7 +723,7 @@ contract ProRataOrderBook {
 
         int256 pendingFunding =
             -(int256(a.settledPosition)
-                * (int256(fundingIndexX18) - int256(accountFundingCheckpointX18[account]))
+                * (int256(fundingIndexX18) - int256(_accountMeta[account].fundingCheckpointX18))
                 / FUNDING_SCALE);
 
         equity = int256(collateralBalance[account]) + tradeCashflow[account]
@@ -738,7 +744,7 @@ contract ProRataOrderBook {
 
     function isLiquidatable(address account) public view returns (bool) {
         if (maintenanceMarginBps == 0) return false;
-        if (activeQuoteCount[account] != 0 || activeConditionalCount[account] != 0) return false;
+        if (_accountMeta[account].activeQuoteCount != 0 || _accountMeta[account].activeConditionalCount != 0) return false;
         if (accountRisk[account].settledPosition == 0) return false;
 
         return accountEquity(account) < int256(maintenanceRequirement(account));
@@ -765,7 +771,7 @@ contract ProRataOrderBook {
             }
         }
 
-        if (activeQuoteCount[account] != 0 || activeConditionalCount[account] != 0) {
+        if (_accountMeta[account].activeQuoteCount != 0 || _accountMeta[account].activeConditionalCount != 0) {
             revert UnsettledQuotes();
         }
 
@@ -816,7 +822,7 @@ contract ProRataOrderBook {
         external
         returns (uint96 filledLots)
     {
-        if (activeQuoteCount[msg.sender] != 0) revert UnsettledQuotes();
+        if (_accountMeta[msg.sender].activeQuoteCount != 0) revert UnsettledQuotes();
         filledLots = _takeFor(msg.sender, takerSide, limitTick, lots, policy, true, false);
     }
 
@@ -941,6 +947,22 @@ contract ProRataOrderBook {
         }
     }
 
+    function accountRiskCeilingTick(address account) external view returns (uint16) {
+        return _accountMeta[account].riskCeilingTick;
+    }
+
+    function accountFundingCheckpointX18(address account) external view returns (int128) {
+        return _accountMeta[account].fundingCheckpointX18;
+    }
+
+    function activeQuoteCount(address account) external view returns (uint32) {
+        return _accountMeta[account].activeQuoteCount;
+    }
+
+    function activeConditionalCount(address account) external view returns (uint32) {
+        return _accountMeta[account].activeConditionalCount;
+    }
+
     function bestBid() external view returns (bool ok, uint16 tick) {
         return _bestTick(Side.Bid);
     }
@@ -989,7 +1011,7 @@ contract ProRataOrderBook {
 
             delete quotes[maker][side][tick];
             delete quoteFundingCheckpointX96[maker][side][tick];
-            activeQuoteCount[maker] -= 1;
+            _accountMeta[maker].activeQuoteCount -= 1;
             emit MakerSettled(maker, side, tick, filledLots, oldGeneration);
             return filledLots;
         }
@@ -1064,7 +1086,7 @@ contract ProRataOrderBook {
             fundingCashflow[maker] += cashflowDelta;
             emit FundingSettled(maker, cashflowDelta);
         }
-        accountFundingCheckpointX18[maker] = fundingIndexX18;
+        _accountMeta[maker].fundingCheckpointX18 = fundingIndexX18;
     }
 
     function _weightedFundingEntry(
@@ -1084,7 +1106,7 @@ contract ProRataOrderBook {
 
     function _settleExistingPositionFunding(address maker) internal {
         int128 currentIndex = fundingIndexX18;
-        int128 checkpoint = accountFundingCheckpointX18[maker];
+        int128 checkpoint = _accountMeta[maker].fundingCheckpointX18;
         if (currentIndex == checkpoint) return;
 
         int256 position = int256(accountRisk[maker].settledPosition);
@@ -1096,7 +1118,7 @@ contract ProRataOrderBook {
             emit FundingSettled(maker, cashflowDelta);
         }
 
-        accountFundingCheckpointX18[maker] = currentIndex;
+        _accountMeta[maker].fundingCheckpointX18 = currentIndex;
     }
 
     function _divNearestSigned(int256 numerator, int256 denominator)
@@ -1131,7 +1153,7 @@ contract ProRataOrderBook {
 
         delete quotes[maker][side][tick];
         delete quoteFundingCheckpointX96[maker][side][tick];
-        activeQuoteCount[maker] -= 1;
+        _accountMeta[maker].activeQuoteCount -= 1;
 
         if (p.totalShares == 0) {
             if (p.remainingLots != 0) revert InvalidShareAmount();
@@ -1155,7 +1177,7 @@ contract ProRataOrderBook {
         if (!_conditionalActive(order)) return;
 
         order.flags &= ~uint8(1);
-        activeConditionalCount[order.owner] -= 1;
+        _accountMeta[order.owner].activeConditionalCount -= 1;
 
         bool reduceOnly = (order.flags & 4) != 0;
         if (releaseRisk && !reduceOnly) {
@@ -1251,7 +1273,7 @@ contract ProRataOrderBook {
         uint256 absMax = a.maxPosition < 0 ? uint256(uint80(-a.maxPosition)) : uint256(uint80(a.maxPosition));
         uint256 worstLots = absMin > absMax ? absMin : absMax;
 
-        uint256 worstPrice = accountRiskCeilingTick[maker];
+        uint256 worstPrice = _accountMeta[maker].riskCeilingTick;
         if (worstPrice == 0) {
             worstPrice = uint256(_currentMarkTick()) + uint256(r.executionBandTicks);
         }
