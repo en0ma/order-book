@@ -34,14 +34,11 @@ contract DeployableCoreTest is TestBase {
         core.depositCollateral(amount);
     }
 
-    function testConsolidatedAccountAccountingView() public {
-        (uint256 collateral, uint256 reserved, int256 funding, int256 trade) =
-            core.accountAccounting(ALICE);
+    function testConsolidatedMarginStateView() public {
+        (uint256 collateral, uint256 reserved) = core.marginState(ALICE);
 
         assertEq(collateral, 100_000, "collateral view");
         assertEq(reserved, 0, "reserved view");
-        assertEq(funding, 0, "funding view");
-        assertEq(trade, 0, "trade view");
     }
 
     function testDirectHotPathStillMatchesOnChain() public {
@@ -72,18 +69,14 @@ contract DeployableCoreTest is TestBase {
             feeCore.take(IOrderBookCore.Side.Bid, 100, 40, IOrderBookCore.FillPolicy.IOC);
         assertEq(filled, 40, "fee fill mismatch");
 
-        (,,, int256 takerTrade) = feeCore.accountAccounting(BOB);
-        (,,, int256 makerTradeBefore) = feeCore.accountAccounting(ALICE);
-
-        assertEq(takerTrade, -4_004, "taker fee not charged immediately");
-        assertEq(makerTradeBefore, 0, "maker rebate materialized before settlement");
+        assertEq(feeCore.accountEquity(BOB), 99_996, "taker fee not charged immediately");
+        assertEq(feeCore.accountEquity(ALICE), 100_000, "maker rebate materialized before settlement");
         assertEq(feeCore.protocolFeesAccrued(), 2, "protocol net fee after taker fill");
 
         vm.prank(ALICE);
         feeCore.settle(IOrderBookCore.Side.Ask, 100);
 
-        (,,, int256 makerTradeAfter) = feeCore.accountAccounting(ALICE);
-        assertEq(makerTradeAfter, 4_002, "maker rebate not applied on settlement");
+        assertEq(feeCore.accountEquity(ALICE), 100_002, "maker rebate not applied on settlement");
         assertEq(feeCore.protocolFeesAccrued(), 2, "maker settlement double-counted protocol fee");
     }
 
@@ -111,15 +104,13 @@ contract DeployableCoreTest is TestBase {
         vm.prank(ALICE);
         feeCore.settle(IOrderBookCore.Side.Ask, 100);
 
-        (,,, int256 makerTrade) = feeCore.accountAccounting(ALICE);
-        assertEq(makerTrade, 6_003, "partial-settlement maker rebate accounting");
+        assertEq(feeCore.accountEquity(ALICE), 100_003, "partial-settlement maker rebate accounting");
         assertEq(feeCore.protocolFeesAccrued(), 3, "protocol fees across partial fills");
 
         vm.prank(ALICE);
         feeCore.settle(IOrderBookCore.Side.Ask, 100);
 
-        (,,, int256 makerTradeAgain) = feeCore.accountAccounting(ALICE);
-        assertEq(makerTradeAgain, 6_003, "repeated settle duplicated rebate");
+        assertEq(feeCore.accountEquity(ALICE), 100_003, "repeated settle duplicated rebate");
         assertEq(feeCore.protocolFeesAccrued(), 3, "repeated settle duplicated protocol fee");
     }
 
