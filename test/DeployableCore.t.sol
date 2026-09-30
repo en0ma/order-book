@@ -232,6 +232,23 @@ contract DeployableCoreTest is TestBase {
         assertTrue(!ok, "risk-increasing quote admitted against stale deposit balance");
     }
 
+    function testFundingUpdaterCanBeRotatedWithoutChangingOwner() public {
+        address updater = address(0xF00D);
+
+        core.setFundingUpdater(updater);
+        assertTrue(core.fundingUpdater() == updater, "funding updater not rotated");
+
+        (bool oldUpdaterOk,) =
+            address(core).call(abi.encodeCall(core.setFundingIndex, (int128(1e18))));
+        assertTrue(!oldUpdaterOk, "old updater retained funding authority");
+
+        vm.prank(updater);
+        core.setFundingIndex(int128(1e18));
+
+        core.setFundingUpdater(address(this));
+        core.setFundingIndex(int128(2e18));
+    }
+
     function testAdvancedModuleCanOnlyBeConfiguredOnce() public {
         (bool ok,) =
             address(core).call(abi.encodeCall(core.configureAdvancedModule, (address(0x1234))));
