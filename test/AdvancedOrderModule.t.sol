@@ -1545,6 +1545,39 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(uint256(childMaxLots), 0, "executed child kept max-lot metadata");
     }
 
+    function testWithdrawalRespectsAdvancedReservationWithoutCoreQuote() public {
+        vm.prank(ALICE);
+        uint64 orderId = module.placeConditionalOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            120,
+            120,
+            100,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+
+        assertEq(core.activeQuoteCount(ALICE), 0, "conditional unexpectedly created core quote");
+
+        vm.prank(ALICE);
+        (bool tooMuchOk,) = address(core).call(
+            abi.encodeCall(core.withdrawCollateral, (uint256(998_601)))
+        );
+        assertTrue(!tooMuchOk, "withdrawal bypassed advanced reserved margin");
+
+        vm.prank(ALICE);
+        core.withdrawCollateral(998_600);
+
+        vm.prank(ALICE);
+        module.cancelConditionalOrder(orderId);
+
+        vm.prank(ALICE);
+        core.withdrawCollateral(1_400);
+
+        assertEq(core.accountEquity(ALICE), 0, "advanced reservation not fully released");
+        assertEq(module.activeAdvancedOrders(ALICE), 0, "cancelled conditional remained active");
+    }
+
     function testModuleTrailingUsesSegmentTreeOracle() public {
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 60);
