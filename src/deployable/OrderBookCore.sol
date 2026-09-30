@@ -67,7 +67,7 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
     mapping(address => AccountRisk) public accountRisk;
     mapping(address => AccountMeta) internal _accountMeta;
-    mapping(address => mapping(Side => mapping(uint16 => uint128))) public moduleLockedShares;
+    mapping(address => mapping(Side => mapping(uint16 => uint128))) internal moduleLockedShares;
 
     mapping(address => uint256) public collateralBalance;
     mapping(address => uint256) public reservedMargin;
@@ -75,15 +75,15 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => int256) public tradeCashflow;
 
     int128 public fundingIndexX18;
-    mapping(Side => mapping(uint16 => int256)) public fundingEntryPerShareX96;
+    mapping(Side => mapping(uint16 => int256)) internal fundingEntryPerShareX96;
     mapping(Side => mapping(uint16 => mapping(uint32 => int256)))
-        public closedFundingEntryPerShareX96;
+        internal closedFundingEntryPerShareX96;
     mapping(Side => mapping(uint16 => mapping(uint32 => uint128)))
-        public closedFundingOutstandingShares;
+        internal closedFundingOutstandingShares;
     mapping(address => mapping(Side => mapping(uint16 => int256)))
-        public quoteFundingCheckpointX96;
+        internal quoteFundingCheckpointX96;
 
-    mapping(Side => mapping(uint16 => uint16)) public poolRiskCeilingTick;
+    mapping(Side => mapping(uint16 => uint16)) internal poolRiskCeilingTick;
 
     mapping(Side => mapping(uint8 => uint256)) internal _tickWords;
     mapping(Side => uint256) internal _occupiedWords;
