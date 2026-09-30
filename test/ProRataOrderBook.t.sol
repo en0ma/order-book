@@ -230,6 +230,31 @@ contract ProRataOrderBookTest is TestBase {
         assertEq(book.fundingCashflow(ALICE), 40, "lazy fill funding mismatch");
     }
 
+    function testFundingIsAttributedProRataAcrossMakers() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 300);
+
+        book.setFundingIndex(int128(1e18));
+        book.take(ProRataOrderBook.Side.Bid, 100, 200, ProRataOrderBook.FillPolicy.IOC);
+        book.setFundingIndex(int128(2e18));
+
+        vm.prank(ALICE);
+        book.settle(ProRataOrderBook.Side.Ask, 100);
+        vm.prank(BOB);
+        book.settle(ProRataOrderBook.Side.Ask, 100);
+
+        assertEq(book.fundingCashflow(ALICE), 50, "alice funding share");
+        assertEq(book.fundingCashflow(BOB), 150, "bob funding share");
+        assertEq(
+            book.fundingCashflow(ALICE) + book.fundingCashflow(BOB),
+            200,
+            "aggregate funding attribution"
+        );
+    }
+
     function testMaterializedPositionContinuesFundingAfterQuoteSettlement() public {
         vm.prank(ALICE);
         book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
