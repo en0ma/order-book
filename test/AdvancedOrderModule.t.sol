@@ -511,6 +511,88 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(remaining, 35, "bracket remainder changed by MM cancellation");
     }
 
+    function testManagedQuoteSelfHealsAfterGenerationRolloverAndTickReopen() public {
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](1);
+        updates[0] = MarketMakerModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Ask,
+            tick: 105,
+            lots: 10
+        });
+
+        vm.prank(ALICE);
+        marketMaker.batchReplaceQuotes(updates);
+
+        (,, uint32 generation0) =
+            core.pools(IOrderBookCore.Side.Ask, 105);
+
+        vm.prank(BOB);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            105,
+            10,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        (,, uint32 generation1) =
+            core.pools(IOrderBookCore.Side.Ask, 105);
+        assertEq(
+            uint256(generation1),
+            uint256(generation0 + 1),
+            "full consumption did not roll generation"
+        );
+
+        // Reopen the same tick before ALICE refreshes the stale managed metadata.
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 105, 7);
+
+        vm.prank(ALICE);
+        marketMaker.batchReplaceQuotes(updates);
+
+        (, uint96 remaining, uint32 generationAfter) =
+            core.pools(IOrderBookCore.Side.Ask, 105);
+        (uint128 aliceShares, uint96 aliceClaim, uint32 aliceGeneration) =
+            core.quotes(ALICE, IOrderBookCore.Side.Ask, 105);
+
+        assertEq(remaining, 17, "rollover refresh did not add fresh managed target");
+        assertTrue(aliceShares != 0, "rollover refresh left no fresh managed shares");
+        assertEq(aliceClaim, 10, "fresh managed claim mismatch");
+        assertEq(
+            uint256(aliceGeneration),
+            uint256(generationAfter),
+            "managed quote remained on stale generation"
+        );
+        assertEq(
+            uint256(generationAfter),
+            uint256(generation1),
+            "refresh unexpectedly rolled reopened generation"
+        );
+        assertEq(
+            int256(_corePosition(ALICE)),
+            -10,
+            "stale generation maker fill was not settled before refresh"
+        );
+
+        // A second unchanged refresh must now be a strict no-op.
+        uint128 sharesBefore = aliceShares;
+        vm.prank(ALICE);
+        marketMaker.batchReplaceQuotes(updates);
+
+        (uint128 sharesAfter, uint96 claimAfter, uint32 generationFinal) =
+            core.quotes(ALICE, IOrderBookCore.Side.Ask, 105);
+        (, uint96 remainingAfter,) =
+            core.pools(IOrderBookCore.Side.Ask, 105);
+
+        assertEq(remainingAfter, 17, "stable refresh duplicated liquidity");
+        assertEq(uint256(sharesAfter), uint256(sharesBefore), "stable refresh churned shares");
+        assertEq(claimAfter, 10, "stable refresh changed claim");
+        assertEq(
+            uint256(generationFinal),
+            uint256(generationAfter),
+            "stable refresh changed generation"
+        );
+    }
+
     function testStaleManagedCancelCannotTouchFreshOrdinaryQuote() public {
         MarketMakerModule.QuoteUpdate[] memory updates =
             new MarketMakerModule.QuoteUpdate[](1);
