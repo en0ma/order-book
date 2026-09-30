@@ -74,22 +74,22 @@ contract AdvancedOrderModule {
 
     IOrderBookCore public immutable core;
     IExtremaOracle public immutable extremaOracle;
-    address public immutable owner;
+    address internal immutable owner;
 
-    uint16 public maintenanceMarginBps;
+    uint16 internal maintenanceMarginBps;
     mapping(address => uint32) public activeAdvancedCount;
 
-    uint64 public nextConditionalOrderId = 1;
-    uint64 public nextTrailingOrderId = 1;
+    uint64 internal nextConditionalOrderId = 1;
+    uint64 internal nextTrailingOrderId = 1;
 
     mapping(uint64 => ConditionalOrder) public conditionalOrders;
     mapping(uint64 => TrailingOrder) public trailingOrders;
     mapping(uint64 => RestingLink) public restingLinks;
 
-    mapping(uint64 => uint64) public otoChildOne;
-    mapping(uint64 => uint64) public otoChildTwo;
-    mapping(uint64 => uint64) public otoParent;
-    mapping(uint64 => uint96) public otoChildMaxLots;
+    mapping(uint64 => uint64) internal otoChildOne;
+    mapping(uint64 => uint64) internal otoChildTwo;
+    mapping(uint64 => uint64) internal otoParent;
+    mapping(uint64 => uint96) internal otoChildMaxLots;
     mapping(address => mapping(IOrderBookCore.Side => mapping(uint16 => ManagedQuote)))
         internal managedQuotes;
 
