@@ -39,6 +39,11 @@ contract OrderBookCore is IOrderBookCore {
         uint16 riskCeilingTick;
     }
 
+    struct ModuleLock {
+        uint128 shares;
+        uint32 generation;
+    }
+
     error ZeroAmount();
     error CrossesBook();
     error InsufficientLiquidity();
@@ -67,7 +72,7 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
     mapping(address => AccountRisk) public accountRisk;
     mapping(address => AccountMeta) internal _accountMeta;
-    mapping(address => mapping(Side => mapping(uint16 => uint128))) internal moduleLockedShares;
+    mapping(address => mapping(Side => mapping(uint16 => ModuleLock))) internal moduleLocks;
 
     mapping(address => uint256) public collateralBalance;
     mapping(address => uint256) public reservedMargin;
@@ -210,7 +215,8 @@ contract OrderBookCore is IOrderBookCore {
         returns (uint96 removedLots)
     {
         MakerQuote memory q = quotes[msg.sender][side][tick];
-        uint128 locked = moduleLockedShares[msg.sender][side][tick];
+        ModuleLock memory lock = moduleLocks[msg.sender][side][tick];
+        uint128 locked = lock.generation == q.generation ? lock.shares : 0;
         if (sharesToBurn > q.shares - locked) revert InvalidShareAmount();
 
         removedLots = _removeSharesFor(msg.sender, side, tick, sharesToBurn);
@@ -283,7 +289,14 @@ contract OrderBookCore is IOrderBookCore {
     ) external override onlyModule returns (uint128 mintedShares) {
         mintedShares =
             _addLiquidityFor(account, side, tick, lots, true, reservedRiskCeiling, true);
-        moduleLockedShares[account][side][tick] += mintedShares;
+
+        uint32 generation = pools[side][tick].generation;
+        ModuleLock storage lock = moduleLocks[account][side][tick];
+        if (lock.generation != generation) {
+            lock.generation = generation;
+            lock.shares = 0;
+        }
+        lock.shares += mintedShares;
     }
 
     function moduleSettle(address account, Side side, uint16 tick)
@@ -300,23 +313,37 @@ contract OrderBookCore is IOrderBookCore {
         address account,
         Side side,
         uint16 tick,
+        uint32 generation,
         uint128 shares
     ) external override onlyModule returns (uint96 removedLots) {
-        uint128 locked = moduleLockedShares[account][side][tick];
-        if (shares == 0 || shares > locked) revert InvalidShareAmount();
+        ModuleLock storage lock = moduleLocks[account][side][tick];
+        if (
+            shares == 0 || lock.generation != generation
+                || pools[side][tick].generation != generation || shares > lock.shares
+        ) revert InvalidShareAmount();
 
-        moduleLockedShares[account][side][tick] = locked - shares;
+        lock.shares -= shares;
+        if (lock.shares == 0) delete moduleLocks[account][side][tick];
+
         removedLots = _removeSharesFor(account, side, tick, shares);
     }
 
-    function moduleUnlockShares(address account, Side side, uint16 tick, uint128 shares)
-        external
-        override
-        onlyModule
-    {
-        uint128 locked = moduleLockedShares[account][side][tick];
-        if (shares > locked) revert InvalidShareAmount();
-        moduleLockedShares[account][side][tick] = locked - shares;
+    function moduleUnlockShares(
+        address account,
+        Side side,
+        uint16 tick,
+        uint32 generation,
+        uint128 shares
+    ) external override onlyModule {
+        ModuleLock storage lock = moduleLocks[account][side][tick];
+
+        // The referenced generation can already be fully consumed and replaced.
+        // In that case its shares no longer exist and must not touch the new lock.
+        if (lock.generation != generation) return;
+        if (shares > lock.shares) revert InvalidShareAmount();
+
+        lock.shares -= shares;
+        if (lock.shares == 0) delete moduleLocks[account][side][tick];
     }
 
     function moduleForceCancelQuote(address account, Side side, uint16 tick)
@@ -346,7 +373,7 @@ contract OrderBookCore is IOrderBookCore {
 
         delete quotes[account][side][tick];
         delete quoteFundingCheckpointX96[account][side][tick];
-        delete moduleLockedShares[account][side][tick];
+        delete moduleLocks[account][side][tick];
         _accountMeta[account].activeQuoteCount -= 1;
 
         if (p.totalShares == 0) {
