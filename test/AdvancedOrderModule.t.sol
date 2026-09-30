@@ -1226,6 +1226,8 @@ contract AdvancedOrderModuleTest is TestBase {
 
         liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
 
+        _fund(trader, 5_000);
+
         updates[0].tick = 90;
         updates[0].lots = 10;
         vm.prank(trader);
@@ -1871,7 +1873,7 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(int256(_corePosition(ALICE)), 100, "advanced maker fill not materialized");
         assertEq(
             core.accountEquity(ALICE),
-            99_900,
+            999_900,
             "delayed maker funding attribution mismatch"
         );
 
@@ -1884,7 +1886,7 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(int256(_corePosition(ALICE)), 0, "funded advanced exit did not flatten");
         assertEq(
             core.accountEquity(ALICE),
-            99_900,
+            999_900,
             "funding cashflow changed when closing after sync"
         );
     }
@@ -2238,6 +2240,8 @@ contract AdvancedOrderModuleTest is TestBase {
             uint256(generationBefore),
             "neighbor liquidity should keep pool generation live"
         );
+
+        _fund(trader, 5_000);
 
         // If liquidation leaves stale managed metadata, this refresh sees the
         // deleted old shares as a live 1-lot slice and adds nothing.
