@@ -242,3 +242,45 @@ To avoid storing an expensive per-maker enumerable order list, liquidators suppl
 If the final health check says the account is healthy, the entire transaction reverts, including all preceding cancellations. A liquidator therefore cannot use this path to cancel a healthy account's orders.
 
 This keeps normal maker add/cancel operations free from an additional enumerable-order index while still permitting exact fully-on-chain liquidation.
+
+
+## Minimum-fill execution
+
+Aggressive execution now supports an explicit minimum-fill threshold.
+
+takeMinFill first checks aggregate executable liquidity through the caller's limit tick. If less than minFillLots is available, the transaction reverts before any tick is mutated. If the threshold is available, execution proceeds as IOC and may consume up to the requested quantity.
+
+takeReduceOnlyMinFill applies the same threshold after capping the request to the account's reducible settled position.
+
+For a one-shot aggressive IOC, minimum-fill and minimum-first-fill are equivalent because there is only one execution attempt.
+
+Individual maker-side minimum-first-fill or all-or-none constraints are intentionally not supported inside a shared pro-rata tick pool. Enforcing different constraints for individual makers would require inspecting individual maker state during matching or segregating liquidity into separate pool classes, which would weaken the maker-count-independent hot path.
+
+## OTO and bracket composition
+
+A conditional order may have up to two OTO children.
+
+OTO children must be reduce-only exits. Linking a child makes it dormant on-chain: it is stored but cannot execute and is not counted as an active conditional until its parent has an actual fill.
+
+When the parent executes:
+- each child quantity is capped to the parent's actual filled quantity;
+- the children become active;
+- two children may already be linked by OCO, producing a take-profit / stop-loss bracket.
+
+If the parent fills zero, its dormant children are cancelled. Cancelling the parent also cascades cancellation to dormant children.
+
+The first bracket implementation deliberately tracks only the quantity filled during the parent's aggressive conditional execution. If a triggered-limit parent rests a remainder and that maker liquidity fills later, its bracket children do not automatically expand yet. Supporting that correctly requires a settlement-driven child-resize accumulator or another lazy linkage mechanism.
+
+## Trailing-stop design boundary
+
+Trailing stops are not implemented yet because a trustworthy fully-on-chain trailing watermark requires more than the current mark-price interface.
+
+A correct long trailing stop needs proof of the highest oracle observation since activation; a short trailing stop needs the lowest. Updating every trailing order whenever the mark changes would be prohibitively expensive, while letting an off-chain keeper assert the high/low would reintroduce trusted trigger evaluation.
+
+The intended next design is an extrema-capable oracle adapter that can prove high/low since an observation identifier. A trailing order would store only:
+- activation observation ID;
+- trail distance;
+- side;
+- quantity / execution policy.
+
+At execution, the contract would derive the watermark from the oracle's on-chain observation history rather than maintaining per-order watermark writes.
