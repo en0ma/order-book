@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IOrderBookCore} from "./IOrderBookCore.sol";
+import {OrderBookMath} from "./OrderBookMath.sol";
 
 interface IAdvancedLiquidationGateway {
     function activeAdvancedOrders(address account) external view returns (uint32);
@@ -173,11 +174,9 @@ contract LiquidationModule {
         returns (uint256)
     {
         (int80 position,,) = core.accountRisk(account);
-        uint96 absPosition = position < 0
-            ? uint96(uint80(-position))
-            : uint96(uint80(position));
+        uint256 absPosition = uint256(OrderBookMath.absPosition(position));
 
-        return core.notionalValue(absPosition, core.currentMarkTick())
+        return core.notionalValue(uint96(absPosition), core.currentMarkTick())
             * uint256(maintenanceMarginBps) / 10_000;
     }
 
