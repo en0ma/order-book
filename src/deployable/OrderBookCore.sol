@@ -59,6 +59,7 @@ contract OrderBookCore is IOrderBookCore {
     error ModuleNotConfigured();
     error ReduceOnlyViolation();
     error PositionOverflow();
+    error InvalidFeeConfig();
 
     address public immutable owner;
     address public advancedModule;
@@ -80,6 +81,8 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => int256) internal tradeCashflow;
 
     int128 public fundingIndexX18;
+    uint32 internal feeSchedulePacked;
+    uint256 public protocolFeesAccrued;
     mapping(Side => mapping(uint16 => int256)) internal fundingEntryPerShareX96;
     mapping(Side => mapping(uint16 => mapping(uint32 => int256)))
         internal closedFundingEntryPerShareX96;
@@ -95,6 +98,7 @@ contract OrderBookCore is IOrderBookCore {
 
     event AdvancedModuleConfigured(address indexed module);
     event FundingIndexUpdated(int128 fundingIndexX18);
+    event FeesConfigured(uint16 takerFeeBps, uint16 makerRebateBps);
     event CollateralCredited(address indexed account, uint256 amount);
     event CollateralDebited(address indexed account, uint256 amount);
     event LiquidityAdded(
@@ -156,6 +160,31 @@ contract OrderBookCore is IOrderBookCore {
         if (advancedModule != address(0)) revert ModuleAlreadyConfigured();
         advancedModule = module;
         emit AdvancedModuleConfigured(module);
+    }
+
+    function configureFees(uint16 takerFeeBps, uint16 makerRebateBps)
+        external
+        onlyOwner
+    {
+        if (
+            feeSchedulePacked != 0 || takerFeeBps == 0 || takerFeeBps > 10_000
+                || makerRebateBps > takerFeeBps
+        ) revert InvalidFeeConfig();
+
+        feeSchedulePacked =
+            uint32(takerFeeBps) | (uint32(makerRebateBps) << 16);
+
+        emit FeesConfigured(takerFeeBps, makerRebateBps);
+    }
+
+    function feeSchedule()
+        external
+        view
+        returns (uint16 takerFeeBps, uint16 makerRebateBps)
+    {
+        uint32 packed = feeSchedulePacked;
+        takerFeeBps = uint16(packed);
+        makerRebateBps = uint16(packed >> 16);
     }
 
     function setFundingIndex(int128 nextFundingIndexX18) external onlyOwner {
@@ -831,6 +860,18 @@ contract OrderBookCore is IOrderBookCore {
         AccountRisk storage a = accountRisk[account];
         int80 amount = _positionAmount(filledLots);
 
+        uint32 fees = feeSchedulePacked;
+        uint16 takerFeeBps = uint16(fees);
+        if (takerFeeBps != 0) {
+            uint256 takerFee =
+                notional * uint256(takerFeeBps) / 10_000;
+            uint256 makerRebate =
+                notional * uint256(uint16(fees >> 16)) / 10_000;
+
+            tradeCashflow[account] -= int256(takerFee);
+            protocolFeesAccrued += takerFee - makerRebate;
+        }
+
         if (side == Side.Bid) {
             a.settledPosition += amount;
             a.minPosition += amount;
@@ -854,6 +895,12 @@ contract OrderBookCore is IOrderBookCore {
         AccountRisk storage a = accountRisk[maker];
         int80 amount = _positionAmount(filledLots);
         int256 notional = int256(uint256(filledLots) * uint256(tick));
+
+        uint16 makerRebateBps = uint16(feeSchedulePacked >> 16);
+        if (makerRebateBps != 0) {
+            tradeCashflow[maker] +=
+                int256(uint256(notional) * uint256(makerRebateBps) / 10_000);
+        }
 
         if (side == Side.Bid) {
             a.settledPosition += amount;
