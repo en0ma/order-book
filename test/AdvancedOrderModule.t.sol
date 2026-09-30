@@ -1351,6 +1351,76 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(module.activeAdvancedOrders(ALICE), 0, "OCO lifecycle remained active");
     }
 
+    function testAdvancedRestingSyncUsesCoreCeilClaimRounding() public {
+        MockERC20 roundToken = new MockERC20();
+        SegmentTreeExtremaOracle roundOracle =
+            new SegmentTreeExtremaOracle(address(this), 100, 3_600);
+        OrderBookCore roundCore =
+            new OrderBookCore(address(roundToken), address(roundOracle), 40, 1_000, 0, 0);
+        AdvancedOrderModuleHarness roundModule =
+            new AdvancedOrderModuleHarness(address(roundCore), address(roundOracle));
+
+        roundCore.configureAdvancedModule(address(roundModule));
+
+        _fundOn(roundCore, roundToken, ALICE, 100_000);
+        _fundOn(roundCore, roundToken, BOB, 100_000);
+        _fundOn(roundCore, roundToken, CAROL, 100_000);
+
+        vm.prank(ALICE);
+        uint64 parent = roundModule.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            99,
+            1
+        );
+
+        vm.prank(ALICE);
+        uint64 exitId = roundModule.placeConditionalOrder(
+            IOrderBookCore.Side.Ask,
+            true,
+            110,
+            105,
+            1,
+            IOrderBookCore.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        roundModule.linkOTO(parent, exitId);
+        roundModule.executeConditionalOrder(parent);
+
+        // Join the same tick after Alice. With 3 lots total, consuming one lot
+        // leaves Alice's pro-rata claim at ceil(2/3) = 1, not floor(2/3) = 0.
+        vm.prank(BOB);
+        roundCore.addLiquidity(IOrderBookCore.Side.Bid, 99, 2);
+
+        vm.prank(CAROL);
+        roundCore.take(
+            IOrderBookCore.Side.Ask,
+            99,
+            1,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        roundModule.syncRestingOrder(parent);
+
+        (, uint96 remainingClaim, uint96 cumulativeFilled,, bool active) =
+            roundModule.restingLinkTest(parent);
+
+        assertTrue(active, "parent link retired under rounding-only fill");
+        assertEq(remainingClaim, 1, "advanced claim did not use core ceil rounding");
+        assertEq(cumulativeFilled, 0, "advanced module invented maker fill from rounding");
+
+        (, uint96 exitLots,,,,,,, uint8 flags) =
+            roundModule.conditionalOrders(exitId);
+        assertEq(exitLots, 1, "dormant exit size changed under rounding-only fill");
+        assertTrue((flags & uint8(1 << 4)) != 0, "dormant exit activated without maker fill");
+
+        (int80 settled,,) = roundCore.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "maker position materialized from rounding only");
+    }
+
     function testExecutedOTOChildUnlinksFromParentGraph() public {
         MockERC20 graphToken = new MockERC20();
         SegmentTreeExtremaOracle graphOracle =
