@@ -549,19 +549,34 @@ contract ProRataOrderBook {
         _settle(maker, side, tick);
 
         TickPool storage p = pools[side][tick];
-        MakerQuote storage q = quotes[maker][side][tick];
-
         bool wasEmpty = p.remainingLots == 0;
-        bool isNewMakerQuote = q.shares == 0;
 
         _preparePoolRiskCeiling(
             maker, side, tick, wasEmpty, preReserved, reservedRiskCeiling
         );
 
+        mintedShares = _mintPoolShares(p, lots);
+        _creditMakerQuote(maker, side, tick, p.generation, mintedShares, lots);
+
+        if (!preReserved) {
+            _expandRisk(maker, side, lots);
+            _refreshReservedMargin(maker);
+        }
+
+        totalAddedLots += lots;
+        if (wasEmpty) _setOccupied(side, tick, true);
+
+        emit LiquidityAdded(maker, side, tick, lots, mintedShares, p.generation);
+    }
+
+    function _mintPoolShares(TickPool storage p, uint96 lots)
+        internal
+        returns (uint128 mintedShares)
+    {
         if (p.totalShares == 0) {
-            uint256 raw = uint256(lots) * INITIAL_SHARE_SCALE;
-            if (raw > type(uint128).max) revert Overflow();
-            mintedShares = uint128(raw);
+            uint256 rawInitial = uint256(lots) * INITIAL_SHARE_SCALE;
+            if (rawInitial > type(uint128).max) revert Overflow();
+            mintedShares = uint128(rawInitial);
         } else {
             uint256 raw =
                 uint256(lots) * uint256(p.totalShares) / uint256(p.remainingLots);
@@ -575,28 +590,30 @@ contract ProRataOrderBook {
 
         p.totalShares = uint128(nextShares);
         p.remainingLots = uint96(nextLots);
+    }
 
-        if (q.shares == 0) {
-            q.generation = p.generation;
+    function _creditMakerQuote(
+        address maker,
+        Side side,
+        uint16 tick,
+        uint32 generation,
+        uint128 mintedShares,
+        uint96 lots
+    ) internal {
+        MakerQuote storage q = quotes[maker][side][tick];
+        bool isNewMakerQuote = q.shares == 0;
+
+        if (isNewMakerQuote) {
+            q.generation = generation;
             quoteFundingCheckpointX96[maker][side][tick] =
                 fundingEntryPerShareX96[side][tick];
-        } else if (q.generation != p.generation) {
+        } else if (q.generation != generation) {
             revert StaleQuote();
         }
 
         q.shares += mintedShares;
         q.claimLots += lots;
         if (isNewMakerQuote) activeQuoteCount[maker] += 1;
-
-        if (!preReserved) {
-            _expandRisk(maker, side, lots);
-            _refreshReservedMargin(maker);
-        }
-
-        totalAddedLots += lots;
-        if (wasEmpty) _setOccupied(side, tick, true);
-
-        emit LiquidityAdded(maker, side, tick, lots, mintedShares, p.generation);
     }
 
     function _preparePoolRiskCeiling(
