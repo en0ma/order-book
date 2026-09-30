@@ -16,6 +16,16 @@ interface IOrderBookCore {
     function accountPosition(address account) external view returns (int80);
     function activeQuoteCount(address account) external view returns (uint32);
     function accountEquity(address account) external view returns (int256);
+
+    function poolState(Side side, uint16 tick)
+        external
+        view
+        returns (uint128 totalShares, uint96 remainingLots, uint32 generation);
+
+    function quoteStateRaw(address account, Side side, uint16 tick)
+        external
+        view
+        returns (uint128 shares, uint96 claimLots, uint32 generation);
     function maintenanceRequirement(address account) external view returns (uint256);
 
     function moduleReserveExposure(address account, Side side, uint96 lots)
@@ -45,6 +55,16 @@ interface IOrderBookCore {
     function moduleSettle(address account, Side side, uint16 tick)
         external
         returns (uint96 filledLots);
+
+    function moduleRemoveLockedShares(
+        address account,
+        Side side,
+        uint16 tick,
+        uint128 shares
+    ) external returns (uint96 removedLots);
+
+    function moduleUnlockShares(address account, Side side, uint16 tick, uint128 shares)
+        external;
 
     function moduleForceCancelQuote(address account, Side side, uint16 tick)
         external
