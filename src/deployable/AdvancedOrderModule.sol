@@ -3,13 +3,12 @@ pragma solidity ^0.8.24;
 
 import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {IExtremaOracle} from "../interfaces/IExtremaOracle.sol";
+import {OrderBookMath} from "./OrderBookMath.sol";
 
 /// @title AdvancedOrderModule
 /// @notice Fully-on-chain conditional, triggered-limit, OCO/OTO, bracket and trailing logic.
 /// @dev The module owns only advanced-order state. Matching/risk/custody remain in OrderBookCore.
 contract AdvancedOrderModule {
-    using SideLib for IOrderBookCore.Side;
-
     struct ConditionalOrder {
         address owner;
         uint96 lots;
@@ -622,8 +621,7 @@ contract AdvancedOrderModule {
         if (maintenanceBps == 0) return 0;
 
         int80 position = core.accountPosition(account);
-        uint256 absPosition =
-            position < 0 ? uint256(uint80(-position)) : uint256(uint80(position));
+        uint256 absPosition = uint256(OrderBookMath.absPosition(position));
 
         return absPosition * uint256(core.currentMarkTick()) * uint256(maintenanceBps)
             / 10_000;
@@ -823,14 +821,3 @@ contract AdvancedOrderModule {
     }
 }
 
-library SideLib {
-    function opposite(IOrderBookCore.Side side)
-        internal
-        pure
-        returns (IOrderBookCore.Side)
-    {
-        return side == IOrderBookCore.Side.Bid
-            ? IOrderBookCore.Side.Ask
-            : IOrderBookCore.Side.Bid;
-    }
-}
