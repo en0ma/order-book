@@ -62,10 +62,25 @@ This is a research prototype, not audited production code.
 
 OTO children are dormant reduce-only conditionals. They activate only after the parent receives an actual aggressive fill and are resized to that filled quantity. Linking two children with OCO gives a take-profit / stop-loss bracket.
 
-Maker fills from a triggered-limit remainder do not yet expand bracket children; that requires a separate lazy resize mechanism.
+Maker fills from a triggered-limit remainder now expand bracket children lazily when the maker settles or the module explicitly syncs the resting order. Matching still updates only aggregate tick state.
 
 ## Trailing stops
 
 Trailing stops use an extrema-capable on-chain oracle. Each order stores an activation observation ID and trail distance rather than a mutable watermark.
 
-At execution, the contract derives the high/low since activation from the oracle and verifies the retracement entirely on-chain. The included extrema oracle is a test mock; a production adapter needs an efficient on-chain range-extrema data structure.
+At execution, the contract derives the high/low since activation from the oracle and verifies the retracement entirely on-chain. The repository now includes a bounded 4,096-observation segment-tree oracle with O(log N) append/query; the older mock remains test-only.
+
+
+## Deployable architecture
+
+The original `ProRataOrderBook` remains a research/reference monolith. It exceeds Ethereum's EIP-170 runtime bytecode limit and is not the production deployment shape.
+
+The deployable path is split into:
+
+- `OrderBookCore`: hot CLOB matching, maker shares, custody, risk envelopes, margin, funding, and narrow module hooks.
+- `AdvancedOrderModule`: conditional orders, triggered limits, OCO/OTO, lazy bracket resizing, and trailing stops.
+- `SegmentTreeExtremaOracle`: bounded on-chain range high/low observations for trailing triggers.
+
+Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 23,958 bytes for the core, 14,866 bytes for the advanced module, and 1,877 bytes for the extrema oracle. CI contains a strict EIP-170 gate for these deployable contracts.
+
+The core's size margin is intentionally treated as scarce. New order-type logic should normally be added to modules, not to the matching core.
