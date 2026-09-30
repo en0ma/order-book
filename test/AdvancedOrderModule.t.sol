@@ -334,6 +334,9 @@ contract AdvancedOrderModuleTest is TestBase {
 
         module.executeConditionalOrder(parent);
 
+        (,, uint32 oldGeneration) =
+            core.pools(IOrderBookCore.Side.Bid, 99);
+
         vm.prank(BOB);
         core.take(
             IOrderBookCore.Side.Ask,
@@ -342,9 +345,13 @@ contract AdvancedOrderModuleTest is TestBase {
             IOrderBookCore.FillPolicy.IOC
         );
 
-        (, uint96 depleted, uint32 oldGeneration) =
+        (, uint96 depleted, uint32 depletedGeneration) =
             core.pools(IOrderBookCore.Side.Bid, 99);
         assertEq(depleted, 0, "advanced quote was not fully consumed");
+        assertTrue(
+            depletedGeneration != oldGeneration,
+            "pool generation did not advance on depletion"
+        );
 
         vm.prank(ALICE);
         uint128 freshShares =
