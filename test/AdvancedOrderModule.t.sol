@@ -906,8 +906,8 @@ contract AdvancedOrderModuleTest is TestBase {
         );
 
         vm.prank(CAROL);
-        core.addLiquidity(IOrderBookCore.Side.Bid, 70, 40);
-        oracle.record(70);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 10, 40);
+        oracle.record(10);
 
         IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
         uint16[] memory ticks = new uint16[](0);
@@ -923,7 +923,7 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(liquidation.terminalBadDebt(trader), 0, "open position labeled terminal debt");
 
         vm.prank(CAROL);
-        core.addLiquidity(IOrderBookCore.Side.Bid, 70, 60);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 10, 60);
 
         uint96 secondClosed =
             liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
