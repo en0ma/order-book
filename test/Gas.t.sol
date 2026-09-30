@@ -308,7 +308,7 @@ contract GasTest is TestBase {
 
     function testGas_ExtremaOracleRecordIsBounded() public {
         SegmentTreeExtremaOracle oracle =
-            new SegmentTreeExtremaOracle(address(this), 100);
+            new SegmentTreeExtremaOracle(address(this), 100, 3_600);
 
         oracle.record(101);
 
