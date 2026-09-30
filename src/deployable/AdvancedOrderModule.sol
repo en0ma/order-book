@@ -52,9 +52,16 @@ contract AdvancedOrderModule {
     error InvalidRiskCeiling();
     error ReduceOnlyViolation();
     error RestingOrderNotFound();
+    error InvalidLiquidationConfig();
+    error NotLiquidatable();
+    error UnsettledAdvancedOrders();
 
     IOrderBookCore public immutable core;
     IExtremaOracle public immutable extremaOracle;
+    address public immutable owner;
+
+    uint16 public maintenanceMarginBps;
+    mapping(address => uint32) public activeAdvancedCount;
 
     uint64 public nextConditionalOrderId = 1;
     uint64 public nextTrailingOrderId = 1;
@@ -116,11 +123,29 @@ contract AdvancedOrderModule {
         uint16 highTick,
         uint16 lowTick
     );
+    event LiquidationConfigured(uint16 maintenanceMarginBps);
+    event Liquidated(
+        address indexed liquidator,
+        address indexed account,
+        uint96 closedLots,
+        int256 equityBefore
+    );
 
     constructor(address core_, address extremaOracle_) {
         if (core_ == address(0) || extremaOracle_ == address(0)) revert Unauthorized();
         core = IOrderBookCore(core_);
         extremaOracle = IExtremaOracle(extremaOracle_);
+        owner = msg.sender;
+    }
+
+    function configureLiquidation(uint16 maintenanceBps) external {
+        if (msg.sender != owner) revert Unauthorized();
+        if (maintenanceBps == 0 || maintenanceBps > 10_000) {
+            revert InvalidLiquidationConfig();
+        }
+
+        maintenanceMarginBps = maintenanceBps;
+        emit LiquidationConfigured(maintenanceBps);
     }
 
     function placeConditionalOrder(
@@ -202,6 +227,7 @@ contract AdvancedOrderModule {
         });
 
         conditionalOrders[orderId] = order;
+        activeAdvancedCount[account] += 1;
         _emitConditionalPlaced(orderId, order);
     }
 
@@ -336,6 +362,10 @@ contract AdvancedOrderModule {
             }
         }
 
+        if (!restingLinks[orderId].active) {
+            activeAdvancedCount[order.owner] -= 1;
+        }
+
         uint64 sibling = order.sibling;
         if (sibling != 0) _cancelConditional(sibling, true);
 
@@ -452,6 +482,7 @@ contract AdvancedOrderModule {
                 link.shares
             );
             delete restingLinks[parentOrderId];
+            activeAdvancedCount[parent.owner] -= 1;
         }
     }
 
@@ -478,6 +509,7 @@ contract AdvancedOrderModule {
         );
 
         delete restingLinks[parentOrderId];
+        activeAdvancedCount[parent.owner] -= 1;
 
         emit RestingOrderCancelled(parentOrderId, removedLots);
     }
@@ -509,6 +541,8 @@ contract AdvancedOrderModule {
             policy: policy,
             flags: reduceOnly ? uint8(3) : uint8(1)
         });
+
+        activeAdvancedCount[msg.sender] += 1;
 
         emit TrailingOrderPlaced(
             orderId,
@@ -561,6 +595,7 @@ contract AdvancedOrderModule {
         }
 
         stored.flags &= ~uint8(1);
+        activeAdvancedCount[order.owner] -= 1;
 
         filledLots = core.moduleTake(
             order.owner,
@@ -580,6 +615,99 @@ contract AdvancedOrderModule {
         }
 
         emit TrailingOrderExecuted(orderId, filledLots, highTick, lowTick);
+    }
+
+    function maintenanceRequirement(address account) public view returns (uint256) {
+        uint16 maintenanceBps = maintenanceMarginBps;
+        if (maintenanceBps == 0) return 0;
+
+        int80 position = core.accountPosition(account);
+        uint256 absPosition =
+            position < 0 ? uint256(uint80(-position)) : uint256(uint80(position));
+
+        return absPosition * uint256(core.currentMarkTick()) * uint256(maintenanceBps)
+            / 10_000;
+    }
+
+    function isLiquidatable(address account) external view returns (bool) {
+        if (maintenanceMarginBps == 0) return false;
+        if (core.activeQuoteCount(account) != 0 || activeAdvancedCount[account] != 0) {
+            return false;
+        }
+        if (core.accountPosition(account) == 0) return false;
+
+        return core.accountEquity(account) < int256(maintenanceRequirement(account));
+    }
+
+    function liquidate(
+        address account,
+        IOrderBookCore.Side[] calldata makerSides,
+        uint16[] calldata makerTicks,
+        uint64[] calldata conditionalIds,
+        uint64[] calldata trailingIds
+    ) external returns (uint96 closedLots) {
+        if (maintenanceMarginBps == 0) revert InvalidLiquidationConfig();
+        if (makerSides.length != makerTicks.length) revert UnsettledAdvancedOrders();
+
+        for (uint256 i; i < makerTicks.length; ++i) {
+            core.moduleForceCancelQuote(account, makerSides[i], makerTicks[i]);
+        }
+
+        for (uint256 i; i < conditionalIds.length; ++i) {
+            uint64 id = conditionalIds[i];
+            ConditionalOrder storage order = conditionalOrders[id];
+            if (order.owner != account) continue;
+
+            if (restingLinks[id].active) {
+                _cancelRestingOrder(id);
+            } else if (_active(order) || _dormant(order)) {
+                _cancelConditional(id, true);
+            }
+        }
+
+        for (uint256 i; i < trailingIds.length; ++i) {
+            uint64 id = trailingIds[i];
+            TrailingOrder storage order = trailingOrders[id];
+            if (order.owner == account && (order.flags & 1) != 0) {
+                _cancelTrailing(id, true);
+            }
+        }
+
+        if (core.activeQuoteCount(account) != 0 || activeAdvancedCount[account] != 0) {
+            revert UnsettledAdvancedOrders();
+        }
+
+        int256 equityBefore = core.accountEquity(account);
+        if (equityBefore >= int256(maintenanceRequirement(account))) {
+            revert NotLiquidatable();
+        }
+
+        int80 position = core.accountPosition(account);
+        if (position > 0) {
+            closedLots = core.moduleTake(
+                account,
+                IOrderBookCore.Side.Ask,
+                0,
+                uint96(uint80(position)),
+                IOrderBookCore.FillPolicy.IOC,
+                true,
+                false
+            );
+        } else if (position < 0) {
+            closedLots = core.moduleTake(
+                account,
+                IOrderBookCore.Side.Bid,
+                type(uint16).max,
+                uint96(uint80(-position)),
+                IOrderBookCore.FillPolicy.IOC,
+                true,
+                false
+            );
+        } else {
+            revert NotLiquidatable();
+        }
+
+        emit Liquidated(msg.sender, account, closedLots, equityBefore);
     }
 
     function _resizeOTOChildren(uint64 parentOrderId, address owner_, uint96 filledLots)
@@ -647,6 +775,7 @@ contract AdvancedOrderModule {
         if (!active && !dormant) return;
 
         order.flags &= ~(uint8(1) | uint8(16));
+        activeAdvancedCount[order.owner] -= 1;
 
         bool reduceOnly = (order.flags & 4) != 0;
         if (releaseRisk && !reduceOnly) {
@@ -675,6 +804,7 @@ contract AdvancedOrderModule {
         if ((order.flags & 1) == 0) return;
 
         order.flags &= ~uint8(1);
+        activeAdvancedCount[order.owner] -= 1;
 
         bool reduceOnly = (order.flags & 2) != 0;
         if (releaseRisk && !reduceOnly) {
