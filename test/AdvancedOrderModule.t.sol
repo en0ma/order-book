@@ -171,6 +171,68 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(ask105, 60, "ask105 replace");
     }
 
+    function testManagedQuoteUnchangedTargetPreservesShareSlice() public {
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](1);
+        updates[0] = MarketMakerModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Bid,
+            tick: 95,
+            lots: 50
+        });
+
+        vm.prank(ALICE);
+        marketMaker.batchReplaceQuotes(updates);
+
+        (uint128 sharesBefore,, uint32 generationBefore) =
+            core.quotes(ALICE, IOrderBookCore.Side.Bid, 95);
+
+        vm.prank(ALICE);
+        marketMaker.batchReplaceQuotes(updates);
+
+        (uint128 sharesAfter,, uint32 generationAfter) =
+            core.quotes(ALICE, IOrderBookCore.Side.Bid, 95);
+
+        assertEq(uint256(sharesAfter), uint256(sharesBefore), "unchanged target churned shares");
+        assertEq(uint256(generationAfter), uint256(generationBefore), "unchanged target changed generation");
+    }
+
+    function testManagedQuoteIncreaseAddsOnlyDeltaWithoutGenerationReset() public {
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](1);
+        updates[0] = MarketMakerModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Ask,
+            tick: 105,
+            lots: 100
+        });
+
+        vm.prank(ALICE);
+        marketMaker.batchReplaceQuotes(updates);
+
+        (uint128 sharesBefore,, uint32 generationBefore) =
+            core.quotes(ALICE, IOrderBookCore.Side.Ask, 105);
+
+        vm.prank(BOB);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            105,
+            40,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        updates[0].lots = 80;
+        vm.prank(ALICE);
+        marketMaker.batchReplaceQuotes(updates);
+
+        (uint128 sharesAfter,, uint32 generationAfter) =
+            core.quotes(ALICE, IOrderBookCore.Side.Ask, 105);
+        (, uint96 remaining,) = core.pools(IOrderBookCore.Side.Ask, 105);
+
+        assertEq(remaining, 80, "incremental target not restored");
+        assertEq(uint256(generationAfter), uint256(generationBefore), "increase reset generation");
+        assertTrue(sharesAfter > sharesBefore, "increase replaced instead of extending share slice");
+        assertEq(int256(_corePosition(ALICE)), -40, "partial maker fill not settled");
+    }
+
     function testManagedQuoteReplaceAfterPartialFillSettlesThenRestoresTarget() public {
         MarketMakerModule.QuoteUpdate[] memory updates =
             new MarketMakerModule.QuoteUpdate[](1);
