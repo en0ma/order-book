@@ -1038,7 +1038,15 @@ contract OrderBookCore is IOrderBookCore {
 
         uint256 worstLots = absMin > absMax ? absMin : absMax;
 
-        uint256 worstPrice = _accountMeta[account].riskCeilingTick;
+        AccountMeta storage meta = _accountMeta[account];
+        if (
+            a.minPosition == a.settledPosition
+                && a.maxPosition == a.settledPosition
+        ) {
+            meta.riskCeilingTick = 0;
+        }
+
+        uint256 worstPrice = meta.riskCeilingTick;
         if (worstPrice == 0) {
             worstPrice = uint256(
                 OrderBookMath.upperTick(currentMarkTick(), executionBandTicks)

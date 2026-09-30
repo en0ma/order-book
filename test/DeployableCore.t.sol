@@ -365,6 +365,40 @@ contract DeployableCoreTest is TestBase {
         assertTrue(!ok, "normalized margin admitted excess quote");
     }
 
+    function testRiskCeilingClearsWhenReachableExposureCollapses() public {
+        MockERC20 riskToken = new MockERC20();
+        MockMarkOracle riskOracle = new MockMarkOracle(100);
+        OrderBookCore riskCore =
+            new OrderBookCore(address(riskToken), address(riskOracle), 20, 1_000, 0, 0);
+
+        _fundOn(riskCore, riskToken, ALICE, 600);
+
+        vm.prank(ALICE);
+        riskCore.addLiquidity(IOrderBookCore.Side.Bid, 99, 50);
+
+        vm.prank(ALICE);
+        (uint128 shares,,) = riskCore.quotes(
+            ALICE,
+            IOrderBookCore.Side.Bid,
+            99
+        );
+
+        vm.prank(ALICE);
+        riskCore.removeShares(IOrderBookCore.Side.Bid, 99, shares);
+
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            riskCore.accountRisk(ALICE);
+        assertEq(int256(settled), int256(minPosition), "min envelope not collapsed");
+        assertEq(int256(settled), int256(maxPosition), "max envelope not collapsed");
+
+        riskOracle.setMarkTick(50);
+
+        // New requirement is 80 * (50 + 20) * 10% = 560.
+        // A stale historical ceiling of 120 would require 960 and reject this.
+        vm.prank(ALICE);
+        riskCore.addLiquidity(IOrderBookCore.Side.Bid, 49, 80);
+    }
+
     function testFundingUpdaterCanBeRotatedWithoutChangingOwner() public {
         address updater = address(0xF00D);
 
