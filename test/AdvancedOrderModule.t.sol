@@ -1578,6 +1578,162 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(module.activeAdvancedOrders(ALICE), 0, "cancelled conditional remained active");
     }
 
+    function testHealthyLiquidationAttemptRollsBackMakerQuoteCleanup() public {
+        address trader = address(0xA11C);
+        _fund(trader, 100_000);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 10);
+
+        vm.prank(trader);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            10,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(trader);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 110, 20);
+
+        (uint128 sharesBefore, uint96 claimBefore, uint32 generationBefore) =
+            core.quotes(trader, IOrderBookCore.Side.Ask, 110);
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](1);
+        sides[0] = IOrderBookCore.Side.Ask;
+        uint16[] memory ticks = new uint16[](1);
+        ticks[0] = 110;
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](0);
+
+        (bool ok,) = address(liquidation).call(
+            abi.encodeCall(
+                liquidation.liquidate,
+                (trader, sides, ticks, conditionals, trailings)
+            )
+        );
+        assertTrue(!ok, "healthy quoted account was liquidated");
+
+        (uint128 sharesAfter, uint96 claimAfter, uint32 generationAfter) =
+            core.quotes(trader, IOrderBookCore.Side.Ask, 110);
+
+        assertEq(uint256(sharesAfter), uint256(sharesBefore), "failed liquidation changed maker shares");
+        assertEq(claimAfter, claimBefore, "failed liquidation changed maker claim");
+        assertEq(uint256(generationAfter), uint256(generationBefore), "failed liquidation changed quote generation");
+        assertEq(core.activeQuoteCount(trader), 1, "failed liquidation retired maker quote");
+
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(trader);
+        assertEq(int256(settled), 10, "failed liquidation changed settled position");
+        assertEq(int256(minPosition), -10, "failed liquidation changed ask reservation");
+        assertEq(int256(maxPosition), 10, "failed liquidation changed max envelope");
+    }
+
+    function testHealthyLiquidationAttemptRollsBackAdvancedCleanup() public {
+        address trader = address(0xA11D);
+        _fund(trader, 100_000);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 10);
+
+        vm.prank(trader);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            10,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(trader);
+        uint64 conditionalId = module.placeConditionalOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            120,
+            120,
+            20,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+
+        assertEq(module.activeAdvancedOrders(trader), 1, "conditional not active before liquidation");
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](1);
+        conditionals[0] = conditionalId;
+        uint64[] memory trailings = new uint64[](0);
+
+        (bool ok,) = address(liquidation).call(
+            abi.encodeCall(
+                liquidation.liquidate,
+                (trader, sides, ticks, conditionals, trailings)
+            )
+        );
+        assertTrue(!ok, "healthy account was liquidated");
+
+        assertEq(
+            module.activeAdvancedOrders(trader),
+            1,
+            "failed liquidation did not roll back advanced cleanup"
+        );
+
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(trader);
+        assertEq(int256(settled), 10, "failed liquidation changed position");
+        assertEq(int256(minPosition), 10, "failed liquidation changed min envelope");
+        assertEq(int256(maxPosition), 30, "failed liquidation released reservation");
+    }
+
+    function testLiquidationCleansReservedExposureBeforeClosingPosition() public {
+        address trader = address(0xA11E);
+        _fund(trader, 3_000);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(trader);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(trader);
+        uint64 conditionalId = module.placeConditionalOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            120,
+            120,
+            50,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 10, 100);
+        oracle.record(10);
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](1);
+        conditionals[0] = conditionalId;
+        uint64[] memory trailings = new uint64[](0);
+
+        uint96 closed =
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+
+        assertEq(closed, 100, "liquidation close size included reserved exposure");
+        assertEq(module.activeAdvancedOrders(trader), 0, "advanced reservation survived liquidation");
+        assertEq(int256(_corePosition(trader)), 0, "liquidation did not flatten settled position");
+
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(trader);
+        assertEq(int256(settled), 0, "settled position not flat");
+        assertEq(int256(minPosition), 0, "min envelope retained cancelled reservation");
+        assertEq(int256(maxPosition), 0, "max envelope retained cancelled reservation");
+    }
+
     function testModuleTrailingUsesSegmentTreeOracle() public {
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 60);
