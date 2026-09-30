@@ -24,7 +24,7 @@ contract DeployableCoreTest is TestBase {
             core.take(IOrderBookCore.Side.Bid, 100, 40, IOrderBookCore.FillPolicy.IOC);
 
         assertEq(filled, 40, "core direct fill mismatch");
-        assertEq(int256(core.accountPosition(address(this))), 40, "taker position mismatch");
+        assertEq(int256(_corePosition(address(this))), 40, "taker position mismatch");
     }
 
     function testModuleCanReserveThenExecuteForAccount() public {
@@ -53,7 +53,7 @@ contract DeployableCoreTest is TestBase {
         );
 
         assertEq(filled, 50, "module execution mismatch");
-        assertEq(int256(core.accountPosition(ALICE)), 50, "module account position");
+        assertEq(int256(_corePosition(ALICE)), 50, "module account position");
     }
 
     function testModuleRestingSharesCannotBeBurnedByGenericCancel() public {
@@ -108,4 +108,8 @@ contract DeployableCoreTest is TestBase {
             address(core).call(abi.encodeCall(core.configureAdvancedModule, (address(0x1234))));
         assertTrue(!ok, "advanced module was replaceable");
     }
+    function _corePosition(address account) internal view returns (int80 position) {
+        (position,,) = core.accountRisk(account);
+    }
+
 }
