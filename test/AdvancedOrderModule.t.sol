@@ -450,6 +450,54 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(remaining, 0, "same-tick slices not fully cleared");
     }
 
+    function testLiquidationClearsManagedQuoteMetadataForRequote() public {
+        address trader = address(0xDAD1);
+        _fund(trader, 5_000);
+        module.configureLiquidation(500);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(trader);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        AdvancedOrderModule.QuoteUpdate[] memory updates =
+            new AdvancedOrderModule.QuoteUpdate[](1);
+        updates[0] = AdvancedOrderModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Ask,
+            tick: 110,
+            lots: 20
+        });
+        vm.prank(trader);
+        module.batchReplaceQuotes(updates);
+
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 70, 100);
+        oracle.record(70);
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](1);
+        sides[0] = IOrderBookCore.Side.Ask;
+        uint16[] memory ticks = new uint16[](1);
+        ticks[0] = 110;
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](0);
+
+        module.liquidate(trader, sides, ticks, conditionals, trailings);
+
+        updates[0].tick = 90;
+        updates[0].lots = 10;
+        vm.prank(trader);
+        module.batchReplaceQuotes(updates);
+
+        (, uint96 remaining,) = core.pools(IOrderBookCore.Side.Ask, 90);
+        assertEq(remaining, 10, "requote failed after liquidation cleanup");
+    }
+
     function testModuleLiquidationCancelsTrailingAndClosesPosition() public {
         address trader = address(0xDAD);
         _fund(trader, 3_000);
