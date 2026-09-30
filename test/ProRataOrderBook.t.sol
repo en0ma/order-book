@@ -358,6 +358,108 @@ contract ProRataOrderBookTest is TestBase {
         assertEq(int256(settled), 0, "liquidation left position open");
     }
 
+    function testMinimumFillRevertsWithoutMutatingBook() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 40);
+
+        (bool ok,) = address(book).call(
+            abi.encodeCall(
+                book.takeMinFill,
+                (ProRataOrderBook.Side.Bid, uint16(100), uint96(100), uint96(50))
+            )
+        );
+        assertTrue(!ok, "minimum-fill unexpectedly executed");
+
+        (, uint96 remaining,) = book.pools(ProRataOrderBook.Side.Ask, 100);
+        assertEq(remaining, 40, "failed minimum-fill mutated liquidity");
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 30);
+
+        uint96 filled =
+            book.takeMinFill(ProRataOrderBook.Side.Bid, 100, 100, 50);
+        assertEq(filled, 70, "minimum-fill should consume available quantity");
+    }
+
+    function testOTOBracketActivatesAtActualParentFillAndOCOClosesOneExit() public {
+        book.configureRisk(100, 20, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+        vm.prank(CAROL);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 60);
+
+        vm.prank(ALICE);
+        uint64 parent = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            100,
+            100,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        uint64 takeProfit = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            true,
+            110,
+            105,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        uint64 stopLoss = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            false,
+            90,
+            80,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        book.linkOCO(takeProfit, stopLoss);
+        vm.prank(ALICE);
+        book.linkOTO(parent, takeProfit);
+        vm.prank(ALICE);
+        book.linkOTO(parent, stopLoss);
+
+        assertTrue(!book.conditionalOrderActive(takeProfit), "TP should be dormant");
+        assertTrue(!book.conditionalOrderActive(stopLoss), "SL should be dormant");
+
+        uint96 parentFilled = book.executeConditionalOrder(parent);
+        assertEq(parentFilled, 60, "parent fill mismatch");
+        assertTrue(book.conditionalOrderActive(takeProfit), "TP did not activate");
+        assertTrue(book.conditionalOrderActive(stopLoss), "SL did not activate");
+
+        (address tpOwner, uint96 tpLots,,,,,,,) = book.conditionalOrders(takeProfit);
+        (address slOwner, uint96 slLots,,,,,,,) = book.conditionalOrders(stopLoss);
+        assertTrue(tpOwner == ALICE && slOwner == ALICE, "child owner mismatch");
+        assertEq(tpLots, 60, "TP not resized to actual fill");
+        assertEq(slLots, 60, "SL not resized to actual fill");
+
+        vm.prank(CAROL);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 110, 60);
+
+        book.setMarkTick(110);
+        uint96 exited = book.executeConditionalOrder(takeProfit);
+        assertEq(exited, 60, "TP exit mismatch");
+        assertTrue(!book.conditionalOrderActive(stopLoss), "OCO sibling not cancelled");
+
+        (int80 settled,,) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "bracket did not close position");
+    }
+
     function testTriggeredLimitActivatesIntoRestingBook() public {
         book.configureRisk(100, 20, 1_000);
 
