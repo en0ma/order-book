@@ -202,6 +202,49 @@ contract ProRataOrderBookTest is TestBase {
         assertEq(filled, 100, "oracle-qualified quote did not execute");
     }
 
+    function testLazyFundingAccruesFromFillIndexWithoutMakerWrite() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        book.setFundingIndex(int128(1e18));
+
+        uint96 filled =
+            book.take(ProRataOrderBook.Side.Bid, 100, 40, ProRataOrderBook.FillPolicy.IOC);
+        assertEq(filled, 40, "wrong fill");
+
+        // Funding moved after the maker fill. The taker path still did not touch maker funding.
+        assertEq(book.fundingCashflow(ALICE), 0, "fill eagerly wrote maker funding");
+
+        book.setFundingIndex(int128(2e18));
+
+        vm.prank(ALICE);
+        uint96 settled = book.settle(ProRataOrderBook.Side.Ask, 100);
+        assertEq(settled, 40, "wrong lazy fill settlement");
+
+        // A short receives +1 unit per lot when the cumulative funding index rises by 1e18.
+        assertEq(book.fundingCashflow(ALICE), 40, "lazy fill funding mismatch");
+    }
+
+    function testMaterializedPositionContinuesFundingAfterQuoteSettlement() public {
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        book.setFundingIndex(int128(1e18));
+        book.take(ProRataOrderBook.Side.Bid, 100, 40, ProRataOrderBook.FillPolicy.IOC);
+
+        book.setFundingIndex(int128(2e18));
+        vm.prank(ALICE);
+        book.settle(ProRataOrderBook.Side.Ask, 100);
+
+        assertEq(book.fundingCashflow(ALICE), 40, "first funding interval mismatch");
+
+        book.setFundingIndex(int128(3e18));
+        vm.prank(ALICE);
+        book.settleFunding();
+
+        assertEq(book.fundingCashflow(ALICE), 80, "materialized position funding mismatch");
+    }
+
     function testRiskRejectsUndercollateralizedQuote() public {
         book.configureRisk(100, 10, 1_000);
 
