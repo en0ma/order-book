@@ -101,6 +101,25 @@ contract ValidatedMarkOracleAdapterTest is TestBase {
         );
     }
 
+    function testNearExpirySourceDoesNotReceiveFreshRelayWindow() public {
+        vm.warp(block.timestamp + 59);
+        uint48 sourceTime = uint48(block.timestamp - 59);
+        source.set(100_00000000, 0, sourceTime);
+
+        adapter.publish();
+
+        assertEq(
+            uint256(oracle.lastObservationTime()),
+            uint256(sourceTime),
+            "canonical oracle replaced source time with relay time"
+        );
+
+        vm.warp(block.timestamp + 2);
+
+        (bool ok,) = address(oracle).call(abi.encodeCall(oracle.markTick, ()));
+        assertTrue(!ok, "near-expiry source received a fresh canonical window");
+    }
+
     function testRejectsStalePrice() public {
         vm.warp(block.timestamp + 61);
 
