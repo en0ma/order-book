@@ -46,6 +46,14 @@ contract LiquidationModule {
         int256 equityBefore
     );
 
+    event LiquidationStatus(
+        address indexed account,
+        int80 remainingPosition,
+        int256 equityAfter,
+        uint256 maintenanceRequirementAfter,
+        uint256 terminalBadDebt
+    );
+
     constructor(address core_, address gateway_, uint16 maintenanceBps_) {
         if (
             core_ == address(0) || gateway_ == address(0) || maintenanceBps_ == 0
@@ -63,6 +71,19 @@ contract LiquidationModule {
 
         return absPosition * uint256(core.currentMarkTick())
             * uint256(maintenanceMarginBps) / 10_000;
+    }
+
+    function terminalBadDebt(address account) public view returns (uint256) {
+        if (
+            core.activeQuoteCount(account) != 0
+                || gateway.activeAdvancedOrders(account) != 0
+        ) return 0;
+
+        (int80 position,,) = core.accountRisk(account);
+        if (position != 0) return 0;
+
+        int256 equity = core.accountEquity(account);
+        return equity < 0 ? uint256(-equity) : 0;
     }
 
     function isLiquidatable(address account) external view returns (bool) {
@@ -125,5 +146,19 @@ contract LiquidationModule {
         }
 
         emit Liquidated(msg.sender, account, closedLots, equityBefore);
+
+        (int80 remainingPosition,,) = core.accountRisk(account);
+        int256 equityAfter = core.accountEquity(account);
+        uint256 maintenanceAfter = maintenanceRequirement(account);
+        uint256 badDebt =
+            remainingPosition == 0 && equityAfter < 0 ? uint256(-equityAfter) : 0;
+
+        emit LiquidationStatus(
+            account,
+            remainingPosition,
+            equityAfter,
+            maintenanceAfter,
+            badDebt
+        );
     }
 }
