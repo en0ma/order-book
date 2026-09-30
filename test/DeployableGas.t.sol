@@ -12,6 +12,7 @@ import {TestBase} from "./TestBase.sol";
 contract DeployableGasTest is TestBase {
     event BatchGasMeasured(uint256 batchGas, uint256 separateGas);
     event BatchCancelGasMeasured(uint256 batchCancelGas);
+    event BatchScaleGasMeasured(uint256 levels, uint256 gasUsed);
     OrderBookCore internal core;
     AdvancedOrderModule internal module;
     MarketMakerModule internal marketMaker;
@@ -121,6 +122,30 @@ contract DeployableGasTest is TestBase {
         marketMaker.batchReplaceQuotes(updates);
     }
 
+    function testGas_BatchRefreshOneLevel() public {
+        uint256 used = _profileBatchRefresh(1);
+        emit BatchScaleGasMeasured(1, used);
+        assertTrue(used < 400_000, "one-level refresh gas ceiling exceeded");
+    }
+
+    function testGas_BatchRefreshFourLevels() public {
+        uint256 used = _profileBatchRefresh(4);
+        emit BatchScaleGasMeasured(4, used);
+        assertTrue(used < 900_000, "four-level refresh gas ceiling exceeded");
+    }
+
+    function testGas_BatchRefreshEightLevels() public {
+        uint256 used = _profileBatchRefresh(8);
+        emit BatchScaleGasMeasured(8, used);
+        assertTrue(used < 1_600_000, "eight-level refresh gas ceiling exceeded");
+    }
+
+    function testGas_BatchRefreshSixteenLevels() public {
+        uint256 used = _profileBatchRefresh(16);
+        emit BatchScaleGasMeasured(16, used);
+        assertTrue(used < 3_000_000, "sixteen-level refresh gas ceiling exceeded");
+    }
+
     function testGas_BatchCancelFourManagedQuotesIsBounded() public {
         MarketMakerModule.QuoteUpdate[] memory updates =
             new MarketMakerModule.QuoteUpdate[](4);
@@ -140,6 +165,34 @@ contract DeployableGasTest is TestBase {
 
         emit BatchCancelGasMeasured(used);
         assertTrue(used < 700_000, "four-level batch cancel gas ceiling exceeded");
+    }
+
+    function _profileBatchRefresh(uint256 levels) internal returns (uint256 used) {
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](levels);
+
+        uint256 bidLevels = (levels + 1) / 2;
+        for (uint256 i; i < levels; ++i) {
+            bool bid = i < bidLevels;
+            uint16 tick = bid
+                ? uint16(99 - i)
+                : uint16(101 + (i - bidLevels));
+            updates[i] = _update(
+                bid ? IOrderBookCore.Side.Bid : IOrderBookCore.Side.Ask,
+                tick,
+                uint96(20 + i)
+            );
+        }
+
+        marketMaker.batchReplaceQuotes(updates);
+
+        for (uint256 i; i < levels; ++i) {
+            updates[i].lots += 1;
+        }
+
+        uint256 g0 = gasleft();
+        marketMaker.batchReplaceQuotes(updates);
+        used = g0 - gasleft();
     }
 
     function _update(IOrderBookCore.Side side, uint16 tick, uint96 lots)
