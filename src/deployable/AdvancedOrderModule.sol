@@ -623,8 +623,10 @@ contract AdvancedOrderModule {
 
         uint96 currentClaim;
         if (generation == link.generation && totalShares != 0 && remainingLots != 0) {
+            uint256 numerator =
+                uint256(link.shares) * uint256(remainingLots);
             currentClaim = uint96(
-                uint256(link.shares) * uint256(remainingLots) / uint256(totalShares)
+                (numerator + uint256(totalShares) - 1) / uint256(totalShares)
             );
         }
 
