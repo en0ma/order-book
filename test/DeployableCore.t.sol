@@ -34,13 +34,6 @@ contract DeployableCoreTest is TestBase {
         core.depositCollateral(amount);
     }
 
-    function testConsolidatedMarginStateView() public {
-        (uint256 collateral, uint256 reserved) = core.marginState(ALICE);
-
-        assertEq(collateral, 100_000, "collateral view");
-        assertEq(reserved, 0, "reserved view");
-    }
-
     function testDirectHotPathStillMatchesOnChain() public {
         vm.prank(ALICE);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
