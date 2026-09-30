@@ -5,6 +5,7 @@ import {ProRataOrderBook} from "../src/ProRataOrderBook.sol";
 import {TestBase} from "./TestBase.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockMarkOracle} from "./mocks/MockMarkOracle.sol";
+import {MockExtremaOracle} from "./mocks/MockExtremaOracle.sol";
 
 contract ProRataOrderBookTest is TestBase {
     ProRataOrderBook internal book;
@@ -729,6 +730,68 @@ contract ProRataOrderBookTest is TestBase {
 
         (int128 settled,,) = book.accountRisk(ALICE);
         assertEq(int256(settled), 0, "reduce-only conditional flipped position");
+    }
+
+    function testTrailingStopUsesOnChainExtremaAndClosesReduceOnlyPosition() public {
+        MockERC20 token = new MockERC20();
+        MockExtremaOracle oracle = new MockExtremaOracle(100);
+
+        book.configureSettlement(address(token), address(oracle));
+        book.configureExtremaOracle(address(oracle));
+        book.configureRisk(100, 30, 1_000);
+
+        token.mint(ALICE, 100_000);
+        token.mint(BOB, 100_000);
+        token.mint(CAROL, 100_000);
+
+        vm.prank(ALICE);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(CAROL);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(CAROL);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 60);
+
+        vm.prank(ALICE);
+        book.take(ProRataOrderBook.Side.Bid, 100, 60, ProRataOrderBook.FillPolicy.IOC);
+
+        vm.prank(ALICE);
+        uint64 trailingId = book.placeTrailingOrder(
+            ProRataOrderBook.Side.Ask,
+            10,
+            80,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        oracle.setMarkTick(120);
+
+        (bool early,) =
+            address(book).call(abi.encodeCall(book.executeTrailingOrder, (trailingId)));
+        assertTrue(!early, "trailing stop fired at watermark");
+
+        vm.prank(CAROL);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 109, 60);
+
+        oracle.setMarkTick(109);
+
+        uint96 filled = book.executeTrailingOrder(trailingId);
+        assertEq(filled, 60, "trailing stop did not cap at reducible position");
+        assertEq(book.activeTrailingCount(ALICE), 0, "trailing count not cleared");
+
+        (int80 settled,,) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "trailing stop did not close long");
     }
 
     function testRiskRejectsUndercollateralizedQuote() public {
