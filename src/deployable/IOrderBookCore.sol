@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {IMarkOracle} from "../interfaces/IMarkOracle.sol";
+
 interface IOrderBookCore {
     enum Side {
         Bid,
@@ -12,6 +14,7 @@ interface IOrderBookCore {
         FOK
     }
 
+    function markOracle() external view returns (IMarkOracle);
     function currentMarkTick() external view returns (uint16);
     function accountRisk(address account)
         external
