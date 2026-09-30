@@ -372,9 +372,9 @@ contract AdvancedOrderModuleTest is TestBase {
 
         (int80 settled, int80 minPosition, int80 maxPosition) =
             core.accountRisk(ALICE);
-        assertEq(int256(settled), 0, "cancel changed settled position");
-        assertEq(int256(minPosition), 0, "cancel left min reservation");
-        assertEq(int256(maxPosition), 0, "cancel left max reservation");
+        assertEq(int256(settled), 1, "burn-exposed maker fill not materialized");
+        assertEq(int256(minPosition), 1, "cancel left min reservation");
+        assertEq(int256(maxPosition), 1, "cancel left max reservation");
     }
 
     function testManagedQuoteUnchangedTargetPreservesShareSlice() public {

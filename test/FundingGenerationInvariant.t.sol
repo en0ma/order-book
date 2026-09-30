@@ -59,6 +59,71 @@ contract FundingGenerationInvariantTest is TestBase {
         );
     }
 
+    function testShareBurnCrystallizesRoundingFillAndPreservesFundingConservation() public {
+        vm.prank(MAKER0);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 1);
+
+        vm.prank(MAKER1);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 2);
+
+        vm.prank(TAKER0);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            1,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        core.setFundingIndex(int128(3e18));
+
+        vm.prank(MAKER0);
+        (uint128 maker0Shares,,) =
+            core.quotes(MAKER0, IOrderBookCore.Side.Ask, 100);
+
+        vm.prank(MAKER0);
+        uint96 removed =
+            core.removeShares(IOrderBookCore.Side.Ask, 100, maker0Shares);
+
+        assertEq(removed, 0, "rounding-boundary burn redeemed a pool lot");
+
+        (int80 maker0Position,,) = core.accountRisk(MAKER0);
+        assertEq(int256(maker0Position), -1, "burn-exposed fill not crystallized");
+
+        int256 pairEquity =
+            core.accountEquity(MAKER0) + core.accountEquity(TAKER0);
+        assertEq(
+            pairEquity,
+            int256(20_000_000),
+            "burn-exposed fill broke maker/taker funding conservation"
+        );
+
+        (, uint96 remaining,) =
+            core.pools(IOrderBookCore.Side.Ask, 100);
+        assertEq(remaining, 2, "share burn changed remaining maker lots");
+
+        vm.prank(TAKER0);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            2,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(MAKER1);
+        core.settle(IOrderBookCore.Side.Ask, 100);
+
+        (int80 maker1Position,,) = core.accountRisk(MAKER1);
+        (int80 takerPosition,,) = core.accountRisk(TAKER0);
+
+        assertEq(int256(maker1Position), -2, "neighbor maker fill attribution mismatch");
+        assertEq(int256(takerPosition), 3, "taker executed position mismatch");
+        assertEq(
+            int256(maker0Position) + int256(maker1Position) + int256(takerPosition),
+            0,
+            "share burn left permanent maker attribution debt"
+        );
+    }
+
     function testClosedGenerationFundingDoesNotLeakIntoReopenedTick() public {
         vm.prank(MAKER0);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
