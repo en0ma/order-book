@@ -46,13 +46,15 @@ contract ValidatedMarkOracleAdapterTest is TestBase {
     }
 
     function testRejectsDuplicateSourceObservationReplay() public {
-        uint48 sourceTime = uint48(block.timestamp);
+        uint48 sourceTime = 10;
+        vm.warp(sourceTime);
+        source.set(100_25000000, 10_000000, sourceTime);
         adapter.publish();
 
         uint64 beforeId = oracle.currentObservationId();
         uint48 beforeRelayTime = oracle.lastObservationTime();
 
-        vm.warp(block.timestamp + 30);
+        vm.warp(40);
         source.set(101_00000000, 0, sourceTime);
 
         (bool ok,) = address(adapter).call(abi.encodeCall(adapter.publish, ()));
