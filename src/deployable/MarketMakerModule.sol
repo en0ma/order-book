@@ -186,34 +186,4 @@ contract MarketMakerModule {
         return targetLots;
     }
 
-    function _clearManagedQuote(
-        address maker,
-        IOrderBookCore.Side side,
-        uint16 tick
-    ) internal {
-        ManagedQuote memory managed = managedQuotes[maker][side][tick];
-        if (managed.shares == 0) return;
-
-        (,, uint32 currentGeneration) = core.pools(side, tick);
-
-        if (currentGeneration == managed.generation) {
-            gateway.marketMakerRemoveLockedShares(
-                maker,
-                side,
-                tick,
-                managed.generation,
-                managed.shares
-            );
-        } else {
-            gateway.marketMakerUnlockShares(
-                maker,
-                side,
-                tick,
-                managed.generation,
-                managed.shares
-            );
-        }
-
-        delete managedQuotes[maker][side][tick];
-    }
 }
