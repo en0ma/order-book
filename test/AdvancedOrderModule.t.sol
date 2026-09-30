@@ -40,6 +40,19 @@ contract AdvancedOrderModuleTest is TestBase {
         _fund(address(this), 1_000_000);
     }
 
+    function _fundOn(
+        OrderBookCore target,
+        MockERC20 targetToken,
+        address account,
+        uint256 amount
+    ) internal {
+        targetToken.mint(account, amount);
+        vm.prank(account);
+        targetToken.approve(address(target), type(uint256).max);
+        vm.prank(account);
+        target.depositCollateral(amount);
+    }
+
     function _fund(address account, uint256 amount) internal {
         token.mint(account, amount);
         vm.prank(account);
@@ -767,6 +780,75 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(liquidation.terminalBadDebt(trader), 0, "insurance left terminal debt");
         assertEq(core.insuranceReserves(), 0, "insurance reserve not consumed");
         assertEq(core.accountEquity(trader), 0, "insurance over/under covered debt");
+    }
+
+    function testLiquidatorRewardComesOnlyFromProtocolFees() public {
+        MockERC20 feeToken = new MockERC20();
+        SegmentTreeExtremaOracle feeOracle =
+            new SegmentTreeExtremaOracle(address(this), 100, 3_600);
+        OrderBookCore feeCore =
+            new OrderBookCore(address(feeToken), address(feeOracle), 40, 1_000, 100, 0);
+        AdvancedOrderModule feeModule =
+            new AdvancedOrderModule(address(feeCore), address(feeOracle));
+        LiquidationModule feeLiquidation =
+            new LiquidationModule(address(feeCore), address(feeModule), 500);
+
+        feeCore.configureAdvancedModule(address(feeModule));
+        feeModule.configureLiquidationModule(address(feeLiquidation));
+        feeLiquidation.configureLiquidatorReward(100);
+
+        address trader = address(0xD00D);
+        address askMaker = address(0xA551);
+        address bidMaker = address(0xB1D1);
+        address liquidator = address(0x1A2B);
+
+        _fundOn(feeCore, feeToken, trader, 3_000);
+        _fundOn(feeCore, feeToken, askMaker, 100_000);
+        _fundOn(feeCore, feeToken, bidMaker, 100_000);
+
+        vm.prank(askMaker);
+        feeCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(trader);
+        feeCore.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(bidMaker);
+        feeCore.addLiquidity(IOrderBookCore.Side.Bid, 70, 100);
+        feeOracle.record(70);
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](0);
+
+        vm.prank(liquidator);
+        uint96 closed =
+            feeLiquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+
+        assertEq(closed, 100, "rewarded liquidation did not fully close");
+        assertEq(feeToken.balanceOf(liquidator), 70, "liquidator reward mismatch");
+        assertEq(feeCore.protocolFeesAccrued(), 100, "reward source accounting mismatch");
+        assertEq(
+            feeLiquidation.terminalBadDebt(trader),
+            170,
+            "reward incorrectly changed trader bad debt"
+        );
+        assertEq(feeCore.insuranceReserves(), 0, "reward consumed insurance");
+    }
+
+    function testLiquidatorRewardConfigurationIsOneTime() public {
+        liquidation.configureLiquidatorReward(100);
+        assertEq(liquidation.liquidatorRewardBps(), 100, "reward config mismatch");
+
+        (bool ok,) = address(liquidation).call(
+            abi.encodeCall(liquidation.configureLiquidatorReward, (uint16(200)))
+        );
+        assertTrue(!ok, "liquidator reward was reconfigured");
     }
 
     function testModuleTrailingUsesSegmentTreeOracle() public {
