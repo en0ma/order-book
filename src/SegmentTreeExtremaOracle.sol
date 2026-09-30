@@ -43,7 +43,7 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
         owner = msg.sender;
         updater = updater_;
         maxAge = maxAge_;
-        _record(initialTick);
+        _record(initialTick, uint48(block.timestamp));
     }
 
     function proposeUpdater(address nextUpdater) external {
@@ -77,7 +77,19 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
 
     function record(uint16 tick) external returns (uint64 observationId) {
         if (msg.sender != updater) revert Unauthorized();
-        observationId = _record(tick);
+        observationId = _record(tick, uint48(block.timestamp));
+    }
+
+    function recordAt(uint16 tick, uint48 observationTime)
+        external
+        returns (uint64 observationId)
+    {
+        if (msg.sender != updater) revert Unauthorized();
+        if (
+            uint256(observationTime) > block.timestamp
+                || observationTime < lastObservationTime
+        ) revert InvalidObservation();
+        observationId = _record(tick, observationTime);
     }
 
     function highLowSince(uint64 observationId)
@@ -108,13 +120,16 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
         lowTick = uint16((packed & 0x1ffff) - 1);
     }
 
-    function _record(uint16 tick) internal returns (uint64 observationId) {
+    function _record(uint16 tick, uint48 observationTime)
+        internal
+        returns (uint64 observationId)
+    {
         unchecked {
             observationId = currentObservationId + 1;
         }
         currentObservationId = observationId;
         _markTick = tick;
-        lastObservationTime = uint48(block.timestamp);
+        lastObservationTime = observationTime;
 
         uint256 index = uint256(observationId - 1) & MASK;
         uint256 node = TREE_BASE + index;

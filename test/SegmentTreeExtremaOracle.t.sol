@@ -72,6 +72,30 @@ contract SegmentTreeExtremaOracleTest is TestBase {
         assertEq(low, 100, "fresh extrema low");
     }
 
+    function testRecordAtRejectsFutureObservationTime() public {
+        (bool ok,) = address(oracle).call(
+            abi.encodeCall(
+                oracle.recordAt,
+                (uint16(101), uint48(block.timestamp + 1))
+            )
+        );
+        assertTrue(!ok, "future observation time accepted");
+    }
+
+    function testRecordAtRejectsTimeRegression() public {
+        vm.warp(block.timestamp + 10);
+        oracle.recordAt(101, uint48(block.timestamp));
+
+        (bool ok,) = address(oracle).call(
+            abi.encodeCall(
+                oracle.recordAt,
+                (uint16(102), uint48(block.timestamp - 1))
+            )
+        );
+        assertTrue(!ok, "regressing observation time accepted");
+        assertEq(oracle.markTick(), 101, "rejected regression changed mark");
+    }
+
     function testUnauthorizedRecorderRejected() public {
         vm.prank(address(0xBEEF));
         (bool ok,) =

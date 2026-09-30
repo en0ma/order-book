@@ -11,6 +11,9 @@ interface IExternalPriceSource {
 
 interface ITickObservationSink {
     function record(uint16 tick) external returns (uint64 observationId);
+    function recordAt(uint16 tick, uint48 observationTime)
+        external
+        returns (uint64 observationId);
 }
 
 /// @title ValidatedMarkOracleAdapter
@@ -100,7 +103,7 @@ contract ValidatedMarkOracleAdapter {
         }
 
         lastSourcePublishTime = publishTime;
-        observationId = sink.record(tick);
+        observationId = sink.recordAt(tick, publishTime);
         emit PricePublished(observationId, tick, publishTime);
     }
 }
