@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {IERC20Minimal} from "./interfaces/IERC20Minimal.sol";
+import {IMarkOracle} from "./interfaces/IMarkOracle.sol";
+
 /// @title ProRataOrderBook
 /// @notice Experimental fully-on-chain order book kernel.
 /// @dev Best-price priority across ticks, pro-rata allocation within a tick.
@@ -55,6 +58,9 @@ contract ProRataOrderBook {
     error Unauthorized();
     error InvalidRiskConfig();
     error InsufficientCollateral();
+    error TokenTransferFailed();
+    error UnsupportedTokenBehavior();
+    error SettlementAlreadyConfigured();
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
@@ -64,6 +70,8 @@ contract ProRataOrderBook {
     mapping(address => uint16) public accountRiskCeilingTick;
     mapping(Side => mapping(uint16 => uint16)) public poolRiskCeilingTick;
     RiskConfig public riskConfig;
+    IERC20Minimal public collateralToken;
+    IMarkOracle public markOracle;
     address public immutable owner;
 
     // 65,536 ticks => 256 words of 256 ticks.
@@ -110,6 +118,20 @@ contract ProRataOrderBook {
     event RiskConfigured(uint16 markTick, uint16 executionBandTicks, uint16 initialMarginBps);
     event CollateralCredited(address indexed account, uint256 amount);
     event CollateralDebited(address indexed account, uint256 amount);
+    event SettlementConfigured(address indexed collateralToken, address indexed markOracle);
+
+    function configureSettlement(address token, address oracle) external {
+        if (msg.sender != owner) revert Unauthorized();
+        if (address(collateralToken) != address(0) || address(markOracle) != address(0)) {
+            revert SettlementAlreadyConfigured();
+        }
+        if (token == address(0) || oracle == address(0)) revert InvalidRiskConfig();
+
+        collateralToken = IERC20Minimal(token);
+        markOracle = IMarkOracle(oracle);
+
+        emit SettlementConfigured(token, oracle);
+    }
 
     function configureRisk(uint16 markTick, uint16 executionBandTicks, uint16 initialMarginBps)
         external
@@ -132,10 +154,20 @@ contract ProRataOrderBook {
         r.markTick = markTick;
     }
 
-    /// @notice Accounting-only collateral credit for the research kernel.
-    /// @dev Replace with token custody in the production settlement layer.
+    /// @notice Deposit collateral. Uses real ERC-20 custody once settlement is configured.
+    /// @dev Before settlement configuration this preserves the research-kernel accounting mode
+    ///      so core matching tests remain independently runnable.
     function depositCollateral(uint256 amount) external {
         if (amount == 0) revert ZeroAmount();
+
+        IERC20Minimal token = collateralToken;
+        if (address(token) != address(0)) {
+            uint256 beforeBalance = token.balanceOf(address(this));
+            if (!token.transferFrom(msg.sender, address(this), amount)) revert TokenTransferFailed();
+            uint256 received = token.balanceOf(address(this)) - beforeBalance;
+            if (received != amount) revert UnsupportedTokenBehavior();
+        }
+
         collateralBalance[msg.sender] += amount;
         emit CollateralCredited(msg.sender, amount);
     }
@@ -147,6 +179,12 @@ contract ProRataOrderBook {
         uint256 next = balance - amount;
         if (next < reservedMargin[msg.sender]) revert InsufficientCollateral();
         collateralBalance[msg.sender] = next;
+
+        IERC20Minimal token = collateralToken;
+        if (address(token) != address(0)) {
+            if (!token.transfer(msg.sender, amount)) revert TokenTransferFailed();
+        }
+
         emit CollateralDebited(msg.sender, amount);
     }
 
@@ -166,13 +204,13 @@ contract ProRataOrderBook {
         uint16 riskCeiling;
         if (riskConfig.enabled) {
             if (wasEmpty) {
-                uint256 ceiling = uint256(riskConfig.markTick) + uint256(riskConfig.executionBandTicks);
+                uint256 ceiling = uint256(_currentMarkTick()) + uint256(riskConfig.executionBandTicks);
                 if (ceiling > type(uint16).max) ceiling = type(uint16).max;
                 riskCeiling = uint16(ceiling);
                 poolRiskCeilingTick[side][tick] = riskCeiling;
             } else {
                 riskCeiling = poolRiskCeilingTick[side][tick];
-                if (riskConfig.markTick > riskCeiling) revert InvalidRiskConfig();
+                if (_currentMarkTick() > riskCeiling) revert InvalidRiskConfig();
             }
 
             if (riskCeiling > accountRiskCeilingTick[msg.sender]) {
@@ -429,7 +467,7 @@ contract ProRataOrderBook {
 
         uint256 worstPrice = accountRiskCeilingTick[maker];
         if (worstPrice == 0) {
-            worstPrice = uint256(r.markTick) + uint256(r.executionBandTicks);
+            worstPrice = uint256(_currentMarkTick()) + uint256(r.executionBandTicks);
         }
         uint256 required = worstLots * worstPrice * uint256(r.initialMarginBps) / 10_000;
 
@@ -441,11 +479,12 @@ contract ProRataOrderBook {
         RiskConfig memory r = riskConfig;
         if (!r.enabled) return _bestTick(side);
 
+        uint16 mark = _currentMarkTick();
         uint256 lowerRaw =
-            uint256(r.markTick) > uint256(r.executionBandTicks)
-                ? uint256(r.markTick) - uint256(r.executionBandTicks)
+            uint256(mark) > uint256(r.executionBandTicks)
+                ? uint256(mark) - uint256(r.executionBandTicks)
                 : 0;
-        uint256 upperRaw = uint256(r.markTick) + uint256(r.executionBandTicks);
+        uint256 upperRaw = uint256(mark) + uint256(r.executionBandTicks);
         if (upperRaw > type(uint16).max) upperRaw = type(uint16).max;
 
         uint16 lower = uint16(lowerRaw);
@@ -455,7 +494,7 @@ contract ProRataOrderBook {
         while (ok) {
             if (tick >= lower && tick <= upper) {
                 uint16 ceiling = poolRiskCeilingTick[side][tick];
-                if (ceiling == 0 || r.markTick <= ceiling) return (true, tick);
+                if (ceiling == 0 || mark <= ceiling) return (true, tick);
             }
 
             if (side == Side.Ask) {
@@ -466,6 +505,11 @@ contract ProRataOrderBook {
 
             (ok, tick) = _nextTick(side, tick);
         }
+    }
+
+    function _currentMarkTick() internal view returns (uint16) {
+        IMarkOracle oracle = markOracle;
+        return address(oracle) == address(0) ? riskConfig.markTick : oracle.markTick();
     }
 
     function _expandRisk(address maker, Side side, uint96 lots) internal {
