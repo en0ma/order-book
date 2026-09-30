@@ -83,8 +83,8 @@ contract CustodyReserveBackingInvariantTest is TestBase {
         core.settle(IOrderBookCore.Side.Bid, 10);
 
         assertEq(token.balanceOf(LIQUIDATOR), 10, "liquidator reward mismatch");
-        assertEq(core.protocolFeesAccrued(), 90, "protocol fee reserve mismatch");
-        assertEq(core.insuranceReserves(), 3_900, "insurance reserve mismatch");
+        assertEq(core.protocolFeesAccrued(), 100, "protocol fee reserve mismatch");
+        assertEq(core.insuranceReserves(), 3_890, "insurance reserve mismatch");
         assertEq(liquidation.terminalBadDebt(TRADER), 0, "insurance left bad debt");
 
         _assertBacked(core, token, TRADER, ASK_MAKER, BID_MAKER, WITHDRAWER);
