@@ -44,16 +44,21 @@ contract AdvancedOrderModuleTest is TestBase {
         SegmentTreeExtremaOracle otherOracle =
             new SegmentTreeExtremaOracle(address(this), 100);
 
-        bool reverted;
-        try new AdvancedOrderModule(address(core), address(otherOracle)) returns (
-            AdvancedOrderModule
-        ) {
-            reverted = false;
-        } catch {
-            reverted = true;
-        }
+        (bool ok,) = address(this).call(
+            abi.encodeCall(
+                this.deployAdvancedModuleForTest,
+                (address(core), address(otherOracle))
+            )
+        );
 
-        assertTrue(reverted, "module accepted a different trailing oracle");
+        assertTrue(!ok, "module accepted a different trailing oracle");
+    }
+
+    function deployAdvancedModuleForTest(address core_, address oracle_)
+        external
+        returns (AdvancedOrderModule deployed)
+    {
+        deployed = new AdvancedOrderModule(core_, oracle_);
     }
 
     function testModuleMinimumFillIsAtomic() public {
