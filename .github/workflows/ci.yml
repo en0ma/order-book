@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: ["main", "feat/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      ETH_RPC: ${{ secrets.ETH_RPC }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Format
+        run: forge fmt --check
+
+      - name: Unit, fuzz, and gas ceiling tests
+        run: forge test -vvv
+
+      - name: Ethereum mainnet fork test
+        run: |
+          test -n "$ETH_RPC" || (echo "ETH_RPC secret is not configured" && exit 1)
+          forge test --match-contract MainnetForkTest -vvv
+
+      - name: Gas report
+        run: forge test --gas-report | tee gas-report.txt
+
+      - name: Gas snapshot
+        run: forge snapshot
+
+      - name: Upload gas artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-results
+          path: |
+            gas-report.txt
+            .gas-snapshot
