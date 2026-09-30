@@ -179,6 +179,46 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(remaining, 0, "same-tick slices not fully cleared");
     }
 
+    function testModuleLiquidationCancelsTrailingAndClosesPosition() public {
+        address trader = address(0xDAD);
+        _fund(trader, 3_000);
+        module.configureLiquidation(500);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(trader);
+        core.take(IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+
+        vm.prank(trader);
+        uint64 trailingId = module.placeTrailingOrder(
+            IOrderBookCore.Side.Ask,
+            10,
+            50,
+            100,
+            IOrderBookCore.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 70, 100);
+
+        oracle.record(70);
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](1);
+        trailings[0] = trailingId;
+
+        uint96 closed =
+            module.liquidate(trader, sides, ticks, conditionals, trailings);
+
+        assertEq(closed, 100, "module liquidation close");
+        assertEq(int256(core.accountPosition(trader)), 0, "module liquidation position");
+        assertEq(module.activeAdvancedCount(trader), 0, "advanced order count not cleared");
+    }
+
     function testModuleTrailingUsesSegmentTreeOracle() public {
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 60);
