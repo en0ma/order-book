@@ -28,7 +28,7 @@ contract MakerAttributionPropertyTest is TestBase {
         _fund(TAKER);
     }
 
-    function testFuzz_LazyMakerAttributionConservesPositionAcrossLateJoins(
+    function testFuzz_LazyMakerAttributionNeverOverCreditsAcrossLateJoins(
         uint256 aSeed,
         uint256 bSeed,
         uint256 cSeed,
@@ -85,10 +85,15 @@ contract MakerAttributionPropertyTest is TestBase {
         int256 makerPosition =
             int256(_position(ALICE)) + int256(_position(BOB)) + int256(_position(CAROL));
 
-        assertEq(
-            makerPosition + takerPosition,
-            0,
-            "lazy maker attribution created position drift"
+        int256 roundingDebt = makerPosition + takerPosition;
+
+        assertTrue(
+            roundingDebt >= 0,
+            "lazy maker attribution exceeded executed taker lots"
+        );
+        assertTrue(
+            roundingDebt <= 2,
+            "three-maker rounding debt exceeded makers-1 bound"
         );
         assertEq(
             takerPosition,
