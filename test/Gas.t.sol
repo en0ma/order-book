@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import {ProRataOrderBook} from "../src/ProRataOrderBook.sol";
 import {TestBase} from "./TestBase.sol";
+import {MockERC20} from "./mocks/MockERC20.sol";
+import {MockExtremaOracle} from "./mocks/MockExtremaOracle.sol";
 
 contract GasTest is TestBase {
     function testGas_FillCostIsIndependentOfMakerCount() public {
@@ -194,6 +196,65 @@ contract GasTest is TestBase {
         assertEq(filled, 500, "OTO parent gas fixture did not fill");
         assertTrue(book.conditionalOrderActive(child), "OTO child did not activate");
         assertTrue(used < 350_000, "OTO activation gas ceiling exceeded");
+    }
+
+    function testGas_TrailingExecutionIsBounded() public {
+        ProRataOrderBook book = new ProRataOrderBook();
+        MockERC20 token = new MockERC20();
+        MockExtremaOracle oracle = new MockExtremaOracle(100);
+        address account = address(0xA11CE);
+        address maker = address(0xB0B);
+        address exitMaker = address(0xCAFE);
+
+        book.configureSettlement(address(token), address(oracle));
+        book.configureExtremaOracle(address(oracle));
+        book.configureRisk(100, 40, 1_000);
+
+        token.mint(account, 100_000);
+        token.mint(maker, 100_000);
+        token.mint(exitMaker, 100_000);
+
+        vm.prank(account);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(account);
+        book.depositCollateral(100_000);
+
+        vm.prank(maker);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(maker);
+        book.depositCollateral(100_000);
+
+        vm.prank(exitMaker);
+        token.approve(address(book), type(uint256).max);
+        vm.prank(exitMaker);
+        book.depositCollateral(100_000);
+
+        vm.prank(maker);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+        vm.prank(account);
+        book.take(ProRataOrderBook.Side.Bid, 100, 100, ProRataOrderBook.FillPolicy.IOC);
+
+        vm.prank(account);
+        uint64 trailingId = book.placeTrailingOrder(
+            ProRataOrderBook.Side.Ask,
+            10,
+            80,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        oracle.setMarkTick(120);
+        vm.prank(exitMaker);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 109, 100);
+        oracle.setMarkTick(109);
+
+        uint256 g0 = gasleft();
+        uint96 filled = book.executeTrailingOrder(trailingId);
+        uint256 used = g0 - gasleft();
+
+        assertEq(filled, 100, "trailing gas fixture did not fill");
+        assertTrue(used < 400_000, "trailing execution gas ceiling exceeded");
     }
 
     function testGas_AddAtExistingTickIsBounded() public {
