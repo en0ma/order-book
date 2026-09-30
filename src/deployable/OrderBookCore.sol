@@ -62,7 +62,6 @@ contract OrderBookCore is IOrderBookCore {
     error ModuleNotConfigured();
     error ReduceOnlyViolation();
     error PositionOverflow();
-    error MinimumFillNotMet();
 
     address public immutable owner;
     address public advancedModule;
@@ -260,29 +259,6 @@ contract OrderBookCore is IOrderBookCore {
         returns (uint96 filledLots)
     {
         filledLots = _takeFor(msg.sender, side, limitTick, lots, policy, false, false);
-    }
-
-    function takeReduceOnly(Side side, uint16 limitTick, uint96 lots, FillPolicy policy)
-        external
-        returns (uint96 filledLots)
-    {
-        if (_accountMeta[msg.sender].activeQuoteCount != 0) revert ReduceOnlyViolation();
-        filledLots = _takeFor(msg.sender, side, limitTick, lots, policy, true, false);
-    }
-
-    function takeMinFill(Side side, uint16 limitTick, uint96 lots, uint96 minFillLots)
-        external
-        returns (uint96 filledLots)
-    {
-        if (minFillLots == 0 || minFillLots > lots) revert InvalidShareAmount();
-
-        Side makerSide = side.opposite();
-        if (_availableThrough(makerSide, limitTick, minFillLots) < minFillLots) {
-            revert MinimumFillNotMet();
-        }
-
-        filledLots = _takeFor(msg.sender, side, limitTick, lots, FillPolicy.IOC, false, false);
-        if (filledLots < minFillLots) revert MinimumFillNotMet();
     }
 
     function moduleReserveExposure(address account, Side side, uint96 lots)
