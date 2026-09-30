@@ -2065,9 +2065,24 @@ contract AdvancedOrderModuleTest is TestBase {
         vm.prank(trader);
         core.addLiquidity(IOrderBookCore.Side.Ask, 110, 20);
 
-        (uint128 sharesBefore, uint96 claimBefore, uint32 generationBefore) =
-            core.quotes(trader, IOrderBookCore.Side.Ask, 110);
+        bytes32 stateBefore = _healthyMakerCleanupState(trader);
 
+        assertTrue(
+            !_attemptLiquidationMakerQuote(trader),
+            "healthy quoted account was liquidated"
+        );
+
+        assertEq(
+            uint256(_healthyMakerCleanupState(trader)),
+            uint256(stateBefore),
+            "failed liquidation changed maker cleanup state"
+        );
+    }
+
+    function _attemptLiquidationMakerQuote(address trader)
+        internal
+        returns (bool ok)
+    {
         IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](1);
         sides[0] = IOrderBookCore.Side.Ask;
         uint16[] memory ticks = new uint16[](1);
@@ -2075,27 +2090,35 @@ contract AdvancedOrderModuleTest is TestBase {
         uint64[] memory conditionals = new uint64[](0);
         uint64[] memory trailings = new uint64[](0);
 
-        (bool ok,) = address(liquidation).call(
+        (ok,) = address(liquidation).call(
             abi.encodeCall(
                 liquidation.liquidate,
                 (trader, sides, ticks, conditionals, trailings)
             )
         );
-        assertTrue(!ok, "healthy quoted account was liquidated");
+    }
 
-        (uint128 sharesAfter, uint96 claimAfter, uint32 generationAfter) =
+    function _healthyMakerCleanupState(address trader)
+        internal
+        view
+        returns (bytes32)
+    {
+        (uint128 shares, uint96 claim, uint32 generation) =
             core.quotes(trader, IOrderBookCore.Side.Ask, 110);
-
-        assertEq(uint256(sharesAfter), uint256(sharesBefore), "failed liquidation changed maker shares");
-        assertEq(claimAfter, claimBefore, "failed liquidation changed maker claim");
-        assertEq(uint256(generationAfter), uint256(generationBefore), "failed liquidation changed quote generation");
-        assertEq(core.activeQuoteCount(trader), 1, "failed liquidation retired maker quote");
-
         (int80 settled, int80 minPosition, int80 maxPosition) =
             core.accountRisk(trader);
-        assertEq(int256(settled), 10, "failed liquidation changed settled position");
-        assertEq(int256(minPosition), -10, "failed liquidation changed ask reservation");
-        assertEq(int256(maxPosition), 10, "failed liquidation changed max envelope");
+
+        return keccak256(
+            abi.encode(
+                shares,
+                claim,
+                generation,
+                core.activeQuoteCount(trader),
+                settled,
+                minPosition,
+                maxPosition
+            )
+        );
     }
 
     function testHealthyLiquidationAttemptRollsBackAdvancedCleanup() public {
