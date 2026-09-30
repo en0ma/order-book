@@ -20,7 +20,7 @@ contract AdvancedOrderModuleTest is TestBase {
 
     function setUp() public {
         token = new MockERC20();
-        oracle = new SegmentTreeExtremaOracle(address(this), 100);
+        oracle = new SegmentTreeExtremaOracle(address(this), 100, 3_600);
         core = new OrderBookCore(address(token), address(oracle), 40, 1_000);
         module = new AdvancedOrderModule(address(core), address(oracle));
 
@@ -42,7 +42,7 @@ contract AdvancedOrderModuleTest is TestBase {
 
     function testModuleRejectsDifferentExtremaOracle() public {
         SegmentTreeExtremaOracle otherOracle =
-            new SegmentTreeExtremaOracle(address(this), 100);
+            new SegmentTreeExtremaOracle(address(this), 100, 3_600);
 
         (bool ok,) = address(this).call(
             abi.encodeCall(
