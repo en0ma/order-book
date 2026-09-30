@@ -124,6 +124,98 @@ contract FundingGenerationInvariantTest is TestBase {
         );
     }
 
+    function testPartialShareBurnSplitsHistoricalFundingFromSurvivingShares() public {
+        vm.prank(MAKER0);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 2);
+
+        vm.prank(MAKER1);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 1);
+
+        vm.prank(TAKER0);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            1,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        core.setFundingIndex(int128(2e18));
+
+        vm.prank(MAKER0);
+        (uint128 maker0Shares,,) =
+            core.quotes(MAKER0, IOrderBookCore.Side.Ask, 100);
+
+        vm.prank(MAKER0);
+        uint96 removed =
+            core.removeShares(
+                IOrderBookCore.Side.Ask,
+                100,
+                maker0Shares / 2
+            );
+
+        assertEq(removed, 0, "partial burn unexpectedly redeemed pool lots");
+
+        (int80 maker0AfterBurn,,) = core.accountRisk(MAKER0);
+        assertEq(
+            int256(maker0AfterBurn),
+            -1,
+            "partial burn did not crystallize historical maker fill"
+        );
+
+        (,, int256 maker0FundingAfterBurn,,) =
+            core.accountingStateTest(MAKER0);
+        assertEq(
+            maker0FundingAfterBurn,
+            2,
+            "burned slice funding attribution mismatch"
+        );
+
+        core.setFundingIndex(int128(5e18));
+
+        vm.prank(TAKER0);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            2,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(MAKER0);
+        core.settle(IOrderBookCore.Side.Ask, 100);
+        vm.prank(MAKER1);
+        core.settle(IOrderBookCore.Side.Ask, 100);
+
+        (int80 maker0Final,,) = core.accountRisk(MAKER0);
+        (int80 maker1Final,,) = core.accountRisk(MAKER1);
+        (int80 takerFinal,,) = core.accountRisk(TAKER0);
+
+        assertEq(int256(maker0Final), -2, "surviving maker shares lost later fill");
+        assertEq(int256(maker1Final), -1, "neighbor maker fill mismatch");
+        assertEq(int256(takerFinal), 3, "taker fill mismatch");
+        assertEq(
+            int256(maker0Final) + int256(maker1Final) + int256(takerFinal),
+            0,
+            "partial burn broke position conservation"
+        );
+
+        (,, int256 maker0FundingFinal,,) =
+            core.accountingStateTest(MAKER0);
+        assertEq(
+            maker0FundingFinal,
+            5,
+            "surviving shares double-counted or lost historical funding"
+        );
+
+        int256 aggregateEquity =
+            core.accountEquity(MAKER0) + core.accountEquity(MAKER1)
+                + core.accountEquity(TAKER0);
+        assertEq(
+            aggregateEquity,
+            int256(30_000_000),
+            "partial burn created or destroyed aggregate value"
+        );
+    }
+
     function testClosedGenerationFundingDoesNotLeakIntoReopenedTick() public {
         vm.prank(MAKER0);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
