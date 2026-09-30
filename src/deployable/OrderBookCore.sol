@@ -942,8 +942,9 @@ contract OrderBookCore is IOrderBookCore {
 
         uint256 worstPrice = _accountMeta[account].riskCeilingTick;
         if (worstPrice == 0) {
-            worstPrice =
-                uint256(currentMarkTick()) + uint256(riskConfig.executionBandTicks);
+            worstPrice = uint256(
+                OrderBookMath.upperTick(currentMarkTick(), riskConfig.executionBandTicks)
+            );
         }
 
         uint256 required =
@@ -1015,11 +1016,8 @@ contract OrderBookCore is IOrderBookCore {
                 ? uint256(mark) - uint256(r.executionBandTicks)
                 : 0;
 
-        uint256 upperRaw = uint256(mark) + uint256(r.executionBandTicks);
-        if (upperRaw > type(uint16).max) upperRaw = type(uint16).max;
-
         uint16 lower = uint16(lowerRaw);
-        uint16 upper = uint16(upperRaw);
+        uint16 upper = OrderBookMath.upperTick(mark, r.executionBandTicks);
 
         (ok, tick) = _bestTick(side);
 
