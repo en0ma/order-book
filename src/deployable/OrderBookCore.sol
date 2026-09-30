@@ -665,18 +665,28 @@ contract OrderBookCore is IOrderBookCore {
 
         uint256 redeemed =
             uint256(sharesToBurn) * uint256(p.remainingLots) / uint256(p.totalShares);
-        if (redeemed == 0 || redeemed > type(uint96).max) revert InvalidShareAmount();
+        if (redeemed > type(uint96).max) revert InvalidShareAmount();
 
         removedLots = uint96(redeemed);
+
+        uint96 claimBefore = q.claimLots;
 
         p.totalShares -= sharesToBurn;
         p.remainingLots -= removedLots;
         q.shares -= sharesToBurn;
 
-        if (removedLots > q.claimLots) revert InvalidShareAmount();
-        q.claimLots -= removedLots;
+        uint96 claimAfter;
+        if (q.shares != 0) {
+            claimAfter = OrderBookMath.redeemableLotsCeil(
+                q.shares,
+                p.remainingLots,
+                p.totalShares
+            );
+        }
+        if (claimAfter > claimBefore) revert InvalidShareAmount();
+        q.claimLots = claimAfter;
 
-        _shrinkRisk(maker, side, removedLots);
+        _shrinkRisk(maker, side, claimBefore - claimAfter);
         _refreshReservedMargin(maker);
 
         if (q.shares == 0) {
