@@ -59,7 +59,6 @@ contract OrderBookCore is IOrderBookCore {
     error ModuleNotConfigured();
     error ReduceOnlyViolation();
     error PositionOverflow();
-    error InvalidFeeConfig();
 
     address public immutable owner;
     address public advancedModule;
@@ -81,7 +80,7 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => int256) internal tradeCashflow;
 
     int128 public fundingIndexX18;
-    uint32 internal feeSchedulePacked;
+    uint32 internal immutable feeSchedulePacked;
     uint256 public protocolFeesAccrued;
     mapping(Side => mapping(uint16 => int256)) internal fundingEntryPerShareX96;
     mapping(Side => mapping(uint16 => mapping(uint32 => int256)))
@@ -98,7 +97,6 @@ contract OrderBookCore is IOrderBookCore {
 
     event AdvancedModuleConfigured(address indexed module);
     event FundingIndexUpdated(int128 fundingIndexX18);
-    event FeesConfigured(uint16 takerFeeBps, uint16 makerRebateBps);
     event CollateralCredited(address indexed account, uint256 amount);
     event CollateralDebited(address indexed account, uint256 amount);
     event LiquidityAdded(
@@ -131,11 +129,14 @@ contract OrderBookCore is IOrderBookCore {
         address collateralToken_,
         address markOracle_,
         uint16 executionBandTicks_,
-        uint16 initialMarginBps_
+        uint16 initialMarginBps_,
+        uint16 takerFeeBps_,
+        uint16 makerRebateBps_
     ) {
         if (
             collateralToken_ == address(0) || markOracle_ == address(0)
                 || initialMarginBps_ == 0 || initialMarginBps_ > 10_000
+                || takerFeeBps_ > 10_000 || makerRebateBps_ > takerFeeBps_
         ) revert InvalidRiskConfig();
 
         owner = msg.sender;
@@ -143,6 +144,8 @@ contract OrderBookCore is IOrderBookCore {
         markOracle = IMarkOracle(markOracle_);
         executionBandTicks = executionBandTicks_;
         initialMarginBps = initialMarginBps_;
+        feeSchedulePacked =
+            uint32(takerFeeBps_) | (uint32(makerRebateBps_) << 16);
     }
 
     modifier onlyOwner() {
@@ -160,31 +163,6 @@ contract OrderBookCore is IOrderBookCore {
         if (advancedModule != address(0)) revert ModuleAlreadyConfigured();
         advancedModule = module;
         emit AdvancedModuleConfigured(module);
-    }
-
-    function configureFees(uint16 takerFeeBps, uint16 makerRebateBps)
-        external
-        onlyOwner
-    {
-        if (
-            feeSchedulePacked != 0 || takerFeeBps == 0 || takerFeeBps > 10_000
-                || makerRebateBps > takerFeeBps
-        ) revert InvalidFeeConfig();
-
-        feeSchedulePacked =
-            uint32(takerFeeBps) | (uint32(makerRebateBps) << 16);
-
-        emit FeesConfigured(takerFeeBps, makerRebateBps);
-    }
-
-    function feeSchedule()
-        external
-        view
-        returns (uint16 takerFeeBps, uint16 makerRebateBps)
-    {
-        uint32 packed = feeSchedulePacked;
-        takerFeeBps = uint16(packed);
-        makerRebateBps = uint16(packed >> 16);
     }
 
     function setFundingIndex(int128 nextFundingIndexX18) external onlyOwner {
