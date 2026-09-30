@@ -60,13 +60,13 @@ contract OrderBookCore is IOrderBookCore {
     error ReduceOnlyViolation();
     error PositionOverflow();
 
-    address public immutable owner;
+    address internal immutable owner;
     address public advancedModule;
 
-    IERC20Minimal public immutable collateralToken;
+    IERC20Minimal internal immutable collateralToken;
     IMarkOracle public immutable markOracle;
-    uint16 public immutable executionBandTicks;
-    uint16 public immutable initialMarginBps;
+    uint16 internal immutable executionBandTicks;
+    uint16 internal immutable initialMarginBps;
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
@@ -79,7 +79,7 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => int256) internal fundingCashflow;
     mapping(address => int256) internal tradeCashflow;
 
-    int128 public fundingIndexX18;
+    int128 internal fundingIndexX18;
     uint32 internal immutable feeSchedulePacked;
     uint256 public protocolFeesAccrued;
     mapping(Side => mapping(uint16 => int256)) internal fundingEntryPerShareX96;
@@ -395,20 +395,13 @@ contract OrderBookCore is IOrderBookCore {
         emit LiquidityRemoved(account, side, tick, removedLots, shares, p.generation);
     }
 
-    function accountAccounting(address account)
+    function marginState(address account)
         external
         view
-        returns (
-            uint256 collateral,
-            uint256 reserved,
-            int256 funding,
-            int256 trade
-        )
+        returns (uint256 collateral, uint256 reserved)
     {
         collateral = collateralBalance[account];
         reserved = reservedMargin[account];
-        funding = fundingCashflow[account];
-        trade = tradeCashflow[account];
     }
 
     function accountEquity(address account) public view override returns (int256 equity) {
