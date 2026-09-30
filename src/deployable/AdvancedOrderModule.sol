@@ -397,7 +397,7 @@ contract AdvancedOrderModule {
             );
 
             (, , uint32 generation) =
-                core.quoteStateRaw(order.owner, order.side, order.limitTick);
+                core.quotes(order.owner, order.side, order.limitTick);
 
             restingLinks[orderId] = RestingLink({
                 shares: shares,
@@ -448,7 +448,7 @@ contract AdvancedOrderModule {
         ConditionalOrder storage parent = conditionalOrders[parentOrderId];
 
         (uint128 totalShares, uint96 remainingLots, uint32 generation) =
-            core.poolState(parent.side, parent.limitTick);
+            core.pools(parent.side, parent.limitTick);
 
         uint96 currentClaim;
         if (generation == link.generation && totalShares != 0 && remainingLots != 0) {
@@ -616,11 +616,15 @@ contract AdvancedOrderModule {
         emit TrailingOrderExecuted(orderId, filledLots, highTick, lowTick);
     }
 
+    function _settledPosition(address account) internal view returns (int80 position) {
+        (position,,) = core.accountRisk(account);
+    }
+
     function maintenanceRequirement(address account) public view returns (uint256) {
         uint16 maintenanceBps = maintenanceMarginBps;
         if (maintenanceBps == 0) return 0;
 
-        int80 position = core.accountPosition(account);
+        int80 position = _settledPosition(account);
         uint256 absPosition = uint256(OrderBookMath.absPosition(position));
 
         return absPosition * uint256(core.currentMarkTick()) * uint256(maintenanceBps)
@@ -632,7 +636,7 @@ contract AdvancedOrderModule {
         if (core.activeQuoteCount(account) != 0 || activeAdvancedCount[account] != 0) {
             return false;
         }
-        if (core.accountPosition(account) == 0) return false;
+        if (_settledPosition(account) == 0) return false;
 
         return core.accountEquity(account) < int256(maintenanceRequirement(account));
     }
@@ -680,7 +684,7 @@ contract AdvancedOrderModule {
             revert NotLiquidatable();
         }
 
-        int80 position = core.accountPosition(account);
+        int80 position = _settledPosition(account);
         if (position > 0) {
             closedLots = core.moduleTake(
                 account,
