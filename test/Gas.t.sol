@@ -51,6 +51,64 @@ contract GasTest is TestBase {
         assertTrue(used < 220_000, "cancel gas ceiling exceeded");
     }
 
+    function testGas_ConditionalExecutionIsBounded() public {
+        ProRataOrderBook book = new ProRataOrderBook();
+
+        vm.prank(address(0xA1));
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 10_000, 1_000);
+
+        uint64 orderId = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            0,
+            10_000,
+            500,
+            ProRataOrderBook.FillPolicy.IOC,
+            false
+        );
+
+        uint256 g0 = gasleft();
+        uint96 filled = book.executeConditionalOrder(orderId);
+        uint256 used = g0 - gasleft();
+
+        assertEq(filled, 500, "conditional gas fixture did not fill");
+        assertTrue(used < 300_000, "conditional execution gas ceiling exceeded");
+    }
+
+    function testGas_LiquidationCloseIsBounded() public {
+        ProRataOrderBook book = new ProRataOrderBook();
+        address account = address(0xA11CE);
+        address maker = address(0xB0B);
+
+        book.configureRisk(100, 20, 2_000);
+        book.configureLiquidation(1_000);
+
+        vm.prank(account);
+        book.depositCollateral(3_000);
+        vm.prank(maker);
+        book.depositCollateral(100_000);
+
+        vm.prank(maker);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+        vm.prank(account);
+        book.take(ProRataOrderBook.Side.Bid, 100, 100, ProRataOrderBook.FillPolicy.IOC);
+
+        vm.prank(maker);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 70, 100);
+        book.setMarkTick(70);
+
+        ProRataOrderBook.Side[] memory sides = new ProRataOrderBook.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](0);
+
+        uint256 g0 = gasleft();
+        uint96 closed = book.liquidate(account, sides, ticks, conditionals);
+        uint256 used = g0 - gasleft();
+
+        assertEq(closed, 100, "liquidation gas fixture did not close");
+        assertTrue(used < 350_000, "liquidation gas ceiling exceeded");
+    }
+
     function testGas_AddAtExistingTickIsBounded() public {
         ProRataOrderBook book = new ProRataOrderBook();
 
