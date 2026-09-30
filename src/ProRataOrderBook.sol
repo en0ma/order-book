@@ -63,7 +63,8 @@ contract ProRataOrderBook {
     }
 
     /// @dev Triggered orders are stored fully on-chain and executed permissionlessly.
-    /// flags: bit0 active, bit1 triggerAboveOrEqual, bit2 reduceOnly, bit3 restingLimit.
+    /// flags: bit0 active, bit1 triggerAboveOrEqual, bit2 reduceOnly,
+    /// bit3 restingLimit, bit4 dormantOTOChild.
     struct ConditionalOrder {
         address owner;
         uint96 lots;
@@ -468,7 +469,7 @@ contract ProRataOrderBook {
         }
 
         // Dormant until the parent has an actual fill.
-        child.flags &= ~uint8(1);
+        child.flags = (child.flags & ~uint8(1)) | uint8(16);
         _accountMeta[child.owner].activeConditionalCount -= 1;
 
         emit OTOLinked(parentOrderId, childOrderId);
@@ -521,7 +522,11 @@ contract ProRataOrderBook {
             }
         }
 
-        if (filledLots != 0) _activateOTOChildren(orderId, order.owner, filledLots);
+        if (filledLots != 0) {
+            _activateOTOChildren(orderId, order.owner, filledLots);
+        } else {
+            _cancelOTOChildren(orderId);
+        }
 
         uint64 sibling = order.sibling;
         if (sibling != 0) _cancelConditional(sibling, true);
@@ -1267,15 +1272,33 @@ contract ProRataOrderBook {
         uint96 filledLots
     ) internal {
         ConditionalOrder storage child = conditionalOrders[childOrderId];
-        if (child.owner != owner_ || (child.flags & 1) != 0 || (child.flags & 4) == 0) {
+        if (
+            child.owner != owner_ || (child.flags & 1) != 0 || (child.flags & 4) == 0
+                || (child.flags & 16) == 0
+        ) {
             revert InvalidOTO();
         }
 
         if (child.lots > filledLots) child.lots = filledLots;
-        child.flags |= 1;
+        child.flags = (child.flags | uint8(1)) & ~uint8(16);
         _accountMeta[owner_].activeConditionalCount += 1;
 
         emit OTOActivated(parentOrderId, childOrderId, child.lots);
+    }
+
+    function _cancelOTOChildren(uint64 parentOrderId) internal {
+        uint64 first = otoChildOne[parentOrderId];
+        uint64 second = otoChildTwo[parentOrderId];
+
+        if (first != 0) _cancelConditional(first, true);
+        if (second != 0) _cancelConditional(second, true);
+
+        delete otoChildOne[parentOrderId];
+        delete otoChildTwo[parentOrderId];
+    }
+
+    function _conditionalDormant(ConditionalOrder storage order) internal view returns (bool) {
+        return (order.flags & 16) != 0;
     }
 
     function _conditionalActive(ConditionalOrder storage order) internal view returns (bool) {
@@ -1285,10 +1308,13 @@ contract ProRataOrderBook {
     function _cancelConditional(uint64 orderId, bool releaseRisk) internal {
         ConditionalOrder storage order = conditionalOrders[orderId];
         if (order.owner == address(0)) revert ConditionalOrderNotFound();
-        if (!_conditionalActive(order)) return;
 
-        order.flags &= ~uint8(1);
-        _accountMeta[order.owner].activeConditionalCount -= 1;
+        bool active = _conditionalActive(order);
+        bool dormant = _conditionalDormant(order);
+        if (!active && !dormant) return;
+
+        order.flags &= ~(uint8(1) | uint8(16));
+        if (active) _accountMeta[order.owner].activeConditionalCount -= 1;
 
         bool reduceOnly = (order.flags & 4) != 0;
         if (releaseRisk && !reduceOnly) {
@@ -1303,6 +1329,10 @@ contract ProRataOrderBook {
                 other.sibling = 0;
             }
             order.sibling = 0;
+        }
+
+        if (otoChildOne[orderId] != 0 || otoChildTwo[orderId] != 0) {
+            _cancelOTOChildren(orderId);
         }
 
         emit ConditionalOrderCancelled(orderId);
