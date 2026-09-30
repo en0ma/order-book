@@ -45,6 +45,52 @@ contract RebateFundingRoundingInvariantTest is TestBase {
         );
     }
 
+    function testClosedGenerationSettlementIsIdempotentForRebateAndFunding() public {
+        MockERC20 token = new MockERC20();
+        SegmentTreeExtremaOracle oracle =
+            new SegmentTreeExtremaOracle(address(this), 105, 3_600);
+        OrderBookCoreHarness core = new OrderBookCoreHarness(
+            address(token), address(oracle), 40, 1_000, 10, 5
+        );
+
+        _fund(core, token, ALICE);
+        _fund(core, token, TAKER);
+
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 105, 100);
+
+        vm.prank(TAKER);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            105,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        core.setFundingIndex(int128(4e18));
+
+        vm.prank(ALICE);
+        core.settle(IOrderBookCore.Side.Ask, 105);
+
+        (uint256 collateralBefore, int256 tradingBefore, int256 fundingBefore,,) =
+            core.accountingStateTest(ALICE);
+        (int80 positionBefore,,) = core.accountRisk(ALICE);
+        uint256 protocolBefore = core.protocolFeesAccrued();
+
+        vm.prank(ALICE);
+        core.settle(IOrderBookCore.Side.Ask, 105);
+
+        (uint256 collateralAfter, int256 tradingAfter, int256 fundingAfter,,) =
+            core.accountingStateTest(ALICE);
+        (int80 positionAfter,,) = core.accountRisk(ALICE);
+
+        assertEq(collateralAfter, collateralBefore, "repeat settle changed collateral");
+        assertEq(tradingAfter, tradingBefore, "repeat settle changed trading cashflow");
+        assertEq(fundingAfter, fundingBefore, "repeat settle changed funding cashflow");
+        assertEq(int256(positionAfter), int256(positionBefore), "repeat settle changed position");
+        assertEq(core.protocolFeesAccrued(), protocolBefore, "repeat settle changed protocol fees");
+    }
+
     function testFuzz_RebateAndFundingRoundingNeverCreateClaims(
         uint256 aSeed,
         uint256 bSeed,
