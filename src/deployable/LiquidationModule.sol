@@ -93,7 +93,8 @@ contract LiquidationModule {
     }
 
     function maintenanceRequirement(address account) external view returns (uint256) {
-        return _maintenanceRequirement(account);
+        (int80 position,,) = core.accountRisk(account);
+        return _maintenanceRequirementForPosition(position);
     }
 
     function terminalBadDebt(address account) external view returns (uint256) {
@@ -112,7 +113,8 @@ contract LiquidationModule {
         (int80 position,,) = core.accountRisk(account);
         if (position == 0) return false;
 
-        return core.accountEquity(account) < int256(_maintenanceRequirement(account));
+        return core.accountEquity(account)
+            < int256(_maintenanceRequirementForPosition(position));
     }
 
     function liquidate(
@@ -135,11 +137,13 @@ contract LiquidationModule {
         if (_hasOpenOrders(account)) revert UnsettledOrders();
 
         int256 equityBefore = core.accountEquity(account);
-        if (equityBefore >= int256(_maintenanceRequirement(account))) {
+        (int80 position,,) = core.accountRisk(account);
+        if (
+            equityBefore
+                >= int256(_maintenanceRequirementForPosition(position))
+        ) {
             revert NotLiquidatable();
         }
-
-        (int80 position,,) = core.accountRisk(account);
 
         if (position > 0) {
             closedLots = gateway.liquidationTake(
@@ -168,12 +172,11 @@ contract LiquidationModule {
             || gateway.activeAdvancedOrders(account) != 0;
     }
 
-    function _maintenanceRequirement(address account)
+    function _maintenanceRequirementForPosition(int80 position)
         internal
         view
         returns (uint256)
     {
-        (int80 position,,) = core.accountRisk(account);
         uint256 absPosition = uint256(OrderBookMath.absPosition(position));
 
         return core.notionalValue(uint96(absPosition), core.currentMarkTick())
@@ -203,7 +206,7 @@ contract LiquidationModule {
             account,
             remainingPosition,
             equityAfter,
-            _maintenanceRequirement(account),
+            _maintenanceRequirementForPosition(remainingPosition),
             insuranceCovered,
             badDebt
         );
