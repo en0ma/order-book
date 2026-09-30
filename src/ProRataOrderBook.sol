@@ -289,8 +289,7 @@ contract ProRataOrderBook {
         uint256 balance = collateralBalance[msg.sender];
         if (amount > balance) revert InsufficientCollateral();
 
-        int256 equityAfter =
-            int256(balance - amount) + fundingCashflow[msg.sender];
+        int256 equityAfter = accountEquity(msg.sender) - int256(amount);
         if (equityAfter < int256(reservedMargin[msg.sender])) revert InsufficientCollateral();
 
         collateralBalance[msg.sender] = balance - amount;
