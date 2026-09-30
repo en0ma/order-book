@@ -5,7 +5,8 @@ from pathlib import Path
 LIMIT = 24_576
 TARGETS = [
     ("OrderBookCore", Path("out/OrderBookCore.sol/OrderBookCore.json"), 22_000),
-    ("AdvancedOrderModule", Path("out/AdvancedOrderModule.sol/AdvancedOrderModule.json"), 21_000),
+    ("AdvancedOrderModule", Path("out/AdvancedOrderModule.sol/AdvancedOrderModule.json"), 19_500),
+    ("MarketMakerModule", Path("out/MarketMakerModule.sol/MarketMakerModule.json"), 8_000),
     ("SegmentTreeExtremaOracle", Path("out/SegmentTreeExtremaOracle.sol/SegmentTreeExtremaOracle.json"), 4_000),
 ]
 
