@@ -189,7 +189,7 @@ contract AdvancedOrderModule {
         if (triggeredLimit) flags |= 8;
 
         orderId = nextConditionalOrderId++;
-        conditionalOrders[orderId] = ConditionalOrder({
+        ConditionalOrder memory order = ConditionalOrder({
             owner: account,
             lots: lots,
             sibling: 0,
@@ -201,16 +201,23 @@ contract AdvancedOrderModule {
             flags: flags
         });
 
+        conditionalOrders[orderId] = order;
+        _emitConditionalPlaced(orderId, order);
+    }
+
+    function _emitConditionalPlaced(uint64 orderId, ConditionalOrder memory order)
+        internal
+    {
         emit ConditionalOrderPlaced(
             orderId,
-            account,
-            side,
-            triggerTick,
-            limitTick,
-            lots,
-            triggerAboveOrEqual,
-            reduceOnly,
-            triggeredLimit
+            order.owner,
+            order.side,
+            order.triggerTick,
+            order.limitTick,
+            order.lots,
+            (order.flags & 2) != 0,
+            (order.flags & 4) != 0,
+            (order.flags & 8) != 0
         );
     }
 
