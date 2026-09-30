@@ -138,7 +138,11 @@ contract AdvancedOrderModule {
 
     constructor(address core_, address extremaOracle_) {
         if (core_ == address(0) || extremaOracle_ == address(0)) revert Unauthorized();
-        core = IOrderBookCore(core_);
+
+        IOrderBookCore coreRef = IOrderBookCore(core_);
+        if (address(coreRef.markOracle()) != extremaOracle_) revert InvalidRiskCeiling();
+
+        core = coreRef;
         extremaOracle = IExtremaOracle(extremaOracle_);
         owner = msg.sender;
     }
@@ -616,7 +620,6 @@ contract AdvancedOrderModule {
 
         TrailingOrder memory order = stored;
         uint16 current = core.currentMarkTick();
-        if (current != extremaOracle.markTick()) revert InvalidRiskCeiling();
 
         (uint16 highTick, uint16 lowTick) =
             extremaOracle.highLowSince(order.observationId);
