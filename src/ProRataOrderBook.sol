@@ -1012,13 +1012,13 @@ contract ProRataOrderBook {
         int128 position = accountRisk[account].settledPosition;
         if (side == Side.Bid) {
             if (position >= 0) return 0;
-            uint128 reducible = uint128(-position);
-            return requested < reducible ? requested : uint96(reducible);
+            uint128 shortReducible = uint128(-position);
+            return requested < shortReducible ? requested : uint96(shortReducible);
         }
 
         if (position <= 0) return 0;
-        uint128 reducible = uint128(position);
-        return requested < reducible ? requested : uint96(reducible);
+        uint128 longReducible = uint128(position);
+        return requested < longReducible ? requested : uint96(longReducible);
     }
 
     function _applyImmediateTakerFill(
