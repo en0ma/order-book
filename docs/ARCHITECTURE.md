@@ -131,18 +131,39 @@ Implemented:
 
 Not yet implemented:
 - fees
-- liquidation
-- conditional orders
-- stop, take-profit and trailing orders
-- OCO and brackets
-- reduce-only
+- trailing stops
+- OTO / full bracket composition
+- minimum-fill and minimum-first-fill policies
 - portfolio margin / cross-market netting
 - permissionless oracle adapters and stale-price validation
 - production-grade token decimal normalization
 - audited funding precision bounds
+- liquidation incentives / insurance accounting
 
-The next milestone should add conditional/reduce-only order semantics and liquidation while preserving the same hot-path property: taker execution must not write maker state.
+The next milestone should focus on richer order composition and further storage/gas optimization without changing the maker-count-independent matching property.
 
+
+
+## Account state packing
+
+The risk envelope uses three signed 80-bit fields:
+
+- settledPosition;
+- minPosition;
+- maxPosition.
+
+They fit in one 256-bit storage slot. Every lot-to-position conversion is checked against the int80 protocol bound before mutation.
+
+Account metadata is separately packed into one slot:
+
+- funding checkpoint: int128;
+- active maker quote count: uint32;
+- active conditional count: uint32;
+- risk ceiling tick: uint16.
+
+This reduces the number of independent mapping slots touched by quote placement, conditional placement/cancellation, funding settlement, and risk checks.
+
+Redundant funding-checkpoint and reserved-margin writes are skipped when the stored value already equals the new value.
 
 ## Aggressive taker accounting
 
@@ -193,7 +214,12 @@ Reduce-only conditionals do not reserve new directional risk and are capped at t
 
 Pairwise OCO is implemented by linking two conditional IDs. When one executes, the sibling is cancelled atomically and its reserved exposure is released.
 
-Current conditional execution is a bounded aggressive taker action. A true stop-limit order that activates into resting maker liquidity is not yet implemented and should be treated as a separate activation primitive.
+Conditional orders now have two activation modes:
+
+- aggressive conditional: bounded IOC/FOK execution after the trigger;
+- triggered limit: after the trigger, the order first consumes executable opposite liquidity up to its limit tick, then deposits any remainder into the ordinary maker pool at the limit tick.
+
+Triggered limits reuse the exposure reserved when the conditional was created. The taker-filled portion materializes immediately, while the resting remainder retains the unused part of the same risk envelope. If raw opposite liquidity would leave the remainder in a crossed book, activation reverts and the conditional remains active.
 
 ## Liquidation
 
