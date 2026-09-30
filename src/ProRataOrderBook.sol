@@ -98,6 +98,8 @@ contract ProRataOrderBook {
     error NotLiquidatable();
     error InvalidLiquidationInput();
     error PositionOverflow();
+    error MinimumFillNotMet();
+    error InvalidOTO();
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
@@ -120,6 +122,8 @@ contract ProRataOrderBook {
     uint16 public maintenanceMarginBps;
     uint64 public nextConditionalOrderId = 1;
     mapping(uint64 => ConditionalOrder) public conditionalOrders;
+    mapping(uint64 => uint64) public otoChildOne;
+    mapping(uint64 => uint64) public otoChildTwo;
     RiskConfig public riskConfig;
     IERC20Minimal public collateralToken;
     IMarkOracle public markOracle;
@@ -191,6 +195,8 @@ contract ProRataOrderBook {
         uint128 restingShares
     );
     event OCOLinked(uint64 indexed firstOrderId, uint64 indexed secondOrderId);
+    event OTOLinked(uint64 indexed parentOrderId, uint64 indexed childOrderId);
+    event OTOActivated(uint64 indexed parentOrderId, uint64 indexed childOrderId, uint96 lots);
     event LiquidationConfigured(uint16 maintenanceMarginBps);
     event Liquidated(
         address indexed liquidator,
@@ -436,6 +442,38 @@ contract ProRataOrderBook {
         emit OCOLinked(firstOrderId, secondOrderId);
     }
 
+    function linkOTO(uint64 parentOrderId, uint64 childOrderId) external {
+        if (parentOrderId == childOrderId) revert InvalidOTO();
+
+        ConditionalOrder storage parent = conditionalOrders[parentOrderId];
+        ConditionalOrder storage child = conditionalOrders[childOrderId];
+
+        if (parent.owner == address(0) || child.owner == address(0)) {
+            revert ConditionalOrderNotFound();
+        }
+        if (parent.owner != msg.sender || child.owner != msg.sender) revert Unauthorized();
+        if (!_conditionalActive(parent) || !_conditionalActive(child)) {
+            revert ConditionalOrderInactive();
+        }
+
+        // Children are exits: they must only reduce the position created by the parent.
+        if ((child.flags & 4) == 0) revert InvalidOTO();
+
+        if (otoChildOne[parentOrderId] == 0) {
+            otoChildOne[parentOrderId] = childOrderId;
+        } else if (otoChildTwo[parentOrderId] == 0) {
+            otoChildTwo[parentOrderId] = childOrderId;
+        } else {
+            revert InvalidOTO();
+        }
+
+        // Dormant until the parent has an actual fill.
+        child.flags &= ~uint8(1);
+        _accountMeta[child.owner].activeConditionalCount -= 1;
+
+        emit OTOLinked(parentOrderId, childOrderId);
+    }
+
     function executeConditionalOrder(uint64 orderId) external returns (uint96 filledLots) {
         ConditionalOrder storage stored = conditionalOrders[orderId];
         if (stored.owner == address(0)) revert ConditionalOrderNotFound();
@@ -482,6 +520,8 @@ contract ProRataOrderBook {
                 _refreshReservedMargin(order.owner);
             }
         }
+
+        if (filledLots != 0) _activateOTOChildren(orderId, order.owner, filledLots);
 
         uint64 sibling = order.sibling;
         if (sibling != 0) _cancelConditional(sibling, true);
@@ -826,6 +866,49 @@ contract ProRataOrderBook {
         filledLots = _takeFor(msg.sender, takerSide, limitTick, lots, policy, true, false);
     }
 
+    function takeMinFill(
+        Side takerSide,
+        uint16 limitTick,
+        uint96 lots,
+        uint96 minFillLots
+    ) external returns (uint96 filledLots) {
+        if (minFillLots == 0 || minFillLots > lots) revert InvalidShareAmount();
+
+        Side makerSide = takerSide == Side.Bid ? Side.Ask : Side.Bid;
+        if (_availableThrough(makerSide, limitTick, minFillLots) < minFillLots) {
+            revert MinimumFillNotMet();
+        }
+
+        filledLots =
+            _takeFor(msg.sender, takerSide, limitTick, lots, FillPolicy.IOC, false, false);
+
+        if (filledLots < minFillLots) revert MinimumFillNotMet();
+    }
+
+    function takeReduceOnlyMinFill(
+        Side takerSide,
+        uint16 limitTick,
+        uint96 lots,
+        uint96 minFillLots
+    ) external returns (uint96 filledLots) {
+        if (_accountMeta[msg.sender].activeQuoteCount != 0) revert UnsettledQuotes();
+        if (minFillLots == 0 || minFillLots > lots) revert InvalidShareAmount();
+
+        uint96 executableLots = _reduceOnlyLots(msg.sender, takerSide, lots);
+        if (executableLots < minFillLots) revert MinimumFillNotMet();
+
+        Side makerSide = takerSide == Side.Bid ? Side.Ask : Side.Bid;
+        if (_availableThrough(makerSide, limitTick, minFillLots) < minFillLots) {
+            revert MinimumFillNotMet();
+        }
+
+        filledLots = _takeFor(
+            msg.sender, takerSide, limitTick, lots, FillPolicy.IOC, true, false
+        );
+
+        if (filledLots < minFillLots) revert MinimumFillNotMet();
+    }
+
     function _takeFor(
         address account,
         Side takerSide,
@@ -1165,6 +1248,34 @@ contract ProRataOrderBook {
         }
 
         emit LiquidityRemoved(maker, side, tick, removedLots, shares, p.generation);
+    }
+
+    function _activateOTOChildren(uint64 parentOrderId, address owner_, uint96 filledLots)
+        internal
+    {
+        uint64 first = otoChildOne[parentOrderId];
+        uint64 second = otoChildTwo[parentOrderId];
+
+        if (first != 0) _activateOTOChild(parentOrderId, first, owner_, filledLots);
+        if (second != 0) _activateOTOChild(parentOrderId, second, owner_, filledLots);
+    }
+
+    function _activateOTOChild(
+        uint64 parentOrderId,
+        uint64 childOrderId,
+        address owner_,
+        uint96 filledLots
+    ) internal {
+        ConditionalOrder storage child = conditionalOrders[childOrderId];
+        if (child.owner != owner_ || (child.flags & 1) != 0 || (child.flags & 4) == 0) {
+            revert InvalidOTO();
+        }
+
+        if (child.lots > filledLots) child.lots = filledLots;
+        child.flags |= 1;
+        _accountMeta[owner_].activeConditionalCount += 1;
+
+        emit OTOActivated(parentOrderId, childOrderId, child.lots);
     }
 
     function _conditionalActive(ConditionalOrder storage order) internal view returns (bool) {
