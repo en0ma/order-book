@@ -100,6 +100,7 @@ contract ProRataOrderBook {
     mapping(address => mapping(Side => mapping(uint16 => int256))) public quoteFundingCheckpointX96;
     mapping(address => int128) public accountFundingCheckpointX18;
     mapping(address => int256) public fundingCashflow;
+    mapping(address => int256) public tradeCashflow;
     mapping(address => uint32) public activeQuoteCount;
     mapping(Side => mapping(uint16 => mapping(uint32 => uint128))) public closedFundingOutstandingShares;
 
@@ -555,14 +556,16 @@ contract ProRataOrderBook {
             revert InsufficientLiquidity();
         }
 
-        filledLots = _match(account, takerSide, makerSide, limitTick, executableLots);
+        uint256 notional;
+        (filledLots, notional) =
+            _match(account, takerSide, makerSide, limitTick, executableLots);
 
         if (policy == FillPolicy.FOK && filledLots != executableLots) {
             revert InsufficientLiquidity();
         }
 
         if (filledLots != 0) {
-            _applyImmediateTakerFill(account, takerSide, filledLots, preReserved);
+            _applyImmediateTakerFill(account, takerSide, filledLots, notional, preReserved);
         }
     }
 
@@ -572,7 +575,7 @@ contract ProRataOrderBook {
         Side makerSide,
         uint16 limitTick,
         uint96 executableLots
-    ) internal returns (uint96 filledLots) {
+    ) internal returns (uint96 filledLots, uint256 notional) {
         uint96 remaining = executableLots;
 
         while (remaining != 0) {
@@ -584,6 +587,7 @@ contract ProRataOrderBook {
                 remaining -= fill;
                 filledLots += fill;
             }
+            notional += uint256(fill) * uint256(tick);
 
             emit Trade(account, takerSide, tick, fill);
         }
@@ -680,7 +684,7 @@ contract ProRataOrderBook {
             int256 finalFundingEntry =
                 closedFundingEntryPerShareX96[side][tick][oldGeneration];
             _settleFundingForQuote(maker, side, tick, q.shares, filledLots, finalFundingEntry);
-            _applyFillToRisk(maker, side, filledLots);
+            _applyMakerFill(maker, side, tick, filledLots);
             _refreshReservedMargin(maker);
 
             uint128 outstanding = closedFundingOutstandingShares[side][tick][oldGeneration];
@@ -716,7 +720,7 @@ contract ProRataOrderBook {
         _settleFundingForQuote(maker, side, tick, q.shares, filledLots, currentFundingEntry);
         quoteFundingCheckpointX96[maker][side][tick] = currentFundingEntry;
 
-        _applyFillToRisk(maker, side, filledLots);
+        _applyMakerFill(maker, side, tick, filledLots);
         _refreshReservedMargin(maker);
         emit MakerSettled(maker, side, tick, filledLots, q.generation);
     }
@@ -863,6 +867,7 @@ contract ProRataOrderBook {
         address account,
         Side side,
         uint96 filledLots,
+        uint256 notional,
         bool preReserved
     ) internal {
         _settleExistingPositionFunding(account);
@@ -874,25 +879,32 @@ contract ProRataOrderBook {
             a.settledPosition += amount;
             a.minPosition += amount;
             if (!preReserved) a.maxPosition += amount;
+            tradeCashflow[account] -= int256(notional);
         } else {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
             if (!preReserved) a.minPosition -= amount;
+            tradeCashflow[account] += int256(notional);
         }
 
         _refreshReservedMargin(account);
     }
 
-    function _applyFillToRisk(address maker, Side side, uint96 filledLots) internal {
+    function _applyMakerFill(address maker, Side side, uint16 tick, uint96 filledLots) internal {
         if (filledLots == 0) return;
+
         AccountRisk storage a = accountRisk[maker];
         int128 amount = int128(uint128(filledLots));
+        int256 notional = int256(uint256(filledLots) * uint256(tick));
+
         if (side == Side.Bid) {
             a.settledPosition += amount;
             a.minPosition += amount;
+            tradeCashflow[maker] -= notional;
         } else {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
+            tradeCashflow[maker] += notional;
         }
     }
 
