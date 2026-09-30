@@ -846,8 +846,6 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _refreshReservedMargin(address account) internal {
-        if (!riskConfig.enabled) return;
-
         AccountRisk memory a = accountRisk[account];
 
         uint256 absMin = uint256(OrderBookMath.absPosition(a.minPosition));
