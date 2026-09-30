@@ -509,23 +509,37 @@ contract ProRataOrderBook {
     ) internal {
         _settleExistingPositionFunding(maker);
 
-        int256 checkpoint = quoteFundingCheckpointX96[maker][side][tick];
-        int256 deltaPerShare = finalFundingEntryPerShareX96 - checkpoint;
+        int256 weightedEntry =
+            _weightedFundingEntry(maker, side, tick, shares, finalFundingEntryPerShareX96);
+        int256 signedLots =
+            side == Side.Bid ? int256(uint256(filledLots)) : -int256(uint256(filledLots));
+        int256 currentFunding =
+            signedLots * int256(fundingIndexX18) / FUNDING_SCALE;
+        int256 entryFunding = signedLots == 0
+            ? int256(0)
+            : (signedLots > 0 ? weightedEntry : -weightedEntry);
 
-        int256 weightedNumerator = int256(uint256(shares)) * deltaPerShare;
-        int256 weightedEntryX18 =
-            _divNearestSigned(weightedNumerator, int256(ACCUMULATOR_SCALE));
-
-        int256 direction = side == Side.Bid ? int256(1) : int256(-1);
-        int256 currentFundingOnFill =
-            direction * int256(uint256(filledLots)) * int256(fundingIndexX18) / FUNDING_SCALE;
-        int256 entryFundingOnFill = direction * weightedEntryX18;
-
-        int256 cashflowDelta = entryFundingOnFill - currentFundingOnFill;
-        fundingCashflow[maker] += cashflowDelta;
+        int256 cashflowDelta = entryFunding - currentFunding;
+        if (cashflowDelta != 0) {
+            fundingCashflow[maker] += cashflowDelta;
+            emit FundingSettled(maker, cashflowDelta);
+        }
         accountFundingCheckpointX18[maker] = fundingIndexX18;
+    }
 
-        if (cashflowDelta != 0) emit FundingSettled(maker, cashflowDelta);
+    function _weightedFundingEntry(
+        address maker,
+        Side side,
+        uint16 tick,
+        uint128 shares,
+        int256 finalFundingEntryPerShareX96
+    ) internal view returns (int256) {
+        int256 deltaPerShare =
+            finalFundingEntryPerShareX96 - quoteFundingCheckpointX96[maker][side][tick];
+        return _divNearestSigned(
+            int256(uint256(shares)) * deltaPerShare,
+            int256(ACCUMULATOR_SCALE)
+        );
     }
 
     function _settleExistingPositionFunding(address maker) internal {
