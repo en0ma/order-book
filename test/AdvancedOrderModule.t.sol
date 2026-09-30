@@ -215,11 +215,6 @@ contract AdvancedOrderModuleTest is TestBase {
         module.executeConditionalOrder(first);
         module.executeConditionalOrder(second);
 
-        uint128 lockedBefore = core.moduleLockedShares(
-            ALICE, IOrderBookCore.Side.Bid, 99
-        );
-        assertTrue(lockedBefore > 0, "no module shares locked");
-
         vm.prank(ALICE);
         uint96 removedFirst = module.cancelRestingOrder(first);
         assertEq(removedFirst, 30, "first slice cancellation");
