@@ -53,4 +53,15 @@ library OrderBookMath {
             uint256(shares) * uint256(remainingLots) / uint256(totalShares)
         );
     }
+
+    function redeemableLotsCeil(
+        uint128 shares,
+        uint96 remainingLots,
+        uint128 totalShares
+    ) internal pure returns (uint96) {
+        if (shares == 0 || remainingLots == 0 || totalShares == 0) return 0;
+
+        uint256 numerator = uint256(shares) * uint256(remainingLots);
+        return uint96((numerator + uint256(totalShares) - 1) / uint256(totalShares));
+    }
 }
