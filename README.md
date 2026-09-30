@@ -84,7 +84,7 @@ The deployable path is split into:
 - `OrderBookMath`: shared pure side/tick/share/risk arithmetic used by the deployable contracts.
 - `SegmentTreeExtremaOracle`: bounded on-chain range high/low observations for trailing triggers.
 
-Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 21,482 bytes for the core, 18,617 bytes for the advanced module, 3,653 bytes for the market-maker module, 4,001 bytes for the liquidation module, and 2,152 bytes for the extrema oracle.
+Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 21,482 bytes for the core, 18,617 bytes for the advanced module, 4,434 bytes for the market-maker module, 4,001 bytes for the liquidation module, and 2,152 bytes for the extrema oracle.
 
 CI enforces stricter project budgets than EIP-170: 22,000 bytes for the core, 19,500 bytes for the advanced module, 5,000 bytes each for the market-maker and liquidation modules, and 4,000 bytes for the extrema oracle. New order-type or execution-policy logic should normally be added to specialized modules rather than expanding the matching core.
 
@@ -105,5 +105,11 @@ A batch refresh:
 - uses a full remove/rebuild only for exact decreases, avoiding ambiguous integer-share rounding.
 
 Generation-aware core locks prevent a stale advanced/MM share reference from touching a fresh quote created at the same tick after pool rollover.
+
+Batches require strict side/tick ordering with unique keys, which prevents ambiguous duplicate targets and creates a deterministic path for future delta-tick compression.
+
+For latency-sensitive callers, MarketMakerModule also accepts a fixed-width packed format: each quote is one 16-byte record containing 96-bit lots, 16-bit tick, 1 side bit, and 15 reserved bits. The typed and packed entrypoints normalize into the same internal uint128 execution path.
+
+For 16 quotes, calldata shrinks from 1,604 bytes with the typed ABI to 324 bytes packed, a 79.8% reduction. The packed and typed paths have essentially the same state-execution gas; the win is calldata size rather than fewer storage operations.
 
 Dedicated gas-regression tests cover 1, 4, 8 and 16 managed levels. Current whole-test gas scales approximately 402k, 1.01m, 1.74m and 3.20m respectively, and the four-level batched replacement path is asserted to be cheaper than four separate replacement calls.
