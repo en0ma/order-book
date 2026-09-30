@@ -192,6 +192,49 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(int256(_corePosition(ALICE)), -40, "maker fill not settled on replace");
     }
 
+    function testManagedQuoteCancelPreservesBracketSliceFillAtSameTick() public {
+        vm.prank(ALICE);
+        uint64 parent = module.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            99,
+            70
+        );
+        module.executeConditionalOrder(parent);
+
+        AdvancedOrderModule.QuoteUpdate[] memory updates =
+            new AdvancedOrderModule.QuoteUpdate[](1);
+        updates[0] = AdvancedOrderModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Bid,
+            tick: 99,
+            lots: 30
+        });
+        vm.prank(ALICE);
+        module.batchReplaceQuotes(updates);
+
+        vm.prank(BOB);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            99,
+            50,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        updates[0].lots = 0;
+        vm.prank(ALICE);
+        module.batchReplaceQuotes(updates);
+
+        (uint96 newlyFilled, uint96 cumulativeFilled) =
+            module.syncRestingOrder(parent);
+
+        assertEq(newlyFilled, 35, "bracket slice fill attribution changed");
+        assertEq(cumulativeFilled, 35, "bracket cumulative fill changed");
+
+        (, uint96 remaining,) = core.pools(IOrderBookCore.Side.Bid, 99);
+        assertEq(remaining, 35, "bracket remainder changed by MM cancellation");
+    }
+
     function testStaleManagedCancelCannotTouchFreshOrdinaryQuote() public {
         AdvancedOrderModule.QuoteUpdate[] memory updates =
             new AdvancedOrderModule.QuoteUpdate[](1);
