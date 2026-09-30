@@ -723,7 +723,7 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         uint96 currentClaim =
-            OrderBookMath.redeemableLots(q.shares, p.remainingLots, p.totalShares);
+            OrderBookMath.redeemableLotsCeil(q.shares, p.remainingLots, p.totalShares);
 
         if (currentClaim >= q.claimLots) {
             q.claimLots = currentClaim;
