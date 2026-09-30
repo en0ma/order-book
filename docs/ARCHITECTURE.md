@@ -348,9 +348,20 @@ The deployable contracts are compiled with the Foundry size profile (optimizer_r
 
 Current measured size-profile runtime sizes:
 - OrderBookCore: about 23,958 bytes;
-- AdvancedOrderModule: about 14,866 bytes;
+- AdvancedOrderModule: about 19,140 bytes after adding modular liquidation;
 - SegmentTreeExtremaOracle: about 1,877 bytes.
 
 OrderBookCore currently has only about 618 bytes of EIP-170 headroom. Its external surface should therefore be treated as frozen unless functionality can be removed or moved to a module.
 
 CI runs a strict artifact-level EIP-170 check for these deployable contracts. The oversized reference monolith remains compiled and tested but is deliberately excluded from the deployable size gate.
+
+
+## Modular liquidation
+
+Liquidation now lives in AdvancedOrderModule rather than consuming the core's remaining bytecode budget.
+
+The module tracks a live advanced-order count per account. Liquidation accepts caller-supplied maker tick keys, conditional IDs, and trailing IDs, atomically cleans them up, then requires both the core quote count and module advanced-order count to reach zero before checking health.
+
+Maintenance margin is configured in the advanced module. The module reads the core's marked equity and settled position, computes the maintenance requirement, and closes the position through the core's reduce-only module execution hook. If the account is healthy, the entire cleanup and liquidation transaction reverts.
+
+Advanced resting share slices are cancelled before generic core quote cleanup so bracket-linked locks cannot be deleted before their module state is reconciled.
