@@ -34,6 +34,16 @@ contract DeployableCoreTest is TestBase {
         core.depositCollateral(amount);
     }
 
+    function testConsolidatedAccountAccountingView() public {
+        (uint256 collateral, uint256 reserved, int256 funding, int256 trade) =
+            core.accountAccounting(ALICE);
+
+        assertEq(collateral, 100_000, "collateral view");
+        assertEq(reserved, 0, "reserved view");
+        assertEq(funding, 0, "funding view");
+        assertEq(trade, 0, "trade view");
+    }
+
     function testDirectHotPathStillMatchesOnChain() public {
         vm.prank(ALICE);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
