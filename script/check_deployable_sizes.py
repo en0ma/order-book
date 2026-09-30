@@ -4,14 +4,14 @@ from pathlib import Path
 
 LIMIT = 24_576
 TARGETS = [
-    ("OrderBookCore", Path("out/OrderBookCore.sol/OrderBookCore.json")),
-    ("AdvancedOrderModule", Path("out/AdvancedOrderModule.sol/AdvancedOrderModule.json")),
-    ("SegmentTreeExtremaOracle", Path("out/SegmentTreeExtremaOracle.sol/SegmentTreeExtremaOracle.json")),
+    ("OrderBookCore", Path("out/OrderBookCore.sol/OrderBookCore.json"), 22_000),
+    ("AdvancedOrderModule", Path("out/AdvancedOrderModule.sol/AdvancedOrderModule.json"), 21_000),
+    ("SegmentTreeExtremaOracle", Path("out/SegmentTreeExtremaOracle.sol/SegmentTreeExtremaOracle.json"), 4_000),
 ]
 
 failed = False
 
-for name, path in TARGETS:
+for name, path, budget in TARGETS:
     if not path.exists():
         raise SystemExit(f"missing artifact: {path}")
 
@@ -21,12 +21,17 @@ for name, path in TARGETS:
         deployed = deployed[2:]
 
     size = len(deployed) // 2
-    margin = LIMIT - size
-    status = "OK" if margin >= 0 else "TOO_LARGE"
-    print(f"{name}: runtime={size}B margin={margin}B status={status}")
+    eip_margin = LIMIT - size
+    budget_margin = budget - size
+    status = "OK" if budget_margin >= 0 else "BUDGET_EXCEEDED"
+    print(
+        f"{name}: runtime={size}B "
+        f"budget={budget}B budget_margin={budget_margin}B "
+        f"eip170_margin={eip_margin}B status={status}"
+    )
 
-    if size > LIMIT:
+    if size > LIMIT or size > budget:
         failed = True
 
 if failed:
-    raise SystemExit("deployable runtime exceeds EIP-170")
+    raise SystemExit("deployable runtime exceeds project bytecode budget or EIP-170")
