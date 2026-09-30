@@ -270,7 +270,7 @@ When the parent executes:
 
 If the parent fills zero, its dormant children are cancelled. Cancelling the parent also cascades cancellation to dormant children.
 
-The first bracket implementation deliberately tracks only the quantity filled during the parent's aggressive conditional execution. If a triggered-limit parent rests a remainder and that maker liquidity fills later, its bracket children do not automatically expand yet. Supporting that correctly requires a settlement-driven child-resize accumulator or another lazy linkage mechanism.
+Triggered-limit parents can now keep a resting maker share slice linked to their OTO children. Taker matching still mutates only aggregate tick state. When the maker later settles, or when the advanced-order module explicitly syncs the parent, the module derives the additional filled quantity from the share slice and expands the reduce-only children lazily. Executing an exit first syncs the entry and cancels any still-resting entry remainder before closing the position.
 
 ## Trailing stops
 
@@ -293,6 +293,64 @@ For a trailing buy, execution is allowed when currentTick >= lowSinceActivation 
 
 This keeps trigger truth on-chain without one storage write per trailing order whenever the market moves.
 
-The included MockExtremaOracle is test-only and performs a linear scan over observations. A production adapter should use an efficient on-chain range-extrema structure and must share the same mark source as the execution oracle.
+The repository includes SegmentTreeExtremaOracle, a bounded 4,096-observation ring-backed segment tree. Appends and high/low range queries are O(log N). Observations older than the retained window expire. Tick zero is preserved by encoding tick+1 in the tree so zero can remain the empty-node sentinel. The updater is the authoritative mark publisher; trigger execution remains permissionless.
 
 Trailing orders participate in withdrawal safety and liquidation cleanup. liquidateWithTrailing can atomically cancel supplied trailing IDs before the maintenance-health check; if the account is healthy the entire transaction, including those cancellations, reverts.
+
+
+## Deployable core/module split
+
+The feature-complete ProRataOrderBook contract is retained as a research/reference implementation, but it is not deployable on Ethereum mainnet because its runtime bytecode exceeds EIP-170.
+
+Measured runtime sizes demonstrated the problem:
+- reference monolith, default optimizer profile: about 53.2 KB;
+- reference monolith, size profile: about 40.6 KB;
+- EIP-170 limit: 24,576 bytes.
+
+The production-oriented architecture therefore separates the protocol into three contracts.
+
+### OrderBookCore
+
+OrderBookCore contains only the hot and safety-critical shared state:
+- tick bitmap and matching;
+- pro-rata pools and maker shares;
+- ERC-20 custody;
+- risk envelopes and initial-margin reservation;
+- signed execution cashflow;
+- lazy funding;
+- direct maker add/cancel/settle;
+- direct IOC/FOK/min-fill taker execution;
+- one immutable-after-configuration advanced-module address.
+
+The module receives narrow authorized capabilities rather than arbitrary delegatecall access. It can reserve/release exposure, execute on behalf of an account, create pre-reserved resting liquidity, settle an account/tick, and remove only module-locked maker shares.
+
+Module-created maker shares are explicitly locked in the core. Generic maker cancellation can burn only unlocked shares. This allows multiple advanced resting orders to share the same maker/side/tick pool while preserving each module order's independently tracked share slice.
+
+### AdvancedOrderModule
+
+AdvancedOrderModule owns order-type state:
+- stop/take-profit conditionals;
+- triggered limits;
+- OCO;
+- OTO/brackets;
+- lazy bracket resize;
+- trailing orders.
+
+The module never becomes the matching engine. Its executions call the core, so authoritative matching, balances, risk and settlement remain on-chain in the core.
+
+### SegmentTreeExtremaOracle
+
+The extrema oracle is separate from both order contracts and provides bounded historical high/low queries for trailing stops.
+
+### Bytecode budget
+
+The deployable contracts are compiled with the Foundry size profile (optimizer_runs = 1).
+
+Current measured size-profile runtime sizes:
+- OrderBookCore: about 23,958 bytes;
+- AdvancedOrderModule: about 14,866 bytes;
+- SegmentTreeExtremaOracle: about 1,877 bytes.
+
+OrderBookCore currently has only about 618 bytes of EIP-170 headroom. Its external surface should therefore be treated as frozen unless functionality can be removed or moved to a module.
+
+CI runs a strict artifact-level EIP-170 check for these deployable contracts. The oversized reference monolith remains compiled and tested but is deliberately excluded from the deployable size gate.
