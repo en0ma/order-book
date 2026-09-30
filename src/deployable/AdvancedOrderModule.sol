@@ -214,7 +214,6 @@ contract AdvancedOrderModule {
     /// @dev lots == 0 cancels the managed slice at that maker/side/tick.
     function batchReplaceQuotes(QuoteUpdate[] calldata updates) external {
         uint256 length = updates.length;
-        if (length == 0) revert ZeroAmount();
 
         uint96 bidLots;
         uint96 askLots;
