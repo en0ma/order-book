@@ -216,56 +216,96 @@ contract AdvancedOrderModule {
         uint256 length = updates.length;
         if (length == 0) revert ZeroAmount();
 
+        uint96 bidLots;
+        uint96 askLots;
+
+        // Phase 1: remove old managed slices and determine the new side exposure.
         for (uint256 i; i < length; ) {
             QuoteUpdate calldata update = updates[i];
-            _replaceManagedQuote(msg.sender, update.side, update.tick, update.lots);
+            _clearManagedQuote(msg.sender, update.side, update.tick);
+
+            if (update.side == IOrderBookCore.Side.Bid) {
+                bidLots += update.lots;
+            } else {
+                askLots += update.lots;
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        // Phase 2: reserve margin/risk only once per side.
+        uint16 bidCeiling;
+        uint16 askCeiling;
+        if (bidLots != 0) {
+            bidCeiling =
+                core.moduleReserveExposure(msg.sender, IOrderBookCore.Side.Bid, bidLots);
+        }
+        if (askLots != 0) {
+            askCeiling =
+                core.moduleReserveExposure(msg.sender, IOrderBookCore.Side.Ask, askLots);
+        }
+
+        // Phase 3: rebuild target slices using the shared side reservation.
+        for (uint256 i; i < length; ) {
+            QuoteUpdate calldata update = updates[i];
+
+            if (update.lots != 0) {
+                uint16 ceiling =
+                    update.side == IOrderBookCore.Side.Bid ? bidCeiling : askCeiling;
+                uint128 shares = core.moduleAddLiquidity(
+                    msg.sender,
+                    update.side,
+                    update.tick,
+                    update.lots,
+                    ceiling
+                );
+                (,, uint32 generation) = core.pools(update.side, update.tick);
+
+                ManagedQuote storage managed =
+                    managedQuotes[msg.sender][update.side][update.tick];
+                if (managed.shares == 0) {
+                    managed.generation = generation;
+                }
+                managed.shares += shares;
+            }
+
             unchecked {
                 ++i;
             }
         }
     }
 
-    function _replaceManagedQuote(
+    function _clearManagedQuote(
         address maker,
         IOrderBookCore.Side side,
-        uint16 tick,
-        uint96 targetLots
+        uint16 tick
     ) internal {
         ManagedQuote memory managed = managedQuotes[maker][side][tick];
+        if (managed.shares == 0) return;
 
-        if (managed.shares != 0) {
-            (,, uint32 currentGeneration) = core.pools(side, tick);
+        (,, uint32 currentGeneration) = core.pools(side, tick);
 
-            if (currentGeneration == managed.generation) {
-                core.moduleRemoveLockedShares(
-                    maker,
-                    side,
-                    tick,
-                    managed.generation,
-                    managed.shares
-                );
-            } else {
-                core.moduleUnlockShares(
-                    maker,
-                    side,
-                    tick,
-                    managed.generation,
-                    managed.shares
-                );
-            }
-
-            delete managedQuotes[maker][side][tick];
+        if (currentGeneration == managed.generation) {
+            core.moduleRemoveLockedShares(
+                maker,
+                side,
+                tick,
+                managed.generation,
+                managed.shares
+            );
+        } else {
+            core.moduleUnlockShares(
+                maker,
+                side,
+                tick,
+                managed.generation,
+                managed.shares
+            );
         }
 
-        if (targetLots == 0) return;
-
-        uint16 ceiling = core.moduleReserveExposure(maker, side, targetLots);
-        uint128 shares =
-            core.moduleAddLiquidity(maker, side, tick, targetLots, ceiling);
-        (,, uint32 generation) = core.pools(side, tick);
-
-        managedQuotes[maker][side][tick] =
-            ManagedQuote({shares: shares, generation: generation});
+        delete managedQuotes[maker][side][tick];
     }
 
     function placeConditionalOrder(
