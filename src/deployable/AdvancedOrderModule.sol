@@ -712,7 +712,7 @@ contract AdvancedOrderModule {
         for (uint256 i; i < trailingIds.length; ++i) {
             uint64 id = trailingIds[i];
             TrailingOrder storage order = trailingOrders[id];
-            if (order.owner == account && (order.flags & 1) != 0) {
+            if (order.owner == account && (order.flags & FLAG_ACTIVE) != 0) {
                 _cancelTrailing(id, true);
             }
         }
