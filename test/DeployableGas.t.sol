@@ -9,6 +9,8 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 import {TestBase} from "./TestBase.sol";
 
 contract DeployableGasTest is TestBase {
+    event BatchGasMeasured(uint256 batchGas, uint256 separateGas);
+    event BatchCancelGasMeasured(uint256 batchCancelGas);
     OrderBookCore internal core;
     AdvancedOrderModule internal module;
     SegmentTreeExtremaOracle internal oracle;
@@ -72,6 +74,7 @@ contract DeployableGasTest is TestBase {
         module.batchReplaceQuotes(batch);
         uint256 batchGas = g1 - gasleft();
 
+        emit BatchGasMeasured(batchGas, separateGas);
         assertTrue(batchGas < separateGas, "batch replacement lost gas advantage");
         assertTrue(batchGas < 1_000_000, "four-level batch replacement gas ceiling exceeded");
     }
@@ -93,6 +96,7 @@ contract DeployableGasTest is TestBase {
         module.batchReplaceQuotes(updates);
         uint256 used = g0 - gasleft();
 
+        emit BatchCancelGasMeasured(used);
         assertTrue(used < 700_000, "four-level batch cancel gas ceiling exceeded");
     }
 
