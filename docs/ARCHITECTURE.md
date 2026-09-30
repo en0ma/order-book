@@ -142,3 +142,77 @@ Not yet implemented:
 - audited funding precision bounds
 
 The next milestone should add conditional/reduce-only order semantics and liquidation while preserving the same hot-path property: taker execution must not write maker state.
+
+
+## Aggressive taker accounting
+
+Aggressive fills now materialize the taker's settled position immediately.
+
+The matcher returns both:
+- filled lots;
+- aggregate execution notional across all crossed ticks.
+
+The account then receives:
+- signed position delta;
+- signed trade cashflow;
+- funding checkpoint update;
+- updated margin requirement.
+
+This gives a mark-to-market equity identity in protocol-native tick/lot units:
+
+equity = collateral + tradeCashflow + fundingCashflow + position * markTick
+
+Production deployments must normalize token decimals and price scales explicitly.
+
+## Reduce-only
+
+takeReduceOnly caps execution at the account's currently settled opposite-side position.
+
+For safety, reduce-only execution currently requires zero active maker quote positions because those positions may contain lazy, not-yet-materialized fills.
+
+A reduce-only order therefore cannot cross through zero or reverse the account.
+
+## Conditional orders
+
+Conditional orders are stored fully on-chain. They contain:
+- owner;
+- side;
+- trigger direction;
+- trigger tick;
+- worst execution tick;
+- quantity;
+- IOC/FOK policy;
+- reduce-only flag;
+- optional OCO sibling.
+
+Anyone may call executeConditionalOrder once the on-chain mark satisfies the trigger.
+
+Non-reduce conditional orders reserve their reachable exposure at placement. Execution consumes that pre-reserved envelope, and any unfilled IOC remainder releases its reservation.
+
+Reduce-only conditionals do not reserve new directional risk and are capped at the owner's exact settled position.
+
+Pairwise OCO is implemented by linking two conditional IDs. When one executes, the sibling is cancelled atomically and its reserved exposure is released.
+
+Current conditional execution is a bounded aggressive taker action. A true stop-limit order that activates into resting maker liquidity is not yet implemented and should be treated as a separate activation primitive.
+
+## Liquidation
+
+Maintenance margin can be configured below initial margin.
+
+Liquidation uses exact mark-to-market equity:
+- ERC-20 collateral balance;
+- signed execution cashflow;
+- settled and pending funding;
+- marked settled position.
+
+To avoid storing an expensive per-maker enumerable order list, liquidators supply the maker tick keys and conditional IDs they want cancelled/settled. The transaction then:
+1. settles and cancels those maker quotes;
+2. cancels supplied conditional orders;
+3. requires the account's on-chain active counts to reach zero;
+4. settles funding;
+5. checks maintenance health;
+6. closes as much of the remaining position as available liquidity allows inside the oracle execution band.
+
+If the final health check says the account is healthy, the entire transaction reverts, including all preceding cancellations. A liquidator therefore cannot use this path to cancel a healthy account's orders.
+
+This keeps normal maker add/cancel operations free from an additional enumerable-order index while still permitting exact fully-on-chain liquidation.
