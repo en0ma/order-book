@@ -21,6 +21,7 @@ The design keeps authoritative liquidity and matching entirely on-chain, but rep
 - True triggered-limit activation: take up to the limit, then rest the remainder.
 - Minimum-fill and reduce-only minimum-fill aggressive execution.
 - OTO child activation and TP/SL bracket composition with OCO exits.
+- Extrema-oracle trailing stops without per-order watermark writes.
 - One-slot packed risk envelope and one-slot packed account metadata.
 - Exposure-envelope margin reservation.
 - Oracle-bounded execution with per-pool risk ceilings.
@@ -65,4 +66,6 @@ Maker fills from a triggered-limit remainder do not yet expand bracket children;
 
 ## Trailing stops
 
-Trailing stops are intentionally not implemented against the current mark-only oracle interface. The planned design requires an on-chain extrema oracle capable of proving the high/low since an observation ID, avoiding per-order watermark writes and trusted off-chain trigger attestations.
+Trailing stops use an extrema-capable on-chain oracle. Each order stores an activation observation ID and trail distance rather than a mutable watermark.
+
+At execution, the contract derives the high/low since activation from the oracle and verifies the retracement entirely on-chain. The included extrema oracle is a test mock; a production adapter needs an efficient on-chain range-extrema data structure.
