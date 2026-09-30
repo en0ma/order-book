@@ -14,7 +14,10 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
     uint256 internal constant TREE_BASE = CAPACITY;
 
     address public immutable updater;
-    uint16 public override markTick;
+    uint32 public immutable maxAge;
+
+    uint16 internal _markTick;
+    uint48 public lastObservationTime;
     uint64 public override currentObservationId;
 
     // Packed node uses two 17-bit (tick + 1) fields so zero is an empty sentinel.
@@ -24,13 +27,22 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
     error ZeroObservation();
     error ObservationExpired();
     error InvalidObservation();
+    error StaleObservation();
 
     event ObservationRecorded(uint64 indexed observationId, uint16 tick);
 
-    constructor(address updater_, uint16 initialTick) {
+    constructor(address updater_, uint16 initialTick, uint32 maxAge_) {
         if (updater_ == address(0)) revert Unauthorized();
+        if (maxAge_ == 0) revert InvalidObservation();
+
         updater = updater_;
+        maxAge = maxAge_;
         _record(initialTick);
+    }
+
+    function markTick() external view override returns (uint16) {
+        _requireFresh();
+        return _markTick;
     }
 
     function record(uint16 tick) external returns (uint64 observationId) {
@@ -44,6 +56,7 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
         override
         returns (uint16 highTick, uint16 lowTick)
     {
+        _requireFresh();
         uint64 current = currentObservationId;
         if (observationId == 0) revert ZeroObservation();
         if (observationId > current) revert InvalidObservation();
@@ -70,7 +83,8 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
             observationId = currentObservationId + 1;
         }
         currentObservationId = observationId;
-        markTick = tick;
+        _markTick = tick;
+        lastObservationTime = uint48(block.timestamp);
 
         uint256 index = uint256(observationId - 1) & MASK;
         uint256 node = TREE_BASE + index;
@@ -131,5 +145,11 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
         uint64 encodedHigh = uint64(high) + 1;
         uint64 encodedLow = uint64(low) + 1;
         return (encodedHigh << 17) | encodedLow;
+    }
+
+    function _requireFresh() internal view {
+        if (block.timestamp > uint256(lastObservationTime) + uint256(maxAge)) {
+            revert StaleObservation();
+        }
     }
 }
