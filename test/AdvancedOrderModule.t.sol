@@ -275,6 +275,62 @@ contract AdvancedOrderModuleTest is TestBase {
         assertTrue(!ok, "packed quote reserved bits accepted");
     }
 
+    function testManagedQuoteTargetUsesCoreCeilClaimAtRoundingBoundary() public {
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](1);
+        updates[0] = MarketMakerModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Bid,
+            tick: 95,
+            lots: 1
+        });
+
+        vm.prank(ALICE);
+        marketMaker.batchReplaceQuotes(updates);
+
+        (uint128 aliceSharesBefore,, uint32 generationBefore) =
+            core.quotes(ALICE, IOrderBookCore.Side.Bid, 95);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 95, 2);
+
+        vm.prank(CAROL);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            95,
+            1,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        (, uint96 remainingBefore,) =
+            core.pools(IOrderBookCore.Side.Bid, 95);
+        assertEq(remainingBefore, 2, "unexpected pre-refresh pool remainder");
+
+        // Alice owns one third of the shares. After one of three lots is consumed,
+        // her core claim is ceil(2/3) = 1. Refreshing to target 1 must therefore
+        // be a no-op rather than adding another managed lot.
+        vm.prank(ALICE);
+        marketMaker.batchReplaceQuotes(updates);
+
+        (uint128 aliceSharesAfter, uint96 aliceClaimAfter, uint32 generationAfter) =
+            core.quotes(ALICE, IOrderBookCore.Side.Bid, 95);
+        (, uint96 remainingAfter,) =
+            core.pools(IOrderBookCore.Side.Bid, 95);
+
+        assertEq(remainingAfter, 2, "managed refresh oversized pool at rounding boundary");
+        assertEq(
+            uint256(aliceSharesAfter),
+            uint256(aliceSharesBefore),
+            "managed refresh minted extra shares"
+        );
+        assertEq(aliceClaimAfter, 1, "managed maker claim drifted from target");
+        assertEq(
+            uint256(generationAfter),
+            uint256(generationBefore),
+            "managed refresh changed generation"
+        );
+        assertEq(int256(_corePosition(ALICE)), 0, "rounding-only consumption invented fill");
+    }
+
     function testManagedQuoteUnchangedTargetPreservesShareSlice() public {
         MarketMakerModule.QuoteUpdate[] memory updates =
             new MarketMakerModule.QuoteUpdate[](1);
