@@ -214,6 +214,47 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(uint256(locked), 0, "remaining entry not cancelled");
     }
 
+    function testStaleAdvancedLockCannotTouchFreshGenerationQuote() public {
+        vm.prank(ALICE);
+        uint64 parent = module.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            99,
+            30
+        );
+
+        module.executeConditionalOrder(parent);
+
+        vm.prank(BOB);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            99,
+            30,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        (, uint96 depleted, uint32 oldGeneration) =
+            core.pools(IOrderBookCore.Side.Bid, 99);
+        assertEq(depleted, 0, "advanced quote was not fully consumed");
+
+        vm.prank(ALICE);
+        uint128 freshShares =
+            core.addLiquidity(IOrderBookCore.Side.Bid, 99, 20);
+
+        (, uint96 freshRemaining, uint32 newGeneration) =
+            core.pools(IOrderBookCore.Side.Bid, 99);
+        assertEq(freshRemaining, 20, "fresh quote missing");
+        assertTrue(newGeneration != oldGeneration, "pool generation did not advance");
+
+        module.syncRestingOrder(parent);
+
+        (uint128 sharesAfter,, uint32 quoteGeneration) =
+            core.quotes(ALICE, IOrderBookCore.Side.Bid, 99);
+        assertEq(uint256(sharesAfter), uint256(freshShares), "stale unlock touched fresh shares");
+        assertEq(uint256(quoteGeneration), uint256(newGeneration), "fresh generation changed");
+    }
+
     function testMultipleSameTickModuleRestingSlicesCancelIndependently() public {
         vm.prank(ALICE);
         uint64 first = module.placeTriggeredLimitOrder(
