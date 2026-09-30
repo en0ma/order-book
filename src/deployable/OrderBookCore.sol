@@ -94,10 +94,6 @@ contract OrderBookCore is IOrderBookCore {
     mapping(Side => mapping(uint8 => uint256)) internal _tickWords;
     mapping(Side => uint256) internal _occupiedWords;
 
-    uint256 public totalAddedLots;
-    uint256 public totalRemovedLots;
-    uint256 public totalExecutedLots;
-
     event AdvancedModuleConfigured(address indexed module);
     event SettlementConfigured(address indexed collateralToken, address indexed markOracle);
     event RiskConfigured(uint16 markTick, uint16 executionBandTicks, uint16 initialMarginBps);
@@ -281,11 +277,6 @@ contract OrderBookCore is IOrderBookCore {
         _settleExistingPositionFunding(msg.sender);
     }
 
-    function settleFunding() external returns (int256 cashflow) {
-        _settleExistingPositionFunding(msg.sender);
-        cashflow = fundingCashflow[msg.sender];
-    }
-
     function take(Side side, uint16 limitTick, uint96 lots, FillPolicy policy)
         external
         returns (uint96 filledLots)
@@ -435,7 +426,6 @@ contract OrderBookCore is IOrderBookCore {
         _shrinkRisk(account, side, removedLots);
         _refreshReservedMargin(account);
 
-        totalRemovedLots += removedLots;
 
         delete quotes[account][side][tick];
         delete quoteFundingCheckpointX96[account][side][tick];
@@ -466,28 +456,6 @@ contract OrderBookCore is IOrderBookCore {
         equity = int256(collateralBalance[account]) + tradeCashflow[account]
             + fundingCashflow[account] + pendingFunding
             + int256(a.settledPosition) * int256(uint256(currentMarkTick()));
-    }
-
-    function maintenanceRequirement(address account)
-        external
-        view
-        override
-        returns (uint256)
-    {
-        uint16 marginBps = riskConfig.initialMarginBps / 2;
-        int80 position = accountRisk[account].settledPosition;
-        uint256 absPosition =
-            position < 0 ? uint256(uint80(-position)) : uint256(uint80(position));
-
-        return absPosition * uint256(currentMarkTick()) * uint256(marginBps) / 10_000;
-    }
-
-    function bestBid() external view returns (bool ok, uint16 tick) {
-        return _bestTick(Side.Bid);
-    }
-
-    function bestAsk() external view returns (bool ok, uint16 tick) {
-        return _bestTick(Side.Ask);
     }
 
     function _takeFor(
@@ -563,7 +531,6 @@ contract OrderBookCore is IOrderBookCore {
 
         _recordFundingEntry(makerSide, tick, p.totalShares, fill);
         p.remainingLots -= fill;
-        totalExecutedLots += fill;
 
         if (p.remainingLots != 0) return fill;
 
@@ -612,7 +579,6 @@ contract OrderBookCore is IOrderBookCore {
             _refreshReservedMargin(maker);
         }
 
-        totalAddedLots += lots;
         if (wasEmpty) _setOccupied(side, tick, true);
 
         emit LiquidityAdded(maker, side, tick, lots, mintedShares, p.generation);
@@ -649,7 +615,6 @@ contract OrderBookCore is IOrderBookCore {
 
         _shrinkRisk(maker, side, removedLots);
         _refreshReservedMargin(maker);
-        totalRemovedLots += removedLots;
 
         if (q.shares == 0) {
             delete quotes[maker][side][tick];
