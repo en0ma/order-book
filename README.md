@@ -78,13 +78,32 @@ The original `ProRataOrderBook` remains a research/reference monolith. It exceed
 The deployable path is split into:
 
 - `OrderBookCore`: hot CLOB matching, maker shares, custody, risk envelopes, margin, funding, and narrow module hooks. Token/oracle/risk parameters are immutable deployment configuration.
-- `AdvancedOrderModule`: execution policies and advanced order state: reduce-only/min-fill wrappers, conditional orders, triggered limits, OCO/OTO, lazy bracket resizing, trailing stops, and liquidation.
+- `AdvancedOrderModule`: reduce-only/min-fill wrappers, conditional orders, triggered limits, OCO/OTO, lazy bracket resizing, trailing stops, and authenticated forwarding to specialized modules.
+- `MarketMakerModule`: managed maker-quote metadata plus atomic batch refresh/cancel policy.
+- `LiquidationModule`: maintenance-margin policy and liquidation orchestration.
 - `OrderBookMath`: shared pure side/tick/share/risk arithmetic used by the deployable contracts.
 - `SegmentTreeExtremaOracle`: bounded on-chain range high/low observations for trailing triggers.
 
-Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 21,059 bytes for the core, 19,482 bytes for the advanced module, and 1,877 bytes for the extrema oracle.
+Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 21,482 bytes for the core, 18,617 bytes for the advanced module, 3,653 bytes for the market-maker module, 4,001 bytes for the liquidation module, and 2,152 bytes for the extrema oracle.
 
-CI enforces both EIP-170 and stricter project budgets: 22,000 bytes for the core, 21,000 bytes for the advanced module, and 4,000 bytes for the extrema oracle. New order-type or execution-policy logic should normally be added to modules rather than expanding the matching core.
+CI enforces stricter project budgets than EIP-170: 22,000 bytes for the core, 19,500 bytes for the advanced module, 5,000 bytes each for the market-maker and liquidation modules, and 4,000 bytes for the extrema oracle. New order-type or execution-policy logic should normally be added to specialized modules rather than expanding the matching core.
 
 
 The advanced-order module is constructor-bound to the same oracle contract used by the core. Trailing-history verification therefore cannot silently use a different price source from execution.
+
+
+## Market-maker quote refresh
+
+Managed quotes live in MarketMakerModule while canonical liquidity remains in OrderBookCore.
+
+A batch refresh:
+- removes or reconciles only managed share slices;
+- aggregates incremental exposure once per side;
+- reserves margin once per side;
+- preserves same-generation quote shares when the target is unchanged or larger;
+- adds only the missing lots for increases;
+- uses a full remove/rebuild only for exact decreases, avoiding ambiguous integer-share rounding.
+
+Generation-aware core locks prevent a stale advanced/MM share reference from touching a fresh quote created at the same tick after pool rollover.
+
+Dedicated gas-regression tests cover 1, 4, 8 and 16 managed levels. Current whole-test gas scales approximately 402k, 1.01m, 1.74m and 3.20m respectively, and the four-level batched replacement path is asserted to be cheaper than four separate replacement calls.
