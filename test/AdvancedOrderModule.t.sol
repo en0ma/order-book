@@ -1179,6 +1179,136 @@ contract AdvancedOrderModuleTest is TestBase {
         );
     }
 
+    function testCancelledOTOChildCanBeReplacedOnSameParent() public {
+        vm.prank(ALICE);
+        uint64 parent = module.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            103,
+            100
+        );
+
+        vm.prank(ALICE);
+        uint64 firstExit = module.placeConditionalOrder(
+            IOrderBookCore.Side.Ask,
+            true,
+            110,
+            105,
+            100,
+            IOrderBookCore.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        uint64 secondExit = module.placeConditionalOrder(
+            IOrderBookCore.Side.Ask,
+            false,
+            90,
+            80,
+            100,
+            IOrderBookCore.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        module.linkOTO(parent, firstExit);
+        vm.prank(ALICE);
+        module.linkOTO(parent, secondExit);
+
+        vm.prank(ALICE);
+        module.cancelConditionalOrder(firstExit);
+
+        vm.prank(ALICE);
+        uint64 replacement = module.placeConditionalOrder(
+            IOrderBookCore.Side.Ask,
+            true,
+            115,
+            110,
+            100,
+            IOrderBookCore.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        module.linkOTO(parent, replacement);
+
+        module.executeConditionalOrder(parent);
+
+        vm.prank(BOB);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            103,
+            40,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        module.syncRestingOrder(parent);
+
+        (, uint96 replacementLots,,,,,,,) = module.conditionalOrders(replacement);
+        (, uint96 secondLots,,,,,,,) = module.conditionalOrders(secondExit);
+
+        assertEq(replacementLots, 40, "replacement OTO exit not resized");
+        assertEq(secondLots, 40, "existing OTO exit not resized");
+    }
+
+    function testLiquidationCleanupMixedOTOGraphReturnsAdvancedCountToZero() public {
+        address trader = address(0xC1EA4);
+        _fund(trader, 3_000);
+
+        vm.prank(trader);
+        uint64 parent = module.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            103,
+            100
+        );
+
+        vm.prank(trader);
+        uint64 tp = module.placeConditionalOrder(
+            IOrderBookCore.Side.Ask,
+            true,
+            110,
+            105,
+            100,
+            IOrderBookCore.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(trader);
+        uint64 sl = module.placeConditionalOrder(
+            IOrderBookCore.Side.Ask,
+            false,
+            90,
+            80,
+            100,
+            IOrderBookCore.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(trader);
+        module.linkOCO(tp, sl);
+        vm.prank(trader);
+        module.linkOTO(parent, tp);
+        vm.prank(trader);
+        module.linkOTO(parent, sl);
+
+        module.executeConditionalOrder(parent);
+
+        uint64[] memory conditionals = new uint64[](3);
+        conditionals[0] = parent;
+        conditionals[1] = tp;
+        conditionals[2] = sl;
+        uint64[] memory trailings = new uint64[](0);
+
+        vm.prank(address(liquidation));
+        module.liquidationCleanupAdvanced(trader, conditionals, trailings);
+
+        assertEq(module.activeAdvancedOrders(trader), 0, "liquidation cleanup stranded advanced order");
+        assertEq(core.activeQuoteCount(trader), 0, "liquidation cleanup stranded core quote");
+    }
+
     function testModuleTrailingUsesSegmentTreeOracle() public {
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 60);
