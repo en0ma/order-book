@@ -81,6 +81,6 @@ The deployable path is split into:
 - `AdvancedOrderModule`: conditional orders, triggered limits, OCO/OTO, lazy bracket resizing, and trailing stops.
 - `SegmentTreeExtremaOracle`: bounded on-chain range high/low observations for trailing triggers.
 
-Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 23,958 bytes for the core, 14,866 bytes for the advanced module, and 1,877 bytes for the extrema oracle. CI contains a strict EIP-170 gate for these deployable contracts.
+Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 23,958 bytes for the core, 19,140 bytes for the advanced module (including liquidation), and 1,877 bytes for the extrema oracle. CI contains a strict EIP-170 gate for these deployable contracts.
 
 The core's size margin is intentionally treated as scarce. New order-type logic should normally be added to modules, not to the matching core.
