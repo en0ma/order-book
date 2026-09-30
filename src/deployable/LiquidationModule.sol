@@ -173,10 +173,16 @@ contract LiquidationModule {
         }
 
         emit Liquidated(msg.sender, account, closedLots, equityBefore);
+        _finalizeLiquidation(account, closedLots, msg.sender);
+    }
 
+    function _finalizeLiquidation(
+        address account,
+        uint96 closedLots,
+        address liquidator
+    ) internal {
         (int80 remainingPosition,,) = core.accountRisk(account);
         int256 equityAfter = core.accountEquity(account);
-        uint256 maintenanceAfter = maintenanceRequirement(account);
         uint256 badDebt =
             remainingPosition == 0 && equityAfter < 0 ? uint256(-equityAfter) : 0;
 
@@ -193,19 +199,19 @@ contract LiquidationModule {
             account,
             remainingPosition,
             equityAfter,
-            maintenanceAfter,
+            maintenanceRequirement(account),
             insuranceCovered,
             badDebt
         );
 
         uint16 rewardBps = liquidatorRewardBps;
-        if (closedLots != 0 && rewardBps != 0) {
-            uint256 requestedReward =
-                core.notionalValue(closedLots, core.currentMarkTick())
-                    * uint256(rewardBps) / 10_000;
-            uint256 paid =
-                gateway.liquidationPayReward(msg.sender, requestedReward);
-            if (paid != 0) emit LiquidatorRewardPaid(msg.sender, paid);
-        }
+        if (closedLots == 0 || rewardBps == 0) return;
+
+        uint256 requestedReward =
+            core.notionalValue(closedLots, core.currentMarkTick())
+                * uint256(rewardBps) / 10_000;
+        uint256 paid =
+            gateway.liquidationPayReward(liquidator, requestedReward);
+        if (paid != 0) emit LiquidatorRewardPaid(liquidator, paid);
     }
 }
