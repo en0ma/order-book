@@ -365,6 +365,31 @@ contract DeployableCoreTest is TestBase {
         assertTrue(!ok, "normalized margin admitted excess quote");
     }
 
+    function testRiskCeilingClearsWhenReachableExposureCollapses() public {
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 99, 50);
+
+        vm.prank(ALICE);
+        (uint128 shares,,) = core.quotes(
+            ALICE,
+            IOrderBookCore.Side.Bid,
+            99
+        );
+
+        vm.prank(ALICE);
+        core.removeShares(IOrderBookCore.Side.Bid, 99, shares);
+
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(ALICE);
+        assertEq(int256(settled), int256(minPosition), "min envelope not collapsed");
+        assertEq(int256(settled), int256(maxPosition), "max envelope not collapsed");
+
+        oracle.setMarkTick(50);
+
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 49, 10);
+    }
+
     function testFundingUpdaterCanBeRotatedWithoutChangingOwner() public {
         address updater = address(0xF00D);
 
