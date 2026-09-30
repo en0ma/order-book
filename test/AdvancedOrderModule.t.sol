@@ -976,6 +976,96 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(uint256(quoteGeneration), uint256(newGeneration), "fresh generation changed");
     }
 
+    function testStaleAdvancedLinkCannotTouchFreshGenerationModuleLock() public {
+        vm.prank(ALICE);
+        uint64 oldParent = module.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            99,
+            30
+        );
+
+        module.executeConditionalOrder(oldParent);
+
+        (,, uint32 oldGeneration) =
+            core.pools(IOrderBookCore.Side.Bid, 99);
+
+        vm.prank(BOB);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            99,
+            30,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        (,, uint32 rolledGeneration) =
+            core.pools(IOrderBookCore.Side.Bid, 99);
+        assertTrue(
+            rolledGeneration != oldGeneration,
+            "old advanced pool generation did not roll"
+        );
+
+        // Reopen the same tick through the module before syncing the stale parent.
+        vm.prank(ALICE);
+        uint64 freshParent = module.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            99,
+            20
+        );
+        module.executeConditionalOrder(freshParent);
+
+        (, uint96 freshRemaining, uint32 freshGeneration) =
+            core.pools(IOrderBookCore.Side.Bid, 99);
+        assertEq(freshRemaining, 20, "fresh module quote missing");
+        assertEq(
+            uint256(freshGeneration),
+            uint256(rolledGeneration),
+            "fresh module quote used wrong generation"
+        );
+
+        module.syncRestingOrder(oldParent);
+
+        assertEq(
+            int256(_corePosition(ALICE)),
+            30,
+            "old generation fill not materialized"
+        );
+        assertEq(
+            module.activeAdvancedOrders(ALICE),
+            1,
+            "old sync retired fresh advanced parent"
+        );
+
+        // This is the lock-integrity check: stale old-generation unlock must not
+        // clear or decrement the new-generation module lock.
+        vm.prank(ALICE);
+        uint96 removed = module.cancelRestingOrder(freshParent);
+        assertEq(removed, 20, "fresh generation module lock was corrupted");
+
+        (, uint96 remainingAfter,) =
+            core.pools(IOrderBookCore.Side.Bid, 99);
+        assertEq(remainingAfter, 0, "fresh module liquidity survived cancellation");
+        assertEq(
+            module.activeAdvancedOrders(ALICE),
+            0,
+            "fresh parent remained active after cancellation"
+        );
+        assertEq(
+            core.activeQuoteCount(ALICE),
+            0,
+            "fresh module quote remained active after cancellation"
+        );
+
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(ALICE);
+        assertEq(int256(settled), 30, "settled position changed on fresh cancel");
+        assertEq(int256(minPosition), 30, "fresh cancel left min reservation");
+        assertEq(int256(maxPosition), 30, "fresh cancel left max reservation");
+    }
+
     function testMultipleSameTickModuleRestingSlicesCancelIndependently() public {
         vm.prank(ALICE);
         uint64 first = module.placeTriggeredLimitOrder(
