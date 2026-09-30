@@ -5,6 +5,7 @@ import {ProRataOrderBook} from "../src/ProRataOrderBook.sol";
 import {TestBase} from "./TestBase.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockExtremaOracle} from "./mocks/MockExtremaOracle.sol";
+import {SegmentTreeExtremaOracle} from "../src/SegmentTreeExtremaOracle.sol";
 
 contract GasTest is TestBase {
     function testGas_FillCostIsIndependentOfMakerCount() public {
@@ -255,6 +256,67 @@ contract GasTest is TestBase {
 
         assertEq(filled, 100, "trailing gas fixture did not fill");
         assertTrue(used < 400_000, "trailing execution gas ceiling exceeded");
+    }
+
+    function testGas_RestingBracketSyncIsBounded() public {
+        ProRataOrderBook book = new ProRataOrderBook();
+        address account = address(0xA11CE);
+        address taker = address(0xB0B);
+
+        book.configureRisk(100, 30, 1_000);
+
+        vm.prank(account);
+        book.depositCollateral(100_000);
+        vm.prank(taker);
+        book.depositCollateral(100_000);
+
+        vm.prank(account);
+        uint64 parent = book.placeTriggeredLimitOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            100,
+            103,
+            100
+        );
+
+        vm.prank(account);
+        uint64 child = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            true,
+            110,
+            105,
+            100,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(account);
+        book.linkOTO(parent, child);
+
+        book.executeConditionalOrder(parent);
+
+        vm.prank(taker);
+        book.take(ProRataOrderBook.Side.Ask, 103, 40, ProRataOrderBook.FillPolicy.IOC);
+
+        uint256 g0 = gasleft();
+        book.syncRestingBracket(parent);
+        uint256 used = g0 - gasleft();
+
+        assertTrue(book.conditionalOrderActive(child), "bracket sync did not activate child");
+        assertTrue(used < 250_000, "resting bracket sync gas ceiling exceeded");
+    }
+
+    function testGas_ExtremaOracleRecordIsBounded() public {
+        SegmentTreeExtremaOracle oracle =
+            new SegmentTreeExtremaOracle(address(this), 100);
+
+        oracle.record(101);
+
+        uint256 g0 = gasleft();
+        oracle.record(102);
+        uint256 used = g0 - gasleft();
+
+        assertTrue(used < 400_000, "extrema oracle append gas ceiling exceeded");
     }
 
     function testGas_AddAtExistingTickIsBounded() public {
