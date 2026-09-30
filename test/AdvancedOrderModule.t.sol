@@ -119,6 +119,114 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(int256(_corePosition(ALICE)), 0, "reduce-only crossed zero");
     }
 
+    function testBatchReplaceQuotesCreatesUpdatesAndCancelsManagedSlices() public {
+        AdvancedOrderModule.QuoteUpdate[] memory updates =
+            new AdvancedOrderModule.QuoteUpdate[](3);
+        updates[0] = AdvancedOrderModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Bid,
+            tick: 95,
+            lots: 30
+        });
+        updates[1] = AdvancedOrderModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Bid,
+            tick: 96,
+            lots: 40
+        });
+        updates[2] = AdvancedOrderModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Ask,
+            tick: 105,
+            lots: 50
+        });
+
+        vm.prank(ALICE);
+        module.batchReplaceQuotes(updates);
+
+        (, uint96 bid95,) = core.pools(IOrderBookCore.Side.Bid, 95);
+        (, uint96 bid96,) = core.pools(IOrderBookCore.Side.Bid, 96);
+        (, uint96 ask105,) = core.pools(IOrderBookCore.Side.Ask, 105);
+        assertEq(bid95, 30, "bid95 create");
+        assertEq(bid96, 40, "bid96 create");
+        assertEq(ask105, 50, "ask105 create");
+
+        updates[0].lots = 20;
+        updates[1].lots = 0;
+        updates[2].lots = 60;
+
+        vm.prank(ALICE);
+        module.batchReplaceQuotes(updates);
+
+        (, bid95,) = core.pools(IOrderBookCore.Side.Bid, 95);
+        (, bid96,) = core.pools(IOrderBookCore.Side.Bid, 96);
+        (, ask105,) = core.pools(IOrderBookCore.Side.Ask, 105);
+        assertEq(bid95, 20, "bid95 replace");
+        assertEq(bid96, 0, "bid96 cancel");
+        assertEq(ask105, 60, "ask105 replace");
+    }
+
+    function testManagedQuoteReplaceAfterPartialFillSettlesThenRestoresTarget() public {
+        AdvancedOrderModule.QuoteUpdate[] memory updates =
+            new AdvancedOrderModule.QuoteUpdate[](1);
+        updates[0] = AdvancedOrderModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Ask,
+            tick: 105,
+            lots: 100
+        });
+
+        vm.prank(ALICE);
+        module.batchReplaceQuotes(updates);
+
+        vm.prank(BOB);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            105,
+            40,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        updates[0].lots = 80;
+        vm.prank(ALICE);
+        module.batchReplaceQuotes(updates);
+
+        (, uint96 remaining,) = core.pools(IOrderBookCore.Side.Ask, 105);
+        assertEq(remaining, 80, "managed quote target not restored");
+        assertEq(int256(_corePosition(ALICE)), -40, "maker fill not settled on replace");
+    }
+
+    function testStaleManagedCancelCannotTouchFreshOrdinaryQuote() public {
+        AdvancedOrderModule.QuoteUpdate[] memory updates =
+            new AdvancedOrderModule.QuoteUpdate[](1);
+        updates[0] = AdvancedOrderModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Bid,
+            tick: 95,
+            lots: 25
+        });
+
+        vm.prank(ALICE);
+        module.batchReplaceQuotes(updates);
+
+        vm.prank(BOB);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            95,
+            25,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(ALICE);
+        uint128 freshShares =
+            core.addLiquidity(IOrderBookCore.Side.Bid, 95, 15);
+
+        updates[0].lots = 0;
+        vm.prank(ALICE);
+        module.batchReplaceQuotes(updates);
+
+        (uint128 sharesAfter,,) =
+            core.quotes(ALICE, IOrderBookCore.Side.Bid, 95);
+        (, uint96 remaining,) = core.pools(IOrderBookCore.Side.Bid, 95);
+        assertEq(uint256(sharesAfter), uint256(freshShares), "stale managed cancel touched fresh quote");
+        assertEq(remaining, 15, "fresh ordinary quote removed");
+    }
+
     function testModuleConditionalExecutesAgainstCore() public {
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 105, 100);
