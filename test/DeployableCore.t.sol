@@ -432,10 +432,17 @@ contract DeployableCoreTest is TestBase {
 
         assertEq(lazyCore.activeQuoteCount(ALICE), 0, "settle did not retire lazy quote");
 
-        vm.prank(ALICE);
-        lazyCore.withdrawCollateral(100_005);
+        uint256 reserved = lazyCore.reservedMargin(ALICE);
+        uint256 withdrawable = uint256(lazyCore.accountEquity(ALICE)) - reserved;
 
-        assertEq(lazyCore.accountEquity(ALICE), 0, "settled maker claim not fully withdrawable");
+        vm.prank(ALICE);
+        lazyCore.withdrawCollateral(withdrawable);
+
+        assertEq(
+            lazyCore.accountEquity(ALICE),
+            int256(reserved),
+            "withdrawal did not preserve open-position margin"
+        );
     }
 
     function testWithdrawalBlockedUntilLazyFundingIsMaterializedWithMakerFill() public {
@@ -475,9 +482,16 @@ contract DeployableCoreTest is TestBase {
             "maker funding not materialized at settlement"
         );
 
+        uint256 reserved = lazyCore.reservedMargin(ALICE);
+        uint256 withdrawable = uint256(lazyCore.accountEquity(ALICE)) - reserved;
+
         vm.prank(ALICE);
-        lazyCore.withdrawCollateral(100_300);
-        assertEq(lazyCore.accountEquity(ALICE), 0, "funded maker claim not withdrawable");
+        lazyCore.withdrawCollateral(withdrawable);
+        assertEq(
+            lazyCore.accountEquity(ALICE),
+            int256(reserved),
+            "funded maker withdrawal did not preserve open-position margin"
+        );
     }
 
     function testFundingUpdaterCanBeRotatedWithoutChangingOwner() public {
