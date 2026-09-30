@@ -2644,16 +2644,10 @@ contract AdvancedOrderModuleTest is TestBase {
         vm.prank(bidMaker);
         feeCore.addLiquidity(IOrderBookCore.Side.Bid, 50, 40);
 
-        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
-        uint16[] memory ticks = new uint16[](0);
-        uint64[] memory conditionals = new uint64[](0);
-        uint64[] memory trailings = new uint64[](0);
-
         uint256 insuranceBefore = feeCore.insuranceReserves();
 
-        vm.prank(liquidator);
         uint96 firstClosed =
-            feeLiquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            _liquidateWithoutCleanup(feeLiquidation, trader, liquidator);
 
         assertEq(firstClosed, 40, "first partial close mismatch");
         assertEq(int256(_positionOn(feeCore, trader)), 60, "first residual position mismatch");
@@ -2663,9 +2657,8 @@ contract AdvancedOrderModuleTest is TestBase {
         vm.prank(bidMaker);
         feeCore.addLiquidity(IOrderBookCore.Side.Bid, 50, 60);
 
-        vm.prank(liquidator);
         uint96 secondClosed =
-            feeLiquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            _liquidateWithoutCleanup(feeLiquidation, trader, liquidator);
 
         assertEq(secondClosed, 60, "second close mismatch");
         assertEq(int256(_positionOn(feeCore, trader)), 0, "retry did not flatten position");
