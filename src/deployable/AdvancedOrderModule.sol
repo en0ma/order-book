@@ -528,6 +528,7 @@ contract AdvancedOrderModule {
                 parent.owner,
                 parent.side,
                 parent.limitTick,
+                link.generation,
                 link.shares
             );
             delete restingLinks[parentOrderId];
@@ -554,6 +555,7 @@ contract AdvancedOrderModule {
             parent.owner,
             parent.side,
             parent.limitTick,
+            live.generation,
             live.shares
         );
 
