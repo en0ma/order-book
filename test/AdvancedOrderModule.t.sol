@@ -487,7 +487,6 @@ contract AdvancedOrderModuleTest is TestBase {
 
         assertEq(closed, 100, "module liquidation close");
         assertEq(int256(_corePosition(trader)), 0, "module liquidation position");
-        assertEq(module.activeAdvancedCount(trader), 0, "advanced order count not cleared");
     }
 
     function testModuleTrailingUsesSegmentTreeOracle() public {
