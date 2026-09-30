@@ -96,6 +96,72 @@ contract SegmentTreeExtremaOracleTest is TestBase {
         assertEq(oracle.markTick(), 101, "rejected regression changed mark");
     }
 
+    function testDirectRecordAfterRecordAtCannotRegressFreshness() public {
+        vm.warp(block.timestamp + 30);
+        uint48 sourceTime = uint48(block.timestamp - 20);
+        oracle.recordAt(101, sourceTime);
+
+        uint48 beforeDirect = oracle.lastObservationTime();
+        assertEq(uint256(beforeDirect), uint256(sourceTime), "recordAt time mismatch");
+
+        oracle.record(102);
+
+        assertEq(
+            uint256(oracle.lastObservationTime()),
+            block.timestamp,
+            "direct record did not advance to block time"
+        );
+        assertTrue(
+            oracle.lastObservationTime() >= beforeDirect,
+            "direct record regressed freshness"
+        );
+        assertEq(oracle.markTick(), 102, "direct fallback did not update mark");
+    }
+
+    function testUpdaterRotationPreservesTimestampMonotonicity() public {
+        vm.warp(block.timestamp + 20);
+        oracle.recordAt(101, uint48(block.timestamp - 10));
+
+        address nextUpdater = address(0xBEEF);
+        oracle.proposeUpdater(nextUpdater);
+        vm.prank(nextUpdater);
+        oracle.acceptUpdater();
+
+        vm.prank(nextUpdater);
+        oracle.record(102);
+
+        uint48 rotatedTime = oracle.lastObservationTime();
+        assertEq(uint256(rotatedTime), block.timestamp, "rotated updater timestamp mismatch");
+
+        vm.prank(nextUpdater);
+        (bool ok,) = address(oracle).call(
+            abi.encodeCall(
+                oracle.recordAt,
+                (uint16(103), uint48(block.timestamp - 1))
+            )
+        );
+        assertTrue(!ok, "rotated updater regressed observation time");
+        assertEq(oracle.markTick(), 102, "rejected rotated update changed mark");
+    }
+
+    function testEqualTimestampRecordAtKeepsOrderedHistory() public {
+        uint48 observationTime = uint48(block.timestamp);
+        uint64 start = oracle.currentObservationId();
+
+        oracle.recordAt(110, observationTime);
+        oracle.recordAt(90, observationTime);
+
+        assertEq(
+            uint256(oracle.lastObservationTime()),
+            uint256(observationTime),
+            "equal timestamp changed freshness time"
+        );
+
+        (uint16 high, uint16 low) = oracle.highLowSince(start);
+        assertEq(high, 110, "equal-time history high mismatch");
+        assertEq(low, 90, "equal-time history low mismatch");
+    }
+
     function testUnauthorizedRecorderRejected() public {
         vm.prank(address(0xBEEF));
         (bool ok,) =
