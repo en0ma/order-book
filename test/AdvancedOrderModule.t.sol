@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {OrderBookCore} from "../src/deployable/OrderBookCore.sol";
 import {AdvancedOrderModule} from "../src/deployable/AdvancedOrderModule.sol";
 import {MarketMakerModule} from "../src/deployable/MarketMakerModule.sol";
+import {LiquidationModule} from "../src/deployable/LiquidationModule.sol";
 import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
 import {SegmentTreeExtremaOracle} from "../src/SegmentTreeExtremaOracle.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
@@ -13,6 +14,7 @@ contract AdvancedOrderModuleTest is TestBase {
     OrderBookCore internal core;
     AdvancedOrderModule internal module;
     MarketMakerModule internal marketMaker;
+    LiquidationModule internal liquidation;
     SegmentTreeExtremaOracle internal oracle;
     MockERC20 internal token;
 
@@ -26,9 +28,11 @@ contract AdvancedOrderModuleTest is TestBase {
         core = new OrderBookCore(address(token), address(oracle), 40, 1_000);
         module = new AdvancedOrderModule(address(core), address(oracle));
         marketMaker = new MarketMakerModule(address(core), address(module));
+        liquidation = new LiquidationModule(address(core), address(module), 500);
 
         core.configureAdvancedModule(address(module));
         module.configureMarketMakerModule(address(marketMaker));
+        module.configureLiquidationModule(address(liquidation));
 
         _fund(ALICE, 1_000_000);
         _fund(BOB, 1_000_000);
@@ -457,7 +461,6 @@ contract AdvancedOrderModuleTest is TestBase {
     function testLiquidationClearsManagedQuoteMetadataForRequote() public {
         address trader = address(0xDAD1);
         _fund(trader, 3_000);
-        module.configureLiquidation(500);
 
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
@@ -491,7 +494,7 @@ contract AdvancedOrderModuleTest is TestBase {
         uint64[] memory conditionals = new uint64[](0);
         uint64[] memory trailings = new uint64[](0);
 
-        module.liquidate(trader, sides, ticks, conditionals, trailings);
+        liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
 
         updates[0].tick = 90;
         updates[0].lots = 10;
@@ -505,7 +508,6 @@ contract AdvancedOrderModuleTest is TestBase {
     function testModuleLiquidationCancelsTrailingAndClosesPosition() public {
         address trader = address(0xDAD);
         _fund(trader, 3_000);
-        module.configureLiquidation(500);
 
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
@@ -535,7 +537,7 @@ contract AdvancedOrderModuleTest is TestBase {
         trailings[0] = trailingId;
 
         uint96 closed =
-            module.liquidate(trader, sides, ticks, conditionals, trailings);
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
 
         assertEq(closed, 100, "module liquidation close");
         assertEq(int256(_corePosition(trader)), 0, "module liquidation position");
