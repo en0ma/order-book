@@ -37,6 +37,17 @@ contract SegmentTreeExtremaOracleTest is TestBase {
         assertEq(low, 110, "subrange low");
     }
 
+    function testTickZeroIsNotTreatedAsEmptyNode() public {
+        uint64 start = oracle.currentObservationId();
+
+        oracle.record(0);
+        oracle.record(25);
+
+        (uint16 high, uint16 low) = oracle.highLowSince(start);
+        assertEq(high, 100, "zero-range high");
+        assertEq(low, 0, "tick zero lost as empty sentinel");
+    }
+
     function testUnauthorizedRecorderRejected() public {
         vm.prank(address(0xBEEF));
         (bool ok,) =
