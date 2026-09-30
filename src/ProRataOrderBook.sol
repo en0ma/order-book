@@ -61,6 +61,8 @@ contract ProRataOrderBook {
     mapping(address => AccountRisk) public accountRisk;
     mapping(address => uint256) public collateralBalance;
     mapping(address => uint256) public reservedMargin;
+    mapping(address => uint16) public accountRiskCeilingTick;
+    mapping(Side => mapping(uint16 => uint16)) public poolRiskCeilingTick;
     RiskConfig public riskConfig;
     address public immutable owner;
 
@@ -161,6 +163,23 @@ contract ProRataOrderBook {
 
         bool wasEmpty = p.remainingLots == 0;
 
+        uint16 riskCeiling;
+        if (riskConfig.enabled) {
+            if (wasEmpty) {
+                uint256 ceiling = uint256(riskConfig.markTick) + uint256(riskConfig.executionBandTicks);
+                if (ceiling > type(uint16).max) ceiling = type(uint16).max;
+                riskCeiling = uint16(ceiling);
+                poolRiskCeilingTick[side][tick] = riskCeiling;
+            } else {
+                riskCeiling = poolRiskCeilingTick[side][tick];
+                if (riskConfig.markTick > riskCeiling) revert InvalidRiskConfig();
+            }
+
+            if (riskCeiling > accountRiskCeilingTick[msg.sender]) {
+                accountRiskCeilingTick[msg.sender] = riskCeiling;
+            }
+        }
+
         if (p.totalShares == 0) {
             uint256 raw = uint256(lots) * INITIAL_SHARE_SCALE;
             if (raw > type(uint128).max) revert Overflow();
@@ -233,6 +252,7 @@ contract ProRataOrderBook {
         if (p.totalShares == 0) {
             if (p.remainingLots != 0) revert InvalidShareAmount();
             _setOccupied(side, tick, false);
+            delete poolRiskCeilingTick[side][tick];
             unchecked {
                 ++p.generation;
             }
@@ -280,6 +300,7 @@ contract ProRataOrderBook {
 
             if (p.remainingLots == 0) {
                 p.totalShares = 0;
+                delete poolRiskCeilingTick[makerSide][tick];
                 unchecked {
                     ++p.generation;
                 }
@@ -406,7 +427,10 @@ contract ProRataOrderBook {
         uint256 absMax = a.maxPosition < 0 ? uint256(uint128(-a.maxPosition)) : uint256(uint128(a.maxPosition));
         uint256 worstLots = absMin > absMax ? absMin : absMax;
 
-        uint256 worstPrice = uint256(r.markTick) + uint256(r.executionBandTicks);
+        uint256 worstPrice = accountRiskCeilingTick[maker];
+        if (worstPrice == 0) {
+            worstPrice = uint256(r.markTick) + uint256(r.executionBandTicks);
+        }
         uint256 required = worstLots * worstPrice * uint256(r.initialMarginBps) / 10_000;
 
         if (required > collateralBalance[maker]) revert InsufficientCollateral();
@@ -429,7 +453,10 @@ contract ProRataOrderBook {
 
         (ok, tick) = _bestTick(side);
         while (ok) {
-            if (tick >= lower && tick <= upper) return (true, tick);
+            if (tick >= lower && tick <= upper) {
+                uint16 ceiling = poolRiskCeilingTick[side][tick];
+                if (ceiling == 0 || r.markTick <= ceiling) return (true, tick);
+            }
 
             if (side == Side.Ask) {
                 if (tick > upper) return (false, 0);
