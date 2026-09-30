@@ -308,6 +308,56 @@ contract ProRataOrderBookTest is TestBase {
         assertEq(int256(settled), 0, "reduce-only flipped position");
     }
 
+    function testTradeCashflowKeepsEquityFlatAtExecutionPrice() public {
+        book.configureRisk(100, 10, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        book.take(ProRataOrderBook.Side.Bid, 100, 40, ProRataOrderBook.FillPolicy.IOC);
+
+        assertEq(book.tradeCashflow(address(this)), -4_000, "taker notional mismatch");
+        assertEq(book.accountEquity(address(this)), 100_000, "equity changed at execution mark");
+    }
+
+    function testLiquidationClosesUnderwaterPositionAtOracleBandLiquidity() public {
+        book.configureRisk(100, 20, 2_000);
+        book.configureLiquidation(1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(3_000);
+        vm.prank(BOB);
+        book.depositCollateral(100_000);
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Ask, 100, 100);
+
+        vm.prank(ALICE);
+        book.take(ProRataOrderBook.Side.Bid, 100, 100, ProRataOrderBook.FillPolicy.IOC);
+
+        assertTrue(!book.isLiquidatable(ALICE), "fresh position should be healthy");
+
+        vm.prank(BOB);
+        book.addLiquidity(ProRataOrderBook.Side.Bid, 70, 100);
+
+        book.setMarkTick(70);
+        assertTrue(book.isLiquidatable(ALICE), "loss-making position not liquidatable");
+
+        ProRataOrderBook.Side[] memory sides = new ProRataOrderBook.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](0);
+
+        uint96 closed = book.liquidate(ALICE, sides, ticks, conditionals);
+        assertEq(closed, 100, "liquidation did not close full position");
+
+        (int128 settled,,) = book.accountRisk(ALICE);
+        assertEq(int256(settled), 0, "liquidation left position open");
+    }
+
     function testConditionalOrderTriggersPermissionlessly() public {
         book.configureRisk(100, 10, 1_000);
 
