@@ -34,7 +34,7 @@ contract DeployableStateMachineTest is TestBase {
     function setUp() public {
         token = new MockERC20();
         oracle = new SegmentTreeExtremaOracle(address(this), 100, 3_600);
-        core = new OrderBookCore(address(token), address(oracle), 40, 1_000);
+        core = new OrderBookCore(address(token), address(oracle), 40, 1_000, 0, 0);
         advanced = new AdvancedOrderModule(address(core), address(oracle));
         marketMaker = new MarketMakerModule(address(core), address(advanced));
         liquidation = new LiquidationModule(address(core), address(advanced), 500);
