@@ -4,11 +4,13 @@ pragma solidity ^0.8.24;
 import {IERC20Minimal} from "../interfaces/IERC20Minimal.sol";
 import {IMarkOracle} from "../interfaces/IMarkOracle.sol";
 import {IOrderBookCore} from "./IOrderBookCore.sol";
+import {OrderBookMath} from "./OrderBookMath.sol";
 
 /// @title OrderBookCore
 /// @notice Deployable hot-path CLOB/risk/funding core.
 /// @dev Advanced order state lives in a separate module set once after deployment.
 contract OrderBookCore is IOrderBookCore {
+    using OrderBookMath for Side;
     uint256 public constant INITIAL_SHARE_SCALE = 1_000_000;
     uint256 public constant ACCUMULATOR_SCALE = 1 << 96;
     int256 public constant FUNDING_SCALE = 1e18;
@@ -298,7 +300,7 @@ contract OrderBookCore is IOrderBookCore {
     {
         if (minFillLots == 0 || minFillLots > lots) revert InvalidShareAmount();
 
-        Side makerSide = side == Side.Bid ? Side.Ask : Side.Bid;
+        Side makerSide = side.opposite();
         if (_availableThrough(makerSide, limitTick, minFillLots) < minFillLots) {
             revert MinimumFillNotMet();
         }
@@ -318,10 +320,8 @@ contract OrderBookCore is IOrderBookCore {
         _expandRisk(account, side, lots);
 
         if (riskConfig.enabled) {
-            uint256 ceiling =
-                uint256(currentMarkTick()) + uint256(riskConfig.executionBandTicks);
-            if (ceiling > type(uint16).max) ceiling = type(uint16).max;
-            riskCeilingTick = uint16(ceiling);
+            riskCeilingTick =
+                OrderBookMath.upperTick(currentMarkTick(), riskConfig.executionBandTicks);
 
             if (riskCeilingTick > _accountMeta[account].riskCeilingTick) {
                 _accountMeta[account].riskCeilingTick = riskCeilingTick;
@@ -417,7 +417,7 @@ contract OrderBookCore is IOrderBookCore {
         if (q.generation != p.generation) revert StaleQuote();
 
         removedLots =
-            _redeemableLots(q.shares, p.remainingLots, p.totalShares);
+            OrderBookMath.redeemableLots(q.shares, p.remainingLots, p.totalShares);
 
         uint128 shares = q.shares;
         p.totalShares -= shares;
@@ -476,7 +476,7 @@ contract OrderBookCore is IOrderBookCore {
             if (policy == FillPolicy.FOK && executableLots != lots) revert ReduceOnlyViolation();
         }
 
-        Side makerSide = takerSide == Side.Bid ? Side.Ask : Side.Bid;
+        Side makerSide = takerSide.opposite();
 
         if (
             policy == FillPolicy.FOK
@@ -509,7 +509,7 @@ contract OrderBookCore is IOrderBookCore {
 
         while (remaining != 0) {
             (bool ok, uint16 tick) = _bestExecutableTick(makerSide);
-            if (!ok || !_withinLimit(makerSide, tick, limitTick)) break;
+            if (!ok || !OrderBookMath.withinLimit(makerSide, tick, limitTick)) break;
 
             uint96 fill = _consumeTick(makerSide, tick, remaining);
             unchecked {
@@ -655,10 +655,8 @@ contract OrderBookCore is IOrderBookCore {
                 }
                 riskCeiling = reservedRiskCeiling;
             } else {
-                uint256 ceiling =
-                    uint256(mark) + uint256(riskConfig.executionBandTicks);
-                if (ceiling > type(uint16).max) ceiling = type(uint16).max;
-                riskCeiling = uint16(ceiling);
+                riskCeiling =
+                    OrderBookMath.upperTick(mark, riskConfig.executionBandTicks);
             }
             poolRiskCeilingTick[side][tick] = riskCeiling;
         } else {
@@ -767,7 +765,7 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         uint96 currentClaim =
-            _redeemableLots(q.shares, p.remainingLots, p.totalShares);
+            OrderBookMath.redeemableLots(q.shares, p.remainingLots, p.totalShares);
 
         if (currentClaim >= q.claimLots) {
             q.claimLots = currentClaim;
@@ -937,10 +935,8 @@ contract OrderBookCore is IOrderBookCore {
 
         AccountRisk memory a = accountRisk[account];
 
-        uint256 absMin =
-            a.minPosition < 0 ? uint256(uint80(-a.minPosition)) : uint256(uint80(a.minPosition));
-        uint256 absMax =
-            a.maxPosition < 0 ? uint256(uint80(-a.maxPosition)) : uint256(uint80(a.maxPosition));
+        uint256 absMin = uint256(OrderBookMath.absPosition(a.minPosition));
+        uint256 absMax = uint256(OrderBookMath.absPosition(a.maxPosition));
 
         uint256 worstLots = absMin > absMax ? absMin : absMax;
 
@@ -985,20 +981,6 @@ contract OrderBookCore is IOrderBookCore {
         amount = int80(uint80(lots));
     }
 
-    function _redeemableLots(
-        uint128 shares,
-        uint96 remainingLots,
-        uint128 totalShares
-    ) internal pure returns (uint96) {
-        if (shares == 0 || remainingLots == 0 || totalShares == 0) return 0;
-
-        uint256 lots =
-            uint256(shares) * uint256(remainingLots) / uint256(totalShares);
-
-        if (lots > type(uint96).max) revert Overflow();
-        return uint96(lots);
-    }
-
     function _availableThrough(Side makerSide, uint16 limitTick, uint96 stopAt)
         internal
         view
@@ -1006,7 +988,7 @@ contract OrderBookCore is IOrderBookCore {
     {
         (bool ok, uint16 tick) = _bestExecutableTick(makerSide);
 
-        while (ok && _withinLimit(makerSide, tick, limitTick)) {
+        while (ok && OrderBookMath.withinLimit(makerSide, tick, limitTick)) {
             available += pools[makerSide][tick].remainingLots;
             if (available >= stopAt) return available;
             (ok, tick) = _nextTick(makerSide, tick);
@@ -1021,14 +1003,6 @@ contract OrderBookCore is IOrderBookCore {
             (bool ok, uint16 bid) = _bestTick(Side.Bid);
             if (ok && tick <= bid) revert CrossesBook();
         }
-    }
-
-    function _withinLimit(Side makerSide, uint16 makerTick, uint16 limitTick)
-        internal
-        pure
-        returns (bool)
-    {
-        return makerSide == Side.Ask ? makerTick <= limitTick : makerTick >= limitTick;
     }
 
     function _bestExecutableTick(Side side) internal view returns (bool ok, uint16 tick) {
