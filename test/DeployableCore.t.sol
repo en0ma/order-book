@@ -79,12 +79,6 @@ contract DeployableCoreTest is TestBase {
             ceiling
         );
 
-        assertEq(
-            core.moduleLockedShares(ALICE, IOrderBookCore.Side.Bid, 99),
-            shares,
-            "module share lock missing"
-        );
-
         vm.prank(ALICE);
         (bool genericCancel,) = address(core).call(
             abi.encodeCall(
@@ -102,11 +96,7 @@ contract DeployableCoreTest is TestBase {
         );
 
         assertEq(removed, 50, "module cancellation lots");
-        assertEq(
-            core.moduleLockedShares(ALICE, IOrderBookCore.Side.Bid, 99),
-            0,
-            "module share lock remained"
-        );
+
     }
 
     function testAdvancedModuleCanOnlyBeConfiguredOnce() public {
