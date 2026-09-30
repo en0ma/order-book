@@ -171,6 +171,63 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(ask105, 60, "ask105 replace");
     }
 
+    function testPackedManagedQuoteBatchMatchesTypedSemantics() public {
+        MarketMakerModule.QuoteUpdate[] memory updates =
+            new MarketMakerModule.QuoteUpdate[](3);
+        updates[0] = MarketMakerModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Bid,
+            tick: 95,
+            lots: 30
+        });
+        updates[1] = MarketMakerModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Ask,
+            tick: 105,
+            lots: 40
+        });
+        updates[2] = MarketMakerModule.QuoteUpdate({
+            side: IOrderBookCore.Side.Bid,
+            tick: 94,
+            lots: 50
+        });
+
+        vm.prank(ALICE);
+        marketMaker.batchReplaceQuotesPacked(_packUpdates(updates));
+
+        (, uint96 bid95,) = core.pools(IOrderBookCore.Side.Bid, 95);
+        (, uint96 ask105,) = core.pools(IOrderBookCore.Side.Ask, 105);
+        (, uint96 bid94,) = core.pools(IOrderBookCore.Side.Bid, 94);
+
+        assertEq(bid95, 30, "packed bid95");
+        assertEq(ask105, 40, "packed ask105");
+        assertEq(bid94, 50, "packed bid94");
+
+        updates[0].lots = 35;
+        updates[1].lots = 0;
+        updates[2].lots = 45;
+
+        vm.prank(ALICE);
+        marketMaker.batchReplaceQuotesPacked(_packUpdates(updates));
+
+        (, bid95,) = core.pools(IOrderBookCore.Side.Bid, 95);
+        (, ask105,) = core.pools(IOrderBookCore.Side.Ask, 105);
+        (, bid94,) = core.pools(IOrderBookCore.Side.Bid, 94);
+
+        assertEq(bid95, 35, "packed increase");
+        assertEq(ask105, 0, "packed cancel");
+        assertEq(bid94, 45, "packed decrease");
+    }
+
+    function testPackedManagedQuoteBatchRejectsMalformedPayload() public {
+        bytes memory malformed = new bytes(15);
+
+        vm.prank(ALICE);
+        (bool ok,) = address(marketMaker).call(
+            abi.encodeCall(marketMaker.batchReplaceQuotesPacked, (malformed))
+        );
+
+        assertTrue(!ok, "malformed packed quote payload accepted");
+    }
+
     function testManagedQuoteUnchangedTargetPreservesShareSlice() public {
         MarketMakerModule.QuoteUpdate[] memory updates =
             new MarketMakerModule.QuoteUpdate[](1);
@@ -633,6 +690,21 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(filled, 60, "module trailing fill");
         assertEq(int256(_corePosition(ALICE)), 0, "module trailing did not close");
     }
+    function _packUpdates(MarketMakerModule.QuoteUpdate[] memory updates)
+        internal
+        pure
+        returns (bytes memory packed)
+    {
+        for (uint256 i; i < updates.length; ++i) {
+            MarketMakerModule.QuoteUpdate memory update = updates[i];
+            uint128 word =
+                uint128(update.lots)
+                    | (uint128(update.tick) << 96)
+                    | (uint128(uint8(update.side)) << 112);
+            packed = bytes.concat(packed, bytes16(word));
+        }
+    }
+
     function _corePosition(address account) internal view returns (int80 position) {
         (position,,) = core.accountRisk(account);
     }
