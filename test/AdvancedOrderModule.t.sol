@@ -250,6 +250,17 @@ contract AdvancedOrderModuleTest is TestBase {
         assertTrue(!ok, "malformed packed quote payload accepted");
     }
 
+    function testPackedManagedQuoteBatchRejectsReservedBits() public {
+        bytes memory malformed = bytes.concat(bytes16(uint128(1) << 127));
+
+        vm.prank(ALICE);
+        (bool ok,) = address(marketMaker).call(
+            abi.encodeCall(marketMaker.batchReplaceQuotesPacked, (malformed))
+        );
+
+        assertTrue(!ok, "packed quote reserved bits accepted");
+    }
+
     function testManagedQuoteUnchangedTargetPreservesShareSlice() public {
         MarketMakerModule.QuoteUpdate[] memory updates =
             new MarketMakerModule.QuoteUpdate[](1);
