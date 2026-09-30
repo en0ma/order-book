@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {IERC20Minimal} from "./interfaces/IERC20Minimal.sol";
 import {IMarkOracle} from "./interfaces/IMarkOracle.sol";
+import {IExtremaOracle} from "./interfaces/IExtremaOracle.sol";
 
 /// @title ProRataOrderBook
 /// @notice Experimental fully-on-chain order book kernel.
@@ -54,11 +55,12 @@ contract ProRataOrderBook {
     }
 
     /// @dev Account metadata packed into one slot:
-    /// int128 + uint32 + uint32 + uint16 = 208 bits.
+    /// int128 + uint32 + uint32 + uint32 + uint16 = 240 bits.
     struct AccountMeta {
         int128 fundingCheckpointX18;
         uint32 activeQuoteCount;
         uint32 activeConditionalCount;
+        uint32 activeTrailingCount;
         uint16 riskCeilingTick;
     }
 
@@ -70,6 +72,21 @@ contract ProRataOrderBook {
         uint96 lots;
         uint64 sibling;
         uint16 triggerTick;
+        uint16 limitTick;
+        uint16 riskCeilingTick;
+        Side side;
+        FillPolicy policy;
+        uint8 flags;
+    }
+
+    /// @dev Trailing orders store only their activation observation and trail distance.
+    /// The watermark is reconstructed from the extrema oracle at execution time.
+    /// flags: bit0 active, bit1 reduceOnly.
+    struct TrailingOrder {
+        address owner;
+        uint96 lots;
+        uint64 observationId;
+        uint16 trailTicks;
         uint16 limitTick;
         uint16 riskCeilingTick;
         Side side;
@@ -101,6 +118,9 @@ contract ProRataOrderBook {
     error PositionOverflow();
     error MinimumFillNotMet();
     error InvalidOTO();
+    error TrailingOrderNotFound();
+    error TrailingOrderInactive();
+    error ExtremaOracleNotConfigured();
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
@@ -122,12 +142,15 @@ contract ProRataOrderBook {
 
     uint16 public maintenanceMarginBps;
     uint64 public nextConditionalOrderId = 1;
+    uint64 public nextTrailingOrderId = 1;
     mapping(uint64 => ConditionalOrder) public conditionalOrders;
+    mapping(uint64 => TrailingOrder) public trailingOrders;
     mapping(uint64 => uint64) public otoChildOne;
     mapping(uint64 => uint64) public otoChildTwo;
     RiskConfig public riskConfig;
     IERC20Minimal public collateralToken;
     IMarkOracle public markOracle;
+    IExtremaOracle public extremaOracle;
     address public immutable owner;
 
     // 65,536 ticks => 256 words of 256 ticks.
@@ -198,6 +221,24 @@ contract ProRataOrderBook {
     event OCOLinked(uint64 indexed firstOrderId, uint64 indexed secondOrderId);
     event OTOLinked(uint64 indexed parentOrderId, uint64 indexed childOrderId);
     event OTOActivated(uint64 indexed parentOrderId, uint64 indexed childOrderId, uint96 lots);
+    event TrailingOrderPlaced(
+        uint64 indexed orderId,
+        address indexed owner,
+        Side side,
+        uint64 observationId,
+        uint16 trailTicks,
+        uint16 limitTick,
+        uint96 lots,
+        bool reduceOnly
+    );
+    event TrailingOrderCancelled(uint64 indexed orderId);
+    event TrailingOrderExecuted(
+        uint64 indexed orderId,
+        uint96 filledLots,
+        uint16 highTick,
+        uint16 lowTick
+    );
+    event ExtremaOracleConfigured(address indexed oracle);
     event LiquidationConfigured(uint16 maintenanceMarginBps);
     event Liquidated(
         address indexed liquidator,
@@ -217,6 +258,17 @@ contract ProRataOrderBook {
         markOracle = IMarkOracle(oracle);
 
         emit SettlementConfigured(token, oracle);
+    }
+
+    function configureExtremaOracle(address oracle) external {
+        if (msg.sender != owner) revert Unauthorized();
+        if (oracle == address(0) || oracle != address(markOracle)) revert InvalidRiskConfig();
+
+        IExtremaOracle candidate = IExtremaOracle(oracle);
+        if (candidate.currentObservationId() == 0) revert InvalidRiskConfig();
+
+        extremaOracle = candidate;
+        emit ExtremaOracleConfigured(oracle);
     }
 
     function configureRisk(uint16 markTick, uint16 executionBandTicks, uint16 initialMarginBps)
@@ -281,7 +333,11 @@ contract ProRataOrderBook {
         if (amount == 0) revert ZeroAmount();
         if (
             riskConfig.enabled
-                && (_accountMeta[msg.sender].activeQuoteCount != 0 || _accountMeta[msg.sender].activeConditionalCount != 0)
+                && (
+                    _accountMeta[msg.sender].activeQuoteCount != 0
+                        || _accountMeta[msg.sender].activeConditionalCount != 0
+                        || _accountMeta[msg.sender].activeTrailingCount != 0
+                )
         ) revert UnsettledQuotes();
 
         _settleExistingPositionFunding(msg.sender);
@@ -414,6 +470,123 @@ contract ProRataOrderBook {
             triggerAboveOrEqual,
             false
         );
+    }
+
+    function placeTrailingOrder(
+        Side side,
+        uint16 trailTicks,
+        uint16 limitTick,
+        uint96 lots,
+        FillPolicy policy,
+        bool reduceOnly
+    ) external returns (uint64 orderId) {
+        if (lots == 0 || trailTicks == 0) revert ZeroAmount();
+
+        IExtremaOracle oracle = extremaOracle;
+        if (address(oracle) == address(0)) revert ExtremaOracleNotConfigured();
+
+        uint16 riskCeiling;
+        if (!reduceOnly) {
+            _expandRisk(msg.sender, side, lots);
+
+            if (riskConfig.enabled) {
+                uint256 ceiling =
+                    uint256(_currentMarkTick()) + uint256(riskConfig.executionBandTicks);
+                if (ceiling > type(uint16).max) ceiling = type(uint16).max;
+                riskCeiling = uint16(ceiling);
+
+                if (riskCeiling > _accountMeta[msg.sender].riskCeilingTick) {
+                    _accountMeta[msg.sender].riskCeilingTick = riskCeiling;
+                }
+            }
+
+            _refreshReservedMargin(msg.sender);
+        }
+
+        orderId = nextTrailingOrderId++;
+        trailingOrders[orderId] = TrailingOrder({
+            owner: msg.sender,
+            lots: lots,
+            observationId: oracle.currentObservationId(),
+            trailTicks: trailTicks,
+            limitTick: limitTick,
+            riskCeilingTick: riskCeiling,
+            side: side,
+            policy: policy,
+            flags: reduceOnly ? uint8(3) : uint8(1)
+        });
+
+        _accountMeta[msg.sender].activeTrailingCount += 1;
+
+        emit TrailingOrderPlaced(
+            orderId,
+            msg.sender,
+            side,
+            trailingOrders[orderId].observationId,
+            trailTicks,
+            limitTick,
+            lots,
+            reduceOnly
+        );
+    }
+
+    function cancelTrailingOrder(uint64 orderId) external {
+        TrailingOrder storage order = trailingOrders[orderId];
+        if (order.owner == address(0)) revert TrailingOrderNotFound();
+        if (order.owner != msg.sender) revert Unauthorized();
+        _cancelTrailing(orderId, true);
+    }
+
+    function executeTrailingOrder(uint64 orderId) external returns (uint96 filledLots) {
+        TrailingOrder storage stored = trailingOrders[orderId];
+        if (stored.owner == address(0)) revert TrailingOrderNotFound();
+        if ((stored.flags & 1) == 0) revert TrailingOrderInactive();
+
+        IExtremaOracle oracle = extremaOracle;
+        if (address(oracle) == address(0)) revert ExtremaOracleNotConfigured();
+
+        TrailingOrder memory order = stored;
+        uint16 current = oracle.markTick();
+        if (current != _currentMarkTick()) revert InvalidRiskConfig();
+
+        (uint16 highTick, uint16 lowTick) = oracle.highLowSince(order.observationId);
+
+        bool triggered;
+        if (order.side == Side.Ask) {
+            triggered = uint256(current) + uint256(order.trailTicks) <= uint256(highTick);
+        } else {
+            triggered = uint256(current)
+                >= uint256(lowTick) + uint256(order.trailTicks);
+        }
+        if (!triggered) revert TriggerNotSatisfied();
+
+        bool reduceOnly = (order.flags & 2) != 0;
+        if (reduceOnly) {
+            if (_accountMeta[order.owner].activeQuoteCount != 0) revert UnsettledQuotes();
+        } else if (order.riskCeilingTick != 0 && current > order.riskCeilingTick) {
+            revert InvalidRiskConfig();
+        }
+
+        stored.flags &= ~uint8(1);
+        _accountMeta[order.owner].activeTrailingCount -= 1;
+
+        filledLots = _takeFor(
+            order.owner,
+            order.side,
+            order.limitTick,
+            order.lots,
+            order.policy,
+            reduceOnly,
+            !reduceOnly
+        );
+
+        if (!reduceOnly) {
+            uint96 unfilled = order.lots - filledLots;
+            if (unfilled != 0) _shrinkRisk(order.owner, order.side, unfilled);
+            _refreshReservedMargin(order.owner);
+        }
+
+        emit TrailingOrderExecuted(orderId, filledLots, highTick, lowTick);
     }
 
     function cancelConditionalOrder(uint64 orderId) external {
@@ -788,7 +961,11 @@ contract ProRataOrderBook {
 
     function isLiquidatable(address account) public view returns (bool) {
         if (maintenanceMarginBps == 0) return false;
-        if (_accountMeta[account].activeQuoteCount != 0 || _accountMeta[account].activeConditionalCount != 0) return false;
+        if (
+            _accountMeta[account].activeQuoteCount != 0
+                || _accountMeta[account].activeConditionalCount != 0
+                || _accountMeta[account].activeTrailingCount != 0
+        ) return false;
         if (accountRisk[account].settledPosition == 0) return false;
 
         return accountEquity(account) < int256(maintenanceRequirement(account));
@@ -800,6 +977,38 @@ contract ProRataOrderBook {
         uint16[] calldata makerTicks,
         uint64[] calldata conditionalIds
     ) external returns (uint96 closedLots) {
+        _cleanupLiquidationOrders(account, makerSides, makerTicks, conditionalIds);
+
+        if (_accountMeta[account].activeTrailingCount != 0) revert UnsettledQuotes();
+        closedLots = _finishLiquidation(account);
+    }
+
+    function liquidateWithTrailing(
+        address account,
+        Side[] calldata makerSides,
+        uint16[] calldata makerTicks,
+        uint64[] calldata conditionalIds,
+        uint64[] calldata trailingIds
+    ) external returns (uint96 closedLots) {
+        _cleanupLiquidationOrders(account, makerSides, makerTicks, conditionalIds);
+
+        for (uint256 i; i < trailingIds.length; ++i) {
+            uint64 id = trailingIds[i];
+            TrailingOrder storage order = trailingOrders[id];
+            if (order.owner == account && (order.flags & 1) != 0) {
+                _cancelTrailing(id, true);
+            }
+        }
+
+        closedLots = _finishLiquidation(account);
+    }
+
+    function _cleanupLiquidationOrders(
+        address account,
+        Side[] calldata makerSides,
+        uint16[] calldata makerTicks,
+        uint64[] calldata conditionalIds
+    ) internal {
         if (maintenanceMarginBps == 0) revert InvalidLiquidationConfig();
         if (makerSides.length != makerTicks.length) revert InvalidLiquidationInput();
 
@@ -810,12 +1019,21 @@ contract ProRataOrderBook {
         for (uint256 i; i < conditionalIds.length; ++i) {
             uint64 id = conditionalIds[i];
             ConditionalOrder storage order = conditionalOrders[id];
-            if (order.owner == account && _conditionalActive(order)) {
+            if (
+                order.owner == account
+                    && (_conditionalActive(order) || _conditionalDormant(order))
+            ) {
                 _cancelConditional(id, true);
             }
         }
+    }
 
-        if (_accountMeta[account].activeQuoteCount != 0 || _accountMeta[account].activeConditionalCount != 0) {
+    function _finishLiquidation(address account) internal returns (uint96 closedLots) {
+        if (
+            _accountMeta[account].activeQuoteCount != 0
+                || _accountMeta[account].activeConditionalCount != 0
+                || _accountMeta[account].activeTrailingCount != 0
+        ) {
             revert UnsettledQuotes();
         }
 
@@ -1048,6 +1266,10 @@ contract ProRataOrderBook {
 
     function activeConditionalCount(address account) external view returns (uint32) {
         return _accountMeta[account].activeConditionalCount;
+    }
+
+    function activeTrailingCount(address account) external view returns (uint32) {
+        return _accountMeta[account].activeTrailingCount;
     }
 
     function bestBid() external view returns (bool ok, uint16 tick) {
@@ -1302,6 +1524,23 @@ contract ProRataOrderBook {
 
     function _conditionalActive(ConditionalOrder storage order) internal view returns (bool) {
         return (order.flags & 1) != 0;
+    }
+
+    function _cancelTrailing(uint64 orderId, bool releaseRisk) internal {
+        TrailingOrder storage order = trailingOrders[orderId];
+        if (order.owner == address(0)) revert TrailingOrderNotFound();
+        if ((order.flags & 1) == 0) return;
+
+        order.flags &= ~uint8(1);
+        _accountMeta[order.owner].activeTrailingCount -= 1;
+
+        bool reduceOnly = (order.flags & 2) != 0;
+        if (releaseRisk && !reduceOnly) {
+            _shrinkRisk(order.owner, order.side, order.lots);
+            _refreshReservedMargin(order.owner);
+        }
+
+        emit TrailingOrderCancelled(orderId);
     }
 
     function _cancelConditional(uint64 orderId, bool releaseRisk) internal {
