@@ -91,6 +91,111 @@ contract RebateFundingRoundingInvariantTest is TestBase {
         assertEq(core.protocolFeesAccrued(), protocolBefore, "repeat settle changed protocol fees");
     }
 
+    function testBurnAttributedFillRealizesMakerRebateExactlyOnce() public {
+        MockERC20 token = new MockERC20();
+        SegmentTreeExtremaOracle oracle =
+            new SegmentTreeExtremaOracle(address(this), 10_000, 3_600);
+        OrderBookCoreHarness core = new OrderBookCoreHarness(
+            address(token), address(oracle), 100, 1_000, 10, 5
+        );
+
+        _fund(core, token, ALICE);
+        _fund(core, token, BOB);
+        _fund(core, token, TAKER);
+
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 10_000, 1);
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 10_000, 2);
+
+        vm.prank(TAKER);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            10_000,
+            1,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        assertEq(core.protocolFeesAccrued(), 5, "net protocol fee reserve mismatch");
+
+        vm.prank(ALICE);
+        (uint128 aliceShares,,) =
+            core.quotes(ALICE, IOrderBookCore.Side.Ask, 10_000);
+
+        vm.prank(ALICE);
+        uint96 removed =
+            core.removeShares(IOrderBookCore.Side.Ask, 10_000, aliceShares);
+
+        assertEq(removed, 0, "rounding burn redeemed pool liquidity");
+        assertEq(core.protocolFeesAccrued(), 5, "maker rebate was charged twice");
+
+        (uint256 aliceCollateral, int256 aliceTrading,,,) =
+            core.accountingStateTest(ALICE);
+        assertEq(aliceCollateral, 10_000_000, "maker collateral changed");
+        assertEq(
+            aliceTrading,
+            10_005,
+            "burn-attributed fill did not realize exactly one maker rebate"
+        );
+
+        (int80 alicePosition,,) = core.accountRisk(ALICE);
+        assertEq(int256(alicePosition), -1, "burn-attributed maker position mismatch");
+
+        uint256 aggregateClaims =
+            _cashClaim(core, ALICE) + _cashClaim(core, BOB)
+                + _cashClaim(core, TAKER) + core.protocolFeesAccrued();
+        assertEq(
+            aggregateClaims,
+            30_000_000,
+            "burn-attributed rebate broke custody claim conservation"
+        );
+
+        vm.prank(ALICE);
+        core.settle(IOrderBookCore.Side.Ask, 10_000);
+        (,, int256 tradingAfterRepeat,,) =
+            core.accountingStateTest(ALICE);
+        assertEq(
+            tradingAfterRepeat,
+            aliceTrading,
+            "repeat settlement duplicated burn-attributed rebate"
+        );
+        assertEq(core.protocolFeesAccrued(), 5, "repeat settle changed protocol fees");
+    }
+
+    function testPureShareCancellationDoesNotRealizeMakerRebate() public {
+        MockERC20 token = new MockERC20();
+        SegmentTreeExtremaOracle oracle =
+            new SegmentTreeExtremaOracle(address(this), 10_000, 3_600);
+        OrderBookCoreHarness core = new OrderBookCoreHarness(
+            address(token), address(oracle), 100, 1_000, 10, 5
+        );
+
+        _fund(core, token, ALICE);
+        _fund(core, token, BOB);
+
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 10_000, 1);
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 10_000, 2);
+
+        vm.prank(ALICE);
+        (uint128 aliceShares,,) =
+            core.quotes(ALICE, IOrderBookCore.Side.Ask, 10_000);
+
+        vm.prank(ALICE);
+        uint96 removed =
+            core.removeShares(IOrderBookCore.Side.Ask, 10_000, aliceShares);
+
+        assertEq(removed, 1, "pure cancellation removed wrong lots");
+        assertEq(core.protocolFeesAccrued(), 0, "pure cancellation changed protocol fees");
+
+        (, int256 aliceTrading,,,) = core.accountingStateTest(ALICE);
+        assertEq(aliceTrading, 0, "pure cancellation created maker rebate");
+
+        (int80 alicePosition,,) = core.accountRisk(ALICE);
+        assertEq(int256(alicePosition), 0, "pure cancellation created maker fill");
+    }
+
     function testFuzz_RebateAndFundingRoundingNeverCreateClaims(
         uint256 aSeed,
         uint256 bSeed,
