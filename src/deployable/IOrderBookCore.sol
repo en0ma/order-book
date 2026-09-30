@@ -24,6 +24,16 @@ interface IOrderBookCore {
     function activeQuoteCount(address account) external view returns (uint32);
     function accountEquity(address account) external view returns (int256);
 
+    function accountAccounting(address account)
+        external
+        view
+        returns (
+            uint256 collateral,
+            uint256 reserved,
+            int256 funding,
+            int256 trade
+        );
+
     function pools(Side side, uint16 tick)
         external
         view
