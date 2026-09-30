@@ -92,19 +92,12 @@ contract LiquidationModule {
         emit LiquidatorRewardConfigured(rewardBps);
     }
 
-    function maintenanceRequirement(address account) public view returns (uint256) {
-        (int80 position,,) = core.accountRisk(account);
-        uint256 absPosition = uint256(OrderBookMath.absPosition(position));
-
-        return core.notionalValue(uint96(absPosition), core.currentMarkTick())
-            * uint256(maintenanceMarginBps) / 10_000;
+    function maintenanceRequirement(address account) external view returns (uint256) {
+        return _maintenanceRequirement(account);
     }
 
-    function terminalBadDebt(address account) public view returns (uint256) {
-        if (
-            core.activeQuoteCount(account) != 0
-                || gateway.activeAdvancedOrders(account) != 0
-        ) return 0;
+    function terminalBadDebt(address account) external view returns (uint256) {
+        if (_hasOpenOrders(account)) return 0;
 
         (int80 position,,) = core.accountRisk(account);
         if (position != 0) return 0;
@@ -114,15 +107,12 @@ contract LiquidationModule {
     }
 
     function isLiquidatable(address account) external view returns (bool) {
-        if (
-            core.activeQuoteCount(account) != 0
-                || gateway.activeAdvancedOrders(account) != 0
-        ) return false;
+        if (_hasOpenOrders(account)) return false;
 
         (int80 position,,) = core.accountRisk(account);
         if (position == 0) return false;
 
-        return core.accountEquity(account) < int256(maintenanceRequirement(account));
+        return core.accountEquity(account) < int256(_maintenanceRequirement(account));
     }
 
     function liquidate(
@@ -142,13 +132,10 @@ contract LiquidationModule {
             );
         }
 
-        if (
-            core.activeQuoteCount(account) != 0
-                || gateway.activeAdvancedOrders(account) != 0
-        ) revert UnsettledOrders();
+        if (_hasOpenOrders(account)) revert UnsettledOrders();
 
         int256 equityBefore = core.accountEquity(account);
-        if (equityBefore >= int256(maintenanceRequirement(account))) {
+        if (equityBefore >= int256(_maintenanceRequirement(account))) {
             revert NotLiquidatable();
         }
 
@@ -176,6 +163,23 @@ contract LiquidationModule {
         _finalizeLiquidation(account, closedLots, msg.sender);
     }
 
+    function _hasOpenOrders(address account) internal view returns (bool) {
+        return core.activeQuoteCount(account) != 0
+            || gateway.activeAdvancedOrders(account) != 0;
+    }
+
+    function _maintenanceRequirement(address account)
+        internal
+        view
+        returns (uint256)
+    {
+        (int80 position,,) = core.accountRisk(account);
+        uint256 absPosition = uint256(OrderBookMath.absPosition(position));
+
+        return core.notionalValue(uint96(absPosition), core.currentMarkTick())
+            * uint256(maintenanceMarginBps) / 10_000;
+    }
+
     function _finalizeLiquidation(
         address account,
         uint96 closedLots,
@@ -199,7 +203,7 @@ contract LiquidationModule {
             account,
             remainingPosition,
             equityAfter,
-            maintenanceRequirement(account),
+            _maintenanceRequirement(account),
             insuranceCovered,
             badDebt
         );
