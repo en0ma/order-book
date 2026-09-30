@@ -65,11 +65,17 @@ interface IOrderBookCore {
         address account,
         Side side,
         uint16 tick,
+        uint32 generation,
         uint128 shares
     ) external returns (uint96 removedLots);
 
-    function moduleUnlockShares(address account, Side side, uint16 tick, uint128 shares)
-        external;
+    function moduleUnlockShares(
+        address account,
+        Side side,
+        uint16 tick,
+        uint32 generation,
+        uint128 shares
+    ) external;
 
     function moduleForceCancelQuote(address account, Side side, uint16 tick)
         external
