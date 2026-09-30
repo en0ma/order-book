@@ -460,6 +460,81 @@ contract ProRataOrderBookTest is TestBase {
         assertEq(int256(settled), 0, "bracket did not close position");
     }
 
+    function testCancellingOTOParentCancelsDormantChildren() public {
+        vm.prank(ALICE);
+        uint64 parent = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            100,
+            100,
+            10,
+            ProRataOrderBook.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        uint64 child = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            true,
+            110,
+            105,
+            10,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        book.linkOTO(parent, child);
+        assertTrue(!book.conditionalOrderActive(child), "child should be dormant");
+
+        vm.prank(ALICE);
+        book.cancelConditionalOrder(parent);
+
+        assertTrue(!book.conditionalOrderActive(parent), "parent remained active");
+        assertTrue(!book.conditionalOrderActive(child), "dormant child survived parent cancel");
+
+        vm.prank(ALICE);
+        (bool ok,) =
+            address(book).call(abi.encodeCall(book.cancelConditionalOrder, (child)));
+        assertTrue(ok, "dormant child should remain safely cancellable/idempotent");
+    }
+
+    function testZeroFillOTOParentCancelsChildren() public {
+        book.configureRisk(100, 20, 1_000);
+
+        vm.prank(ALICE);
+        book.depositCollateral(100_000);
+
+        vm.prank(ALICE);
+        uint64 parent = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Bid,
+            true,
+            100,
+            100,
+            20,
+            ProRataOrderBook.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        uint64 child = book.placeConditionalOrder(
+            ProRataOrderBook.Side.Ask,
+            true,
+            110,
+            105,
+            20,
+            ProRataOrderBook.FillPolicy.IOC,
+            true
+        );
+
+        vm.prank(ALICE);
+        book.linkOTO(parent, child);
+
+        uint96 filled = book.executeConditionalOrder(parent);
+        assertEq(filled, 0, "zero-liquidity parent unexpectedly filled");
+        assertTrue(!book.conditionalOrderActive(child), "zero-fill child became active");
+    }
+
     function testTriggeredLimitActivatesIntoRestingBook() public {
         book.configureRisk(100, 20, 1_000);
 
