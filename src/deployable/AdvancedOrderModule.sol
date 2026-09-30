@@ -46,17 +46,6 @@ contract AdvancedOrderModule {
         bool active;
     }
 
-    struct ManagedQuote {
-        uint128 shares;
-        uint32 generation;
-    }
-
-    struct QuoteUpdate {
-        IOrderBookCore.Side side;
-        uint16 tick;
-        uint96 lots;
-    }
-
     error Unauthorized();
     error ZeroAmount();
     error OrderNotFound();
@@ -71,10 +60,12 @@ contract AdvancedOrderModule {
     error NotLiquidatable();
     error UnsettledAdvancedOrders();
     error MinimumFillNotMet();
+    error MarketMakerModuleAlreadyConfigured();
 
     IOrderBookCore public immutable core;
     IExtremaOracle internal immutable extremaOracle;
     address internal immutable owner;
+    address public marketMakerModule;
 
     uint16 internal maintenanceMarginBps;
     mapping(address => uint32) internal activeAdvancedCount;
@@ -90,8 +81,6 @@ contract AdvancedOrderModule {
     mapping(uint64 => uint64) internal otoChildTwo;
     mapping(uint64 => uint64) internal otoParent;
     mapping(uint64 => uint96) internal otoChildMaxLots;
-    mapping(address => mapping(IOrderBookCore.Side => mapping(uint16 => ManagedQuote)))
-        internal managedQuotes;
 
     event ConditionalOrderPlaced(
         uint64 indexed orderId,
@@ -160,6 +149,57 @@ contract AdvancedOrderModule {
         owner = msg.sender;
     }
 
+    modifier onlyMarketMakerModule() {
+        if (msg.sender != marketMakerModule || msg.sender == address(0)) revert Unauthorized();
+        _;
+    }
+
+    function configureMarketMakerModule(address module_) external {
+        if (msg.sender != owner) revert Unauthorized();
+        if (module_ == address(0)) revert Unauthorized();
+        if (marketMakerModule != address(0)) revert MarketMakerModuleAlreadyConfigured();
+        marketMakerModule = module_;
+    }
+
+    function marketMakerReserveExposure(
+        address maker,
+        IOrderBookCore.Side side,
+        uint96 lots
+    ) external onlyMarketMakerModule returns (uint16 riskCeilingTick) {
+        riskCeilingTick = core.moduleReserveExposure(maker, side, lots);
+    }
+
+    function marketMakerAddLiquidity(
+        address maker,
+        IOrderBookCore.Side side,
+        uint16 tick,
+        uint96 lots,
+        uint16 riskCeilingTick
+    ) external onlyMarketMakerModule returns (uint128 shares) {
+        shares = core.moduleAddLiquidity(maker, side, tick, lots, riskCeilingTick);
+    }
+
+    function marketMakerRemoveLockedShares(
+        address maker,
+        IOrderBookCore.Side side,
+        uint16 tick,
+        uint32 generation,
+        uint128 shares
+    ) external onlyMarketMakerModule returns (uint96 removedLots) {
+        removedLots =
+            core.moduleRemoveLockedShares(maker, side, tick, generation, shares);
+    }
+
+    function marketMakerUnlockShares(
+        address maker,
+        IOrderBookCore.Side side,
+        uint16 tick,
+        uint32 generation,
+        uint128 shares
+    ) external onlyMarketMakerModule {
+        core.moduleUnlockShares(maker, side, tick, generation, shares);
+    }
+
     function configureLiquidation(uint16 maintenanceBps) external {
         if (msg.sender != owner) revert Unauthorized();
         if (maintenanceBps == 0 || maintenanceBps > 10_000) {
@@ -208,103 +248,6 @@ contract AdvancedOrderModule {
 
         // Reverting here atomically rolls back all core fills when the threshold is missed.
         if (filledLots < minFillLots) revert MinimumFillNotMet();
-    }
-
-    /// @notice Atomically replace/cancel module-managed maker quotes.
-    /// @dev lots == 0 cancels the managed slice at that maker/side/tick.
-    function batchReplaceQuotes(QuoteUpdate[] calldata updates) external {
-        uint256 length = updates.length;
-
-        uint96 bidLots;
-        uint96 askLots;
-
-        // Phase 1: remove old managed slices and determine the new side exposure.
-        for (uint256 i; i < length; ) {
-            QuoteUpdate calldata update = updates[i];
-            _clearManagedQuote(msg.sender, update.side, update.tick);
-
-            if (update.side == IOrderBookCore.Side.Bid) {
-                bidLots += update.lots;
-            } else {
-                askLots += update.lots;
-            }
-
-            unchecked {
-                ++i;
-            }
-        }
-
-        // Phase 2: reserve margin/risk only once per side.
-        uint16 bidCeiling;
-        uint16 askCeiling;
-        if (bidLots != 0) {
-            bidCeiling =
-                core.moduleReserveExposure(msg.sender, IOrderBookCore.Side.Bid, bidLots);
-        }
-        if (askLots != 0) {
-            askCeiling =
-                core.moduleReserveExposure(msg.sender, IOrderBookCore.Side.Ask, askLots);
-        }
-
-        // Phase 3: rebuild target slices using the shared side reservation.
-        for (uint256 i; i < length; ) {
-            QuoteUpdate calldata update = updates[i];
-
-            if (update.lots != 0) {
-                uint16 ceiling =
-                    update.side == IOrderBookCore.Side.Bid ? bidCeiling : askCeiling;
-                uint128 shares = core.moduleAddLiquidity(
-                    msg.sender,
-                    update.side,
-                    update.tick,
-                    update.lots,
-                    ceiling
-                );
-                (,, uint32 generation) = core.pools(update.side, update.tick);
-
-                ManagedQuote storage managed =
-                    managedQuotes[msg.sender][update.side][update.tick];
-                if (managed.shares == 0) {
-                    managed.generation = generation;
-                }
-                managed.shares += shares;
-            }
-
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
-    function _clearManagedQuote(
-        address maker,
-        IOrderBookCore.Side side,
-        uint16 tick
-    ) internal {
-        ManagedQuote memory managed = managedQuotes[maker][side][tick];
-        if (managed.shares == 0) return;
-
-        (,, uint32 currentGeneration) = core.pools(side, tick);
-
-        if (currentGeneration == managed.generation) {
-            core.moduleRemoveLockedShares(
-                maker,
-                side,
-                tick,
-                managed.generation,
-                managed.shares
-            );
-        } else {
-            core.moduleUnlockShares(
-                maker,
-                side,
-                tick,
-                managed.generation,
-                managed.shares
-            );
-        }
-
-        delete managedQuotes[maker][side][tick];
     }
 
     function placeConditionalOrder(
@@ -833,7 +776,6 @@ contract AdvancedOrderModule {
         }
 
         for (uint256 i; i < makerTicks.length; ++i) {
-            delete managedQuotes[account][makerSides[i]][makerTicks[i]];
             core.moduleForceCancelQuote(account, makerSides[i], makerTicks[i]);
         }
 
