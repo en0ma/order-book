@@ -5,6 +5,7 @@ interface Vm {
     function prank(address) external;
     function envString(string calldata) external returns (string memory);
     function createSelectFork(string calldata) external returns (uint256);
+    function deal(address account, uint256 newBalance) external;
 }
 
 abstract contract TestBase {
