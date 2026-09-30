@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IOrderBookCore} from "./IOrderBookCore.sol";
+import {OrderBookMath} from "./OrderBookMath.sol";
 
 interface IAdvancedQuoteGateway {
     function marketMakerReserveExposure(
@@ -70,18 +71,22 @@ contract MarketMakerModule {
         uint256 length = updates.length;
         if (length == 0) revert ZeroAmount();
 
-        uint96 bidLots;
-        uint96 askLots;
+        uint96[] memory additions = new uint96[](length);
+        uint96 bidAddLots;
+        uint96 askAddLots;
 
-        // Phase 1: remove previous managed slices and aggregate new exposure.
+        // Phase 1: preserve same-generation slices when possible. Exact decreases
+        // still clear/rebuild because share redemption rounds down in integer lots.
         for (uint256 i; i < length; ) {
             QuoteUpdate calldata update = updates[i];
-            _clearManagedQuote(msg.sender, update.side, update.tick);
+            uint96 addLots =
+                _prepareManagedTarget(msg.sender, update.side, update.tick, update.lots);
+            additions[i] = addLots;
 
             if (update.side == IOrderBookCore.Side.Bid) {
-                bidLots += update.lots;
+                bidAddLots += addLots;
             } else {
-                askLots += update.lots;
+                askAddLots += addLots;
             }
 
             unchecked {
@@ -89,26 +94,26 @@ contract MarketMakerModule {
             }
         }
 
-        // Phase 2: reserve risk once per side rather than once per quote.
+        // Phase 2: reserve only the incremental exposure, once per side.
         uint16 bidCeiling;
         uint16 askCeiling;
 
-        if (bidLots != 0) {
+        if (bidAddLots != 0) {
             bidCeiling = gateway.marketMakerReserveExposure(
-                msg.sender, IOrderBookCore.Side.Bid, bidLots
+                msg.sender, IOrderBookCore.Side.Bid, bidAddLots
             );
         }
-        if (askLots != 0) {
+        if (askAddLots != 0) {
             askCeiling = gateway.marketMakerReserveExposure(
-                msg.sender, IOrderBookCore.Side.Ask, askLots
+                msg.sender, IOrderBookCore.Side.Ask, askAddLots
             );
         }
 
-        // Phase 3: rebuild target quote slices.
+        // Phase 3: add only the missing quantity.
         for (uint256 i; i < length; ) {
-            QuoteUpdate calldata update = updates[i];
-
-            if (update.lots != 0) {
+            uint96 addLots = additions[i];
+            if (addLots != 0) {
+                QuoteUpdate calldata update = updates[i];
                 uint16 ceiling =
                     update.side == IOrderBookCore.Side.Bid ? bidCeiling : askCeiling;
 
@@ -116,23 +121,69 @@ contract MarketMakerModule {
                     msg.sender,
                     update.side,
                     update.tick,
-                    update.lots,
+                    addLots,
                     ceiling
                 );
 
                 (,, uint32 generation) = core.pools(update.side, update.tick);
-
                 ManagedQuote storage managed =
                     managedQuotes[msg.sender][update.side][update.tick];
 
-                if (managed.shares == 0) managed.generation = generation;
-                managed.shares += shares;
+                if (managed.shares == 0 || managed.generation != generation) {
+                    managed.generation = generation;
+                    managed.shares = shares;
+                } else {
+                    managed.shares += shares;
+                }
             }
 
             unchecked {
                 ++i;
             }
         }
+    }
+
+    function _prepareManagedTarget(
+        address maker,
+        IOrderBookCore.Side side,
+        uint16 tick,
+        uint96 targetLots
+    ) internal returns (uint96 addLots) {
+        ManagedQuote memory managed = managedQuotes[maker][side][tick];
+        if (managed.shares == 0) return targetLots;
+
+        (uint128 totalShares, uint96 remainingLots, uint32 currentGeneration) =
+            core.pools(side, tick);
+
+        if (currentGeneration != managed.generation) {
+            gateway.marketMakerUnlockShares(
+                maker,
+                side,
+                tick,
+                managed.generation,
+                managed.shares
+            );
+            delete managedQuotes[maker][side][tick];
+            return targetLots;
+        }
+
+        uint96 currentLots =
+            OrderBookMath.redeemableLots(managed.shares, remainingLots, totalShares);
+
+        if (targetLots >= currentLots) {
+            return targetLots - currentLots;
+        }
+
+        // Exact downsize: remove the slice, then phase 3 can rebuild targetLots.
+        gateway.marketMakerRemoveLockedShares(
+            maker,
+            side,
+            tick,
+            managed.generation,
+            managed.shares
+        );
+        delete managedQuotes[maker][side][tick];
+        return targetLots;
     }
 
     function _clearManagedQuote(
