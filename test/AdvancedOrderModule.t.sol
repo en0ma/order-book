@@ -887,6 +887,93 @@ contract AdvancedOrderModuleTest is TestBase {
         );
     }
 
+    function testPartialLiquidationDoesNotConsumeInsuranceUntilFlat() public {
+        address trader = address(0xD15EA5E);
+        _fund(trader, 3_000);
+
+        token.mint(address(this), 10_000);
+        core.fundInsurance(10_000);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+
+        vm.prank(trader);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 70, 40);
+        oracle.record(70);
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](0);
+
+        uint96 firstClosed =
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+
+        assertEq(firstClosed, 40, "partial liquidation fill mismatch");
+        assertEq(int256(_corePosition(trader)), 60, "partial liquidation position mismatch");
+        assertEq(core.insuranceReserves(), 10_000, "insurance consumed before account was flat");
+        assertEq(liquidation.terminalBadDebt(trader), 0, "open position labeled terminal debt");
+
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 70, 60);
+
+        uint96 secondClosed =
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+
+        assertEq(secondClosed, 60, "second liquidation fill mismatch");
+        assertEq(int256(_corePosition(trader)), 0, "second liquidation did not flatten account");
+        assertEq(liquidation.terminalBadDebt(trader), 0, "insurance failed to cover terminal debt");
+        assertTrue(core.insuranceReserves() < 10_000, "insurance not consumed after terminal loss");
+    }
+
+    function testProfitableWithdrawalCannotConsumeInsuranceReserveAccounting() public {
+        address trader = address(0xFACE);
+        _fund(trader, 100_000);
+
+        token.mint(address(this), 25_000);
+        core.fundInsurance(25_000);
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 10);
+
+        vm.prank(trader);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            100,
+            10,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 110, 10);
+
+        vm.prank(trader);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            110,
+            10,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(trader);
+        core.withdrawCollateral(100_100);
+
+        assertEq(core.insuranceReserves(), 25_000, "withdrawal debited insurance accounting");
+        assertEq(core.accountEquity(trader), 0, "trader retained claim after withdrawal");
+        assertTrue(
+            token.balanceOf(address(core)) >= core.insuranceReserves(),
+            "withdrawal left insurance unbacked"
+        );
+    }
+
     function testModuleTrailingUsesSegmentTreeOracle() public {
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 60);
