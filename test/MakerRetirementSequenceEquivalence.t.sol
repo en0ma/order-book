@@ -171,8 +171,21 @@ contract MakerRetirementSequenceEquivalenceTest is TestBase {
     {
         (int80 settled, int80 minPosition, int80 maxPosition) =
             core.accountRisk(account);
-        (, int256 trading, int256 funding, uint256 reserved,) =
-            core.accountingStateTest(account);
+        (
+            ,
+            int256 trading,
+            int256 funding,
+            uint256 reserved,
+            int128 fundingCheckpoint
+        ) = core.accountingStateTest(account);
+
+        int256 pendingFunding = -(
+            int256(settled)
+                * (
+                    int256(core.fundingIndexTest())
+                        - int256(fundingCheckpoint)
+                ) / 1e18
+        );
 
         return keccak256(
             abi.encode(
@@ -180,7 +193,7 @@ contract MakerRetirementSequenceEquivalenceTest is TestBase {
                 minPosition,
                 maxPosition,
                 trading,
-                funding,
+                funding + pendingFunding,
                 reserved,
                 core.activeQuoteCount(account)
             )
