@@ -2,8 +2,6 @@
 pragma solidity ^0.8.24;
 
 import {IOrderBookCore} from "./IOrderBookCore.sol";
-import {OrderBookMath} from "./OrderBookMath.sol";
-
 /// @title PortfolioMarginPolicy
 /// @notice Read-side cross-market margin policy over multiple OrderBookCore markets.
 /// @dev Settled positions inside the same risk group may receive a configurable hedge credit.
@@ -100,52 +98,51 @@ contract PortfolioMarginPolicy {
         uint256 length = markets.length;
         bool[] memory visited = new bool[](length);
 
-        // Resting-order / contingent expansion is deliberately unnetted.
+        // Start from gross worst-case risk across every market envelope.
         for (uint256 i; i < length; ++i) {
             MarketConfig storage market = markets[i];
-            (int80 settledPosition, int80 minPosition, int80 maxPosition) =
+            (, int80 minPosition, int80 maxPosition) =
                 market.core.accountRisk(account);
-
-            uint96 settledLots = _absLots(settledPosition);
-            uint96 worstLots = _maxAbs(minPosition, maxPosition);
-            uint256 settledRequirement = _requirement(market, settledLots);
-            uint256 worstRequirement = _requirement(market, worstLots);
-
-            if (worstRequirement > settledRequirement) {
-                requirement += worstRequirement - settledRequirement;
-            }
+            requirement += _requirement(
+                market,
+                _maxAbs(minPosition, maxPosition)
+            );
         }
 
-        // Only already-settled directional risk is eligible for group netting.
+        // Hedge credit applies only to exposure guaranteed to remain on the
+        // same side for every reachable state inside each market's envelope.
         for (uint256 i; i < length; ++i) {
             if (visited[i]) continue;
 
             MarketConfig storage anchor = markets[i];
-            uint256 longRequirement;
-            uint256 shortRequirement;
+            uint256 guaranteedLongRequirement;
+            uint256 guaranteedShortRequirement;
 
             for (uint256 j = i; j < length; ++j) {
                 MarketConfig storage market = markets[j];
                 if (market.riskGroup != anchor.riskGroup) continue;
 
                 visited[j] = true;
-                (int80 settledPosition,,) = market.core.accountRisk(account);
-                uint256 settledRequirement =
-                    _requirement(market, _absLots(settledPosition));
+                (int80 settledPosition, int80 minPosition, int80 maxPosition) =
+                    market.core.accountRisk(account);
 
-                if (settledPosition > 0) {
-                    longRequirement += settledRequirement;
-                } else if (settledPosition < 0) {
-                    shortRequirement += settledRequirement;
+                if (settledPosition > 0 && minPosition > 0) {
+                    guaranteedLongRequirement +=
+                        _requirement(market, uint96(uint80(minPosition)));
+                } else if (settledPosition < 0 && maxPosition < 0) {
+                    guaranteedShortRequirement += _requirement(
+                        market,
+                        uint96(uint256(-int256(maxPosition)))
+                    );
                 }
             }
 
-            uint256 groupRequirement = longRequirement + shortRequirement;
-            uint256 matched =
-                longRequirement < shortRequirement ? longRequirement : shortRequirement;
+            uint256 matched = guaranteedLongRequirement < guaranteedShortRequirement
+                ? guaranteedLongRequirement
+                : guaranteedShortRequirement;
             uint256 creditPerSide =
                 matched * uint256(anchor.hedgeCreditBps) / 10_000;
-            requirement += groupRequirement - (creditPerSide * 2);
+            requirement -= creditPerSide * 2;
         }
     }
 
