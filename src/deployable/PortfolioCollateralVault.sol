@@ -23,11 +23,17 @@ contract PortfolioCollateralVault {
 
     uint256 public totalAccountedCollateral;
     mapping(address => uint256) public balanceOf;
+    mapping(address => uint256) public portfolioWithdrawn;
     mapping(address => uint256) public lockedCollateral;
 
     event ControllerConfigured(address indexed controller);
     event Deposited(address indexed account, uint256 amount);
     event Withdrawn(address indexed account, uint256 amount);
+    event PortfolioWithdrawn(
+        address indexed account,
+        address indexed recipient,
+        uint256 amount
+    );
     event LockedCollateralUpdated(
         address indexed account,
         uint256 previousLocked,
@@ -77,11 +83,11 @@ contract PortfolioCollateralVault {
     }
 
     function withdraw(uint256 amount) external {
+        if (controller != address(0)) revert Unauthorized();
         if (amount == 0) revert ZeroAmount();
 
         uint256 balance = balanceOf[msg.sender];
-        uint256 locked = lockedCollateral[msg.sender];
-        if (amount > balance - locked) revert InsufficientFreeCollateral();
+        if (amount > balance) revert InsufficientFreeCollateral();
 
         unchecked {
             balanceOf[msg.sender] = balance - amount;
@@ -95,11 +101,46 @@ contract PortfolioCollateralVault {
         emit Withdrawn(msg.sender, amount);
     }
 
+    function controllerWithdraw(
+        address account,
+        address recipient,
+        uint256 amount
+    ) external onlyController {
+        if (recipient == address(0) || amount == 0) revert ZeroAmount();
+        if (amount > totalAccountedCollateral) revert InsufficientFreeCollateral();
+
+        portfolioWithdrawn[account] += amount;
+        totalAccountedCollateral -= amount;
+
+        if (!collateralToken.transfer(recipient, amount)) {
+            revert TokenTransferFailed();
+        }
+
+        emit PortfolioWithdrawn(account, recipient, amount);
+    }
+
+    function collateralClaim(address account) public view returns (int256 claim) {
+        uint256 balance = balanceOf[account];
+        uint256 withdrawn = portfolioWithdrawn[account];
+
+        if (balance >= withdrawn) {
+            uint256 positive = balance - withdrawn;
+            if (positive > uint256(type(int256).max)) revert InsufficientFreeCollateral();
+            return int256(positive);
+        }
+
+        uint256 deficit = withdrawn - balance;
+        if (deficit > uint256(type(int256).max)) revert InsufficientFreeCollateral();
+        return -int256(deficit);
+    }
+
     function setLockedCollateral(address account, uint256 nextLocked)
         external
         onlyController
     {
-        if (nextLocked > balanceOf[account]) revert InsufficientFreeCollateral();
+        int256 claim = collateralClaim(account);
+        uint256 positiveClaim = claim > 0 ? uint256(claim) : 0;
+        if (nextLocked > positiveClaim) revert InsufficientFreeCollateral();
 
         uint256 previousLocked = lockedCollateral[account];
         if (previousLocked == nextLocked) return;
@@ -109,7 +150,12 @@ contract PortfolioCollateralVault {
     }
 
     function freeCollateral(address account) external view returns (uint256) {
-        return balanceOf[account] - lockedCollateral[account];
+        int256 claim = collateralClaim(account);
+        if (claim <= 0) return 0;
+
+        uint256 positiveClaim = uint256(claim);
+        uint256 locked = lockedCollateral[account];
+        return positiveClaim > locked ? positiveClaim - locked : 0;
     }
 
     function excessTokenBalance() public view returns (uint256) {
