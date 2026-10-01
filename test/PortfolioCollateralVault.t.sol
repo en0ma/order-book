@@ -108,6 +108,12 @@ contract PortfolioCollateralVaultTest is TestBase {
         vm.prank(ALICE);
         vault.deposit(100 ether);
 
+        token.mint(TREASURY, 100 ether);
+        vm.prank(TREASURY);
+        token.approve(address(vault), type(uint256).max);
+        vm.prank(TREASURY);
+        vault.deposit(100 ether);
+
         vm.prank(CONTROLLER);
         vault.controllerWithdraw(ALICE, ALICE, 125 ether);
 
