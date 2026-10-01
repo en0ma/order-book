@@ -91,6 +91,8 @@ contract OrderBookCore is IOrderBookCore {
         internal closedFundingEntryPerShareX96;
     mapping(Side => mapping(uint16 => mapping(uint32 => uint128)))
         internal closedFundingOutstandingShares;
+    mapping(Side => mapping(uint16 => mapping(uint32 => uint256)))
+        internal makerRebateReserves;
     mapping(address => mapping(Side => mapping(uint16 => int256)))
         internal quoteFundingCheckpointX96;
 
@@ -526,7 +528,8 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         uint256 notional;
-        (filledLots, notional) =
+        uint256 reservedMakerRebate;
+        (filledLots, notional, reservedMakerRebate) =
             _match(account, takerSide, makerSide, limitTick, executableLots);
 
         if (policy == FillPolicy.FOK && filledLots != executableLots) {
@@ -534,7 +537,14 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         if (filledLots != 0) {
-            _applyImmediateTakerFill(account, takerSide, filledLots, notional, preReserved);
+            _applyImmediateTakerFill(
+                account,
+                takerSide,
+                filledLots,
+                notional,
+                reservedMakerRebate,
+                preReserved
+            );
         }
     }
 
@@ -544,20 +554,33 @@ contract OrderBookCore is IOrderBookCore {
         Side makerSide,
         uint16 limitTick,
         uint96 executableLots
-    ) internal returns (uint96 filledLots, uint256 notional) {
+    ) internal returns (
+        uint96 filledLots,
+        uint256 notional,
+        uint256 reservedMakerRebate
+    ) {
         uint96 remaining = executableLots;
 
         while (remaining != 0) {
             (bool ok, uint16 tick) = _bestExecutableTick(makerSide);
             if (!ok || !OrderBookMath.withinLimit(makerSide, tick, limitTick)) break;
 
+            uint32 generation = pools[makerSide][tick].generation;
             uint96 fill = _consumeTick(makerSide, tick, remaining);
             unchecked {
                 remaining -= fill;
                 filledLots += fill;
             }
 
-            notional += notionalValue(fill, tick);
+            uint256 fillNotional = notionalValue(fill, tick);
+            uint256 fillMakerRebate =
+                fillNotional * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
+            if (fillMakerRebate != 0) {
+                makerRebateReserves[makerSide][tick][generation] += fillMakerRebate;
+                reservedMakerRebate += fillMakerRebate;
+            }
+
+            notional += fillNotional;
             emit Trade(account, takerSide, tick, fill);
         }
     }
@@ -721,7 +744,7 @@ contract OrderBookCore is IOrderBookCore {
                 burnAttributedFill,
                 currentFundingEntry
             );
-            _applyMakerFill(maker, side, tick, burnAttributedFill);
+            _applyMakerFill(maker, side, tick, burnAttributedFill, q.generation);
             emit MakerSettled(
                 maker,
                 side,
@@ -742,6 +765,14 @@ contract OrderBookCore is IOrderBookCore {
 
         if (p.totalShares == 0) {
             if (p.remainingLots != 0) revert InvalidShareAmount();
+
+            uint256 rebateDust =
+                makerRebateReserves[side][tick][p.generation];
+            if (rebateDust != 0) {
+                protocolFeesAccrued += rebateDust;
+                delete makerRebateReserves[side][tick][p.generation];
+            }
+
             _setOccupied(side, tick, false);
             delete poolRiskCeilingTick[side][tick];
 
@@ -856,7 +887,7 @@ contract OrderBookCore is IOrderBookCore {
             _settleFundingForQuote(
                 maker, side, tick, q.shares, filledLots, finalFundingEntry
             );
-            _applyMakerFill(maker, side, tick, filledLots);
+            _applyMakerFill(maker, side, tick, filledLots, oldGeneration);
             _refreshReservedMargin(maker);
 
             uint128 outstanding =
@@ -867,6 +898,12 @@ contract OrderBookCore is IOrderBookCore {
                 closedFundingOutstandingShares[side][tick][oldGeneration] = outstanding;
 
                 if (outstanding == 0) {
+                    uint256 rebateDust =
+                        makerRebateReserves[side][tick][oldGeneration];
+                    if (rebateDust != 0) {
+                        protocolFeesAccrued += rebateDust;
+                        delete makerRebateReserves[side][tick][oldGeneration];
+                    }
                     delete closedFundingOutstandingShares[side][tick][oldGeneration];
                     delete closedFundingEntryPerShareX96[side][tick][oldGeneration];
                 }
@@ -899,7 +936,7 @@ contract OrderBookCore is IOrderBookCore {
         );
         quoteFundingCheckpointX96[maker][side][tick] = currentFundingEntry;
 
-        _applyMakerFill(maker, side, tick, filledLots);
+        _applyMakerFill(maker, side, tick, filledLots, q.generation);
         _refreshReservedMargin(maker);
 
         emit MakerSettled(maker, side, tick, filledLots, q.generation);
@@ -1018,6 +1055,7 @@ contract OrderBookCore is IOrderBookCore {
         Side side,
         uint96 filledLots,
         uint256 notional,
+        uint256 reservedMakerRebate,
         bool preReserved
     ) internal {
         _settleExistingPositionFunding(account);
@@ -1028,10 +1066,9 @@ contract OrderBookCore is IOrderBookCore {
         uint32 fees = feeSchedulePacked;
         uint256 takerFee =
             notional * uint256(uint16(fees)) / 10_000;
-        if (takerFee != 0) {
-            uint256 makerRebate =
-                notional * uint256(uint16(fees >> 16)) / 10_000;
-            protocolFeesAccrued += takerFee - makerRebate;
+        if (reservedMakerRebate > takerFee) revert InvalidRiskConfig();
+        if (takerFee != reservedMakerRebate) {
+            protocolFeesAccrued += takerFee - reservedMakerRebate;
         }
 
         if (side == Side.Bid) {
@@ -1049,17 +1086,30 @@ contract OrderBookCore is IOrderBookCore {
         _refreshReservedMargin(account);
     }
 
-    function _applyMakerFill(address maker, Side side, uint16 tick, uint96 filledLots)
-        internal
-    {
+    function _applyMakerFill(
+        address maker,
+        Side side,
+        uint16 tick,
+        uint96 filledLots,
+        uint32 generation
+    ) internal {
         if (filledLots == 0) return;
 
         AccountRisk storage a = accountRisk[maker];
         int80 amount = _positionAmount(filledLots);
         int256 notional = int256(notionalValue(filledLots, tick));
 
-        uint256 makerRebate =
+        uint256 requestedMakerRebate =
             uint256(notional) * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
+        uint256 availableMakerRebate =
+            makerRebateReserves[side][tick][generation];
+        uint256 makerRebate = requestedMakerRebate < availableMakerRebate
+            ? requestedMakerRebate
+            : availableMakerRebate;
+        if (makerRebate != 0) {
+            makerRebateReserves[side][tick][generation] =
+                availableMakerRebate - makerRebate;
+        }
 
         if (side == Side.Bid) {
             a.settledPosition += amount;
