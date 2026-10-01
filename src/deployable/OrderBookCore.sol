@@ -647,9 +647,10 @@ contract OrderBookCore is IOrderBookCore {
         removedLots = uint96(redeemed);
 
         uint96 claimBefore = q.claimLots;
+        uint96 remainingBefore = p.remainingLots;
 
         p.totalShares -= sharesToBurn;
-        p.remainingLots -= removedLots;
+        p.remainingLots = remainingBefore - removedLots;
         q.shares -= sharesToBurn;
 
         uint96 claimAfter;
@@ -661,10 +662,42 @@ contract OrderBookCore is IOrderBookCore {
             );
         }
         if (claimAfter > claimBefore) revert InvalidShareAmount();
-        q.claimLots = claimAfter;
 
         uint96 claimReduction = claimBefore - claimAfter;
-        if (claimReduction < removedLots) revert InvalidShareAmount();
+        if (claimReduction < removedLots) {
+            removedLots = claimReduction;
+            p.remainingLots = remainingBefore - removedLots;
+
+            if (q.shares != 0) {
+                claimAfter = OrderBookMath.redeemableLotsCeil(
+                    q.shares,
+                    p.remainingLots,
+                    p.totalShares
+                );
+            }
+            if (claimAfter > claimBefore) revert InvalidShareAmount();
+            claimReduction = claimBefore - claimAfter;
+        }
+        q.claimLots = claimAfter;
+
+        if (claimReduction == 0 && q.shares != 0) {
+            int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
+            int256 priorCheckpoint =
+                quoteFundingCheckpointX96[maker][side][tick];
+            int256 pendingEntryPerShare =
+                currentFundingEntry - priorCheckpoint;
+
+            if (pendingEntryPerShare != 0) {
+                int256 inheritedEntryPerShare = _divFundingDirected(
+                    side,
+                    int256(uint256(q.shares + sharesToBurn))
+                        * pendingEntryPerShare,
+                    int256(uint256(q.shares))
+                );
+                quoteFundingCheckpointX96[maker][side][tick] =
+                    currentFundingEntry - inheritedEntryPerShare;
+            }
+        }
 
         uint96 burnAttributedFill = claimReduction - removedLots;
         if (burnAttributedFill != 0) {
@@ -869,11 +902,19 @@ contract OrderBookCore is IOrderBookCore {
     ) internal {
         if (fillLots == 0 || totalShares == 0) return;
 
-        uint256 fillPerShareX96 =
-            uint256(fillLots) * ACCUMULATOR_SCALE / uint256(totalShares);
+        uint256 fillNumerator = uint256(fillLots) * ACCUMULATOR_SCALE;
+        bool roundFillUp =
+            (side == Side.Ask) == (fundingIndexX18 >= 0);
 
-        int256 weighted =
-            int256(fillPerShareX96) * int256(fundingIndexX18) / FUNDING_SCALE;
+        uint256 fillPerShareX96 = roundFillUp
+            ? (fillNumerator + uint256(totalShares) - 1) / uint256(totalShares)
+            : fillNumerator / uint256(totalShares);
+
+        int256 weighted = _divFundingDirected(
+            side,
+            int256(fillPerShareX96) * int256(fundingIndexX18),
+            FUNDING_SCALE
+        );
 
         fundingEntryPerShareX96[side][tick] += weighted;
     }
@@ -891,9 +932,10 @@ contract OrderBookCore is IOrderBookCore {
         int256 deltaPerShare =
             finalFundingEntryPerShareX96 - quoteFundingCheckpointX96[maker][side][tick];
 
-        int256 weightedEntry = _divFundingEntry(
+        int256 weightedEntry = _divFundingDirected(
             side,
-            int256(uint256(shares)) * deltaPerShare
+            int256(uint256(shares)) * deltaPerShare,
+            int256(ACCUMULATOR_SCALE)
         );
 
         int256 signedLots =
@@ -1334,4 +1376,20 @@ contract OrderBookCore is IOrderBookCore {
             ++quotient;
         }
     }
+    function _divFundingDirected(
+        Side side,
+        int256 numerator,
+        int256 denominator
+    ) internal pure returns (int256 quotient) {
+        quotient = numerator / denominator;
+        int256 remainder = numerator % denominator;
+        if (remainder == 0) return quotient;
+
+        if (side == Side.Bid) {
+            if (numerator < 0) --quotient;
+        } else if (numerator > 0) {
+            ++quotient;
+        }
+    }
+
 }
