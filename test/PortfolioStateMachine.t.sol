@@ -186,9 +186,13 @@ contract PortfolioStateMachineTest is TestBase {
         if (shares == 0) return;
 
         uint128 burn = uint128((r % shares) + 1);
+        (, , uint32 generation) = core.quotes(actor, side, tick);
         vm.prank(actor);
-        address(core).call(
-            abi.encodeCall(core.removeShares, (side, tick, burn))
+        address(coordinator).call(
+            abi.encodeCall(
+                coordinator.removeLiquidity,
+                (marketIndex, side, tick, generation, burn)
+            )
         );
     }
 
@@ -260,8 +264,15 @@ contract PortfolioStateMachineTest is TestBase {
         (uint128 shares,,) = core.quotes(actor, side, tick);
         if (shares == 0) return;
 
+        (, , uint32 generation) = core.quotes(actor, side, tick);
         vm.prank(actor);
-        core.removeShares(side, tick, shares);
+        coordinator.removeLiquidity(
+            core == coreA ? 0 : 1,
+            side,
+            tick,
+            generation,
+            shares
+        );
     }
 
     function _checkFinalConservation() internal view {
