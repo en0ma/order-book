@@ -397,13 +397,15 @@ contract OrderBookCore is IOrderBookCore {
         mintedShares =
             _addLiquidityFor(account, side, tick, lots, true, reservedRiskCeiling, true);
 
-        uint32 generation = pools[side][tick].generation;
-        ModuleLock storage lock = moduleLocks[account][side][tick];
-        if (lock.generation != generation) {
-            lock.generation = generation;
-            lock.shares = 0;
+        if (msg.sender == advancedModule) {
+            uint32 generation = pools[side][tick].generation;
+            ModuleLock storage lock = moduleLocks[account][side][tick];
+            if (lock.generation != generation) {
+                lock.generation = generation;
+                lock.shares = 0;
+            }
+            lock.shares += mintedShares;
         }
-        lock.shares += mintedShares;
     }
 
     function moduleSettle(address account, Side side, uint16 tick)
