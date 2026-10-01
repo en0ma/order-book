@@ -5,6 +5,13 @@ import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {ILiquidationGateway} from "./ILiquidationGateway.sol";
 import {PortfolioMarginPolicy} from "./PortfolioMarginPolicy.sol";
 
+interface IPortfolioLiquidationSettlement {
+    function coverBadDebt(address account) external returns (uint256 covered);
+    function payLiquidationReward(address liquidator, uint256 requested)
+        external
+        returns (uint256 paid);
+}
+
 /// @title PortfolioLiquidationModule
 /// @notice Cross-market liquidation orchestration over a PortfolioMarginPolicy.
 /// @dev This module intentionally does not provide cross-market collateral transfer or
@@ -34,8 +41,13 @@ contract PortfolioLiquidationModule {
     error NotLiquidatable();
     error UnsettledOrders();
     error CleanupLengthMismatch();
+    error Unauthorized();
+    error SettlementAlreadyConfigured();
 
+    address public immutable owner;
     PortfolioMarginPolicy public immutable policy;
+    IPortfolioLiquidationSettlement public settlementCoordinator;
+    uint16 public liquidatorRewardBps;
     MarketConfig[] public markets;
 
     event PortfolioMarketLiquidated(
@@ -44,6 +56,17 @@ contract PortfolioLiquidationModule {
         IOrderBookCore.Side side,
         uint96 requestedLots,
         uint96 filledLots
+    );
+
+    event PortfolioSettlementConfigured(
+        address indexed coordinator,
+        uint16 liquidatorRewardBps
+    );
+    event PortfolioBadDebtCovered(address indexed account, uint256 covered);
+    event PortfolioLiquidatorRewardPaid(
+        address indexed liquidator,
+        uint256 requested,
+        uint256 paid
     );
 
     event PortfolioLiquidationStatus(
@@ -82,7 +105,21 @@ contract PortfolioLiquidationModule {
             );
         }
 
+        owner = msg.sender;
         policy = policyRef;
+    }
+
+    function configureSettlement(address coordinator, uint16 rewardBps) external {
+        if (msg.sender != owner || coordinator == address(0) || rewardBps > 10_000) {
+            revert Unauthorized();
+        }
+        if (address(settlementCoordinator) != address(0)) {
+            revert SettlementAlreadyConfigured();
+        }
+
+        settlementCoordinator = IPortfolioLiquidationSettlement(coordinator);
+        liquidatorRewardBps = rewardBps;
+        emit PortfolioSettlementConfigured(coordinator, rewardBps);
     }
 
     function marketCount() external view returns (uint256) {
@@ -120,6 +157,7 @@ contract PortfolioLiquidationModule {
 
         if (hasOpenOrders(account)) revert UnsettledOrders();
 
+        uint256 rewardNotional;
         for (uint256 i; i < length; ++i) {
             if (!policy.isUnderMargined(account)) break;
 
@@ -148,6 +186,12 @@ contract PortfolioLiquidationModule {
                 requestedLots
             );
             totalFilledLots += filledLots;
+            if (filledLots != 0) {
+                rewardNotional += market.core.notionalValue(
+                    filledLots,
+                    market.core.currentMarkTick()
+                );
+            }
 
             emit PortfolioMarketLiquidated(
                 i,
@@ -156,6 +200,29 @@ contract PortfolioLiquidationModule {
                 requestedLots,
                 filledLots
             );
+        }
+
+        IPortfolioLiquidationSettlement settlement = settlementCoordinator;
+        if (address(settlement) != address(0)) {
+            if (_isFlat(account)) {
+                uint256 covered = settlement.coverBadDebt(account);
+                if (covered != 0) emit PortfolioBadDebtCovered(account, covered);
+            }
+
+            uint16 rewardBps = liquidatorRewardBps;
+            if (rewardNotional != 0 && rewardBps != 0) {
+                uint256 requestedReward =
+                    rewardNotional * uint256(rewardBps) / 10_000;
+                uint256 paid =
+                    settlement.payLiquidationReward(msg.sender, requestedReward);
+                if (paid != 0) {
+                    emit PortfolioLiquidatorRewardPaid(
+                        msg.sender,
+                        requestedReward,
+                        paid
+                    );
+                }
+            }
         }
 
         uint256 requirementAfter = policy.portfolioRequirement(account);
@@ -168,6 +235,14 @@ contract PortfolioLiquidationModule {
             requirementAfter,
             underMargined
         );
+    }
+
+    function _isFlat(address account) internal view returns (bool) {
+        for (uint256 i; i < markets.length; ++i) {
+            (int80 position,,) = markets[i].core.accountRisk(account);
+            if (position != 0) return false;
+        }
+        return true;
     }
 
     function _cleanupMarket(
