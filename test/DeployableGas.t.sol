@@ -57,14 +57,15 @@ contract DeployableGasTest is TestBase {
         vm.prank(maker);
         feeCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
 
-        // Warm the protocol-fee accrual slot so the measured path is recurring cost.
+        // Warm both protocol-fee and maker-rebate reserve slots so the measured
+        // path reflects recurring fee-accounting cost rather than first-write cost.
         vm.prank(taker);
         zeroFeeCore.take(
-            IOrderBookCore.Side.Bid, 100, 10, IOrderBookCore.FillPolicy.IOC
+            IOrderBookCore.Side.Bid, 100, 20, IOrderBookCore.FillPolicy.IOC
         );
         vm.prank(taker);
         feeCore.take(
-            IOrderBookCore.Side.Bid, 100, 10, IOrderBookCore.FillPolicy.IOC
+            IOrderBookCore.Side.Bid, 100, 20, IOrderBookCore.FillPolicy.IOC
         );
 
         vm.prank(taker);
