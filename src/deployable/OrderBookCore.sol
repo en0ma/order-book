@@ -869,14 +869,27 @@ contract OrderBookCore is IOrderBookCore {
     ) internal {
         if (fillLots == 0 || totalShares == 0) return;
 
-        uint256 fillPerShareX96 =
-            uint256(fillLots) * ACCUMULATOR_SCALE / uint256(totalShares);
+        int256 index = int256(fundingIndexX18);
+        uint256 absIndex = uint256(index < 0 ? -index : index);
+        uint256 denominator = uint256(totalShares) * uint256(FUNDING_SCALE);
+        bool roundMagnitudeUp =
+            (side == Side.Ask) == (index > 0);
 
-        int256 weighted = _divFundingDirected(
-            side,
-            int256(fillPerShareX96) * int256(fundingIndexX18),
-            FUNDING_SCALE
-        );
+        uint256 weightedMagnitude = roundMagnitudeUp
+            ? OrderBookMath.mulDivUp(
+                uint256(fillLots) * absIndex,
+                ACCUMULATOR_SCALE,
+                denominator
+            )
+            : OrderBookMath.mulDiv(
+                uint256(fillLots) * absIndex,
+                ACCUMULATOR_SCALE,
+                denominator
+            );
+
+        int256 weighted = index < 0
+            ? -int256(weightedMagnitude)
+            : int256(weightedMagnitude);
 
         fundingEntryPerShareX96[side][tick] += weighted;
     }
