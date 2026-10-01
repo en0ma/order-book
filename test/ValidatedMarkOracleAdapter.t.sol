@@ -46,13 +46,15 @@ contract ValidatedMarkOracleAdapterTest is TestBase {
     }
 
     function testRejectsDuplicateSourceObservationReplay() public {
-        uint48 sourceTime = uint48(block.timestamp);
+        uint48 sourceTime = 10;
+        vm.warp(sourceTime);
+        source.set(100_25000000, 10_000000, sourceTime);
         adapter.publish();
 
         uint64 beforeId = oracle.currentObservationId();
         uint48 beforeRelayTime = oracle.lastObservationTime();
 
-        vm.warp(block.timestamp + 30);
+        vm.warp(40);
         source.set(101_00000000, 0, sourceTime);
 
         (bool ok,) = address(adapter).call(abi.encodeCall(adapter.publish, ()));
@@ -114,10 +116,16 @@ contract ValidatedMarkOracleAdapterTest is TestBase {
             "canonical oracle replaced source time with relay time"
         );
 
-        vm.warp(block.timestamp + 2);
+        vm.warp(uint256(sourceTime) + 60);
+        assertEq(
+            oracle.markTick(),
+            10_000,
+            "canonical oracle expired before its configured stale window"
+        );
 
+        vm.warp(uint256(sourceTime) + 3_601);
         (bool ok,) = address(oracle).call(abi.encodeCall(oracle.markTick, ()));
-        assertTrue(!ok, "near-expiry source received a fresh canonical window");
+        assertTrue(!ok, "canonical oracle ignored preserved source timestamp");
     }
 
     function testRejectsStalePrice() public {
@@ -219,6 +227,7 @@ contract ValidatedMarkOracleAdapterTest is TestBase {
         assertEq(filled, 10, "adapter-fed matching failed");
 
         uint64 start = oracle.currentObservationId();
+        vm.warp(block.timestamp + 1);
         source.set(101_00000000, 0, uint48(block.timestamp));
         adapter.publish();
         (uint16 high, uint16 low) = oracle.highLowSince(start);

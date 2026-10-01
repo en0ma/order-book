@@ -135,49 +135,23 @@ contract AdvancedOrderModuleTest is TestBase {
             false
         );
 
-        (int80 settledBefore, int80 minBefore, int80 maxBefore) =
-            core.accountRisk(ALICE);
-        (, uint256 reservedBefore) = core.marginStateTest(ALICE);
-        uint32 activeBefore = module.activeAdvancedOrders(ALICE);
-        uint256 protocolBefore = core.protocolFeesAccrued();
-        (, uint96 poolBefore, uint32 generationBefore) =
-            core.pools(IOrderBookCore.Side.Ask, 100);
+        bytes32 advancedBefore = _conditionalFOKAdvancedState(orderId);
+        bytes32 coreBefore = _conditionalFOKCoreState();
 
         (bool ok,) = address(module).call(
             abi.encodeCall(module.executeConditionalOrder, (orderId))
         );
         assertTrue(!ok, "insufficient conditional FOK unexpectedly succeeded");
 
-        (address ownerAfter,,,,,,, uint8 flagsAfter) =
-            module.conditionalOrders(orderId);
-        assertTrue(ownerAfter == ALICE, "failed FOK lost conditional owner");
-        assertTrue((flagsAfter & 1) != 0, "failed FOK did not restore active flag");
         assertEq(
-            module.activeAdvancedOrders(ALICE),
-            activeBefore,
-            "failed FOK changed advanced active count"
-        );
-
-        (int80 settledAfter, int80 minAfter, int80 maxAfter) =
-            core.accountRisk(ALICE);
-        (, uint256 reservedAfter) = core.marginStateTest(ALICE);
-        (, uint96 poolAfter, uint32 generationAfter) =
-            core.pools(IOrderBookCore.Side.Ask, 100);
-
-        assertEq(int256(settledAfter), int256(settledBefore), "failed FOK changed settled position");
-        assertEq(int256(minAfter), int256(minBefore), "failed FOK changed min risk");
-        assertEq(int256(maxAfter), int256(maxBefore), "failed FOK changed max risk");
-        assertEq(reservedAfter, reservedBefore, "failed FOK changed reserved margin");
-        assertEq(poolAfter, poolBefore, "failed FOK changed maker liquidity");
-        assertEq(
-            uint256(generationAfter),
-            uint256(generationBefore),
-            "failed FOK changed pool generation"
+            uint256(_conditionalFOKAdvancedState(orderId)),
+            uint256(advancedBefore),
+            "failed FOK changed advanced state"
         );
         assertEq(
-            core.protocolFeesAccrued(),
-            protocolBefore,
-            "failed FOK changed protocol fees"
+            uint256(_conditionalFOKCoreState()),
+            uint256(coreBefore),
+            "failed FOK changed core state"
         );
 
         vm.prank(CAROL);
@@ -191,6 +165,42 @@ contract AdvancedOrderModuleTest is TestBase {
             "successful retry left conditional active"
         );
         assertEq(int256(_corePosition(ALICE)), 50, "successful FOK retry position mismatch");
+    }
+
+    function _conditionalFOKAdvancedState(uint64 orderId)
+        internal
+        view
+        returns (bytes32)
+    {
+        (address ownerAfter,,,,,,,, uint8 flagsAfter) =
+            module.conditionalOrders(orderId);
+        return keccak256(
+            abi.encode(
+                ownerAfter,
+                flagsAfter,
+                module.activeAdvancedOrders(ALICE)
+            )
+        );
+    }
+
+    function _conditionalFOKCoreState() internal view returns (bytes32) {
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(ALICE);
+        (, uint256 reserved) = core.marginStateTest(ALICE);
+        (, uint96 remaining, uint32 generation) =
+            core.pools(IOrderBookCore.Side.Ask, 100);
+
+        return keccak256(
+            abi.encode(
+                settled,
+                minPosition,
+                maxPosition,
+                reserved,
+                remaining,
+                generation,
+                core.protocolFeesAccrued()
+            )
+        );
     }
 
     function testModuleReduceOnlyCannotReversePosition() public {
@@ -1216,6 +1226,8 @@ contract AdvancedOrderModuleTest is TestBase {
 
         liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
 
+        _fund(trader, 5_000);
+
         updates[0].tick = 90;
         updates[0].lots = 10;
         vm.prank(trader);
@@ -1659,7 +1671,7 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(core.activeQuoteCount(trader), 0, "liquidation cleanup stranded core quote");
     }
 
-    function testFailedOTOExitFOKRestoresRestingParentAndGraph() public {
+    function testOTOExitFOKFailureRestoresRestingParentAndGraph() public {
         vm.prank(ALICE);
         uint64 parent = module.placeTriggeredLimitOrder(
             IOrderBookCore.Side.Bid,
@@ -1710,48 +1722,19 @@ contract AdvancedOrderModuleTest is TestBase {
 
         module.syncRestingOrder(parent);
 
-        (, uint96 exitLotsBefore, uint64 exitSiblingBefore,,,,,, uint8 exitFlagsBefore) =
-            module.conditionalOrders(exit);
-        (, uint96 siblingLotsBefore, uint64 siblingBackBefore,,,,,, uint8 siblingFlagsBefore) =
-            module.conditionalOrders(sibling);
-        (uint128 parentSharesBefore, uint96 parentClaimBefore, uint32 parentGenerationBefore) =
-            core.quotes(ALICE, IOrderBookCore.Side.Bid, 99);
-        (, uint256 reservedBefore) = core.marginStateTest(ALICE);
-        uint32 activeBefore = module.activeAdvancedOrders(ALICE);
+        bytes32 stateBefore =
+            _otoFOKRollbackState(parent, exit, sibling);
 
-        (bool ok,) = address(module).call(
-            abi.encodeCall(module.executeConditionalOrder, (exit))
+        assertTrue(
+            !_attemptConditionalExecution(exit),
+            "OTO FOK exit unexpectedly succeeded without bids"
         );
-        assertTrue(!ok, "OTO FOK exit unexpectedly succeeded without bids");
 
-        (, uint96 exitLotsAfter, uint64 exitSiblingAfter,,,,,, uint8 exitFlagsAfter) =
-            module.conditionalOrders(exit);
-        (, uint96 siblingLotsAfter, uint64 siblingBackAfter,,,,,, uint8 siblingFlagsAfter) =
-            module.conditionalOrders(sibling);
-        (uint128 parentSharesAfter, uint96 parentClaimAfter, uint32 parentGenerationAfter) =
-            core.quotes(ALICE, IOrderBookCore.Side.Bid, 99);
-        (, uint256 reservedAfter) = core.marginStateTest(ALICE);
-
-        assertEq(exitLotsAfter, exitLotsBefore, "failed exit changed OTO size");
-        assertEq(siblingLotsAfter, siblingLotsBefore, "failed exit changed sibling size");
-        assertEq(uint256(exitSiblingAfter), uint256(exitSiblingBefore), "failed exit unlinked OCO sibling");
-        assertEq(uint256(siblingBackAfter), uint256(siblingBackBefore), "failed exit broke OCO backlink");
-        assertEq(uint256(exitFlagsAfter), uint256(exitFlagsBefore), "failed exit changed exit flags");
-        assertEq(uint256(siblingFlagsAfter), uint256(siblingFlagsBefore), "failed exit changed sibling flags");
         assertEq(
-            module.activeAdvancedOrders(ALICE),
-            activeBefore,
-            "failed exit changed advanced active count"
+            uint256(_otoFOKRollbackState(parent, exit, sibling)),
+            uint256(stateBefore),
+            "failed exit changed OTO/core rollback state"
         );
-        assertEq(uint256(parentSharesAfter), uint256(parentSharesBefore), "failed exit burned parent shares");
-        assertEq(parentClaimAfter, parentClaimBefore, "failed exit changed parent claim");
-        assertEq(
-            uint256(parentGenerationAfter),
-            uint256(parentGenerationBefore),
-            "failed exit changed parent generation"
-        );
-        assertEq(reservedAfter, reservedBefore, "failed exit changed reserved margin");
-        assertEq(core.activeQuoteCount(ALICE), 1, "failed exit retired resting parent");
 
         // The restored parent must still be cancellable, proving its lock/link
         // survived the failed child transaction.
@@ -1767,6 +1750,46 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(filled, 40, "restored OTO FOK exit did not execute");
         assertEq(int256(_corePosition(ALICE)), 0, "restored OTO exit did not flatten position");
         assertEq(module.activeAdvancedOrders(ALICE), 0, "OCO sibling survived successful exit");
+    }
+
+    function _attemptConditionalExecution(uint64 orderId)
+        internal
+        returns (bool ok)
+    {
+        (ok,) = address(module).call(
+            abi.encodeCall(module.executeConditionalOrder, (orderId))
+        );
+    }
+
+    function _otoFOKRollbackState(
+        uint64 parent,
+        uint64 exit,
+        uint64 sibling
+    ) internal view returns (bytes32) {
+        (, uint96 exitLots, uint64 exitSibling,,,,,, uint8 exitFlags) =
+            module.conditionalOrders(exit);
+        (, uint96 siblingLots, uint64 siblingBack,,,,,, uint8 siblingFlags) =
+            module.conditionalOrders(sibling);
+        (uint128 parentShares, uint96 parentClaim, uint32 parentGeneration) =
+            core.quotes(ALICE, IOrderBookCore.Side.Bid, 99);
+        (, uint256 reserved) = core.marginStateTest(ALICE);
+
+        return keccak256(
+            abi.encode(
+                exitLots,
+                exitSibling,
+                exitFlags,
+                siblingLots,
+                siblingBack,
+                siblingFlags,
+                parentShares,
+                parentClaim,
+                parentGeneration,
+                reserved,
+                module.activeAdvancedOrders(ALICE),
+                core.activeQuoteCount(ALICE)
+            )
+        );
     }
 
     function testOCOExecutionAndSiblingCancellationConserveReservation() public {
@@ -1850,7 +1873,7 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(int256(_corePosition(ALICE)), 100, "advanced maker fill not materialized");
         assertEq(
             core.accountEquity(ALICE),
-            99_900,
+            999_900,
             "delayed maker funding attribution mismatch"
         );
 
@@ -1863,7 +1886,7 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(int256(_corePosition(ALICE)), 0, "funded advanced exit did not flatten");
         assertEq(
             core.accountEquity(ALICE),
-            99_900,
+            999_900,
             "funding cashflow changed when closing after sync"
         );
     }
@@ -2055,9 +2078,24 @@ contract AdvancedOrderModuleTest is TestBase {
         vm.prank(trader);
         core.addLiquidity(IOrderBookCore.Side.Ask, 110, 20);
 
-        (uint128 sharesBefore, uint96 claimBefore, uint32 generationBefore) =
-            core.quotes(trader, IOrderBookCore.Side.Ask, 110);
+        bytes32 stateBefore = _healthyMakerCleanupState(trader);
 
+        assertTrue(
+            !_attemptLiquidationMakerQuote(trader),
+            "healthy quoted account was liquidated"
+        );
+
+        assertEq(
+            uint256(_healthyMakerCleanupState(trader)),
+            uint256(stateBefore),
+            "failed liquidation changed maker cleanup state"
+        );
+    }
+
+    function _attemptLiquidationMakerQuote(address trader)
+        internal
+        returns (bool ok)
+    {
         IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](1);
         sides[0] = IOrderBookCore.Side.Ask;
         uint16[] memory ticks = new uint16[](1);
@@ -2065,27 +2103,35 @@ contract AdvancedOrderModuleTest is TestBase {
         uint64[] memory conditionals = new uint64[](0);
         uint64[] memory trailings = new uint64[](0);
 
-        (bool ok,) = address(liquidation).call(
+        (ok,) = address(liquidation).call(
             abi.encodeCall(
                 liquidation.liquidate,
                 (trader, sides, ticks, conditionals, trailings)
             )
         );
-        assertTrue(!ok, "healthy quoted account was liquidated");
+    }
 
-        (uint128 sharesAfter, uint96 claimAfter, uint32 generationAfter) =
+    function _healthyMakerCleanupState(address trader)
+        internal
+        view
+        returns (bytes32)
+    {
+        (uint128 shares, uint96 claim, uint32 generation) =
             core.quotes(trader, IOrderBookCore.Side.Ask, 110);
-
-        assertEq(uint256(sharesAfter), uint256(sharesBefore), "failed liquidation changed maker shares");
-        assertEq(claimAfter, claimBefore, "failed liquidation changed maker claim");
-        assertEq(uint256(generationAfter), uint256(generationBefore), "failed liquidation changed quote generation");
-        assertEq(core.activeQuoteCount(trader), 1, "failed liquidation retired maker quote");
-
         (int80 settled, int80 minPosition, int80 maxPosition) =
             core.accountRisk(trader);
-        assertEq(int256(settled), 10, "failed liquidation changed settled position");
-        assertEq(int256(minPosition), -10, "failed liquidation changed ask reservation");
-        assertEq(int256(maxPosition), 10, "failed liquidation changed max envelope");
+
+        return keccak256(
+            abi.encode(
+                shares,
+                claim,
+                generation,
+                core.activeQuoteCount(trader),
+                settled,
+                minPosition,
+                maxPosition
+            )
+        );
     }
 
     function testHealthyLiquidationAttemptRollsBackAdvancedCleanup() public {
@@ -2180,16 +2226,11 @@ contract AdvancedOrderModuleTest is TestBase {
         vm.prank(CAROL);
         core.addLiquidity(IOrderBookCore.Side.Bid, 10, 100);
 
-        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](1);
-        sides[0] = IOrderBookCore.Side.Bid;
-        uint16[] memory ticks = new uint16[](1);
-        ticks[0] = 95;
-        uint64[] memory conditionals = new uint64[](0);
-        uint64[] memory trailings = new uint64[](0);
-
-        uint96 closed =
-            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
-        assertEq(closed, 100, "liquidation did not flatten trader");
+        assertEq(
+            _liquidateManagedMetadataTrader(trader),
+            100,
+            "liquidation did not flatten trader"
+        );
 
         (, uint96 afterLiquidation, uint32 generationAfter) =
             core.pools(IOrderBookCore.Side.Bid, 95);
@@ -2200,11 +2241,38 @@ contract AdvancedOrderModuleTest is TestBase {
             "neighbor liquidity should keep pool generation live"
         );
 
+        _fund(trader, 5_000);
+        oracle.record(100);
+
         // If liquidation leaves stale managed metadata, this refresh sees the
         // deleted old shares as a live 1-lot slice and adds nothing.
         vm.prank(trader);
         marketMaker.batchReplaceQuotes(updates);
 
+        _assertManagedMetadataRefresh(trader);
+    }
+
+    function _liquidateManagedMetadataTrader(address trader)
+        internal
+        returns (uint96 closed)
+    {
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](1);
+        sides[0] = IOrderBookCore.Side.Bid;
+        uint16[] memory ticks = new uint16[](1);
+        ticks[0] = 95;
+        uint64[] memory conditionals = new uint64[](0);
+        uint64[] memory trailings = new uint64[](0);
+
+        closed = liquidation.liquidate(
+            trader,
+            sides,
+            ticks,
+            conditionals,
+            trailings
+        );
+    }
+
+    function _assertManagedMetadataRefresh(address trader) internal view {
         (, uint96 afterRefresh, uint32 generationFinal) =
             core.pools(IOrderBookCore.Side.Bid, 95);
         (uint128 traderShares, uint96 traderClaim, uint32 traderGeneration) =
@@ -2493,24 +2561,49 @@ contract AdvancedOrderModuleTest is TestBase {
         // Taker fee accrues protocol funds, but no executable close liquidity exists.
         feeOracle.record(50);
 
-        uint256 protocolBefore = feeCore.protocolFeesAccrued();
-        uint256 insuranceBefore = feeCore.insuranceReserves();
-        uint256 liquidatorBefore = feeToken.balanceOf(liquidator);
+        bytes32 stateBefore =
+            _zeroCloseState(feeCore, feeToken, trader, liquidator);
 
+        uint96 closed =
+            _liquidateWithoutCleanup(feeLiquidation, trader, liquidator);
+
+        assertEq(closed, 0, "zero-depth liquidation unexpectedly closed");
+        assertEq(
+            uint256(_zeroCloseState(feeCore, feeToken, trader, liquidator)),
+            uint256(stateBefore),
+            "zero close mutated protected state"
+        );
+    }
+
+    function _liquidateWithoutCleanup(
+        LiquidationModule target,
+        address trader,
+        address liquidator
+    ) internal returns (uint96 closed) {
         IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
         uint16[] memory ticks = new uint16[](0);
         uint64[] memory conditionals = new uint64[](0);
         uint64[] memory trailings = new uint64[](0);
 
         vm.prank(liquidator);
-        uint96 closed =
-            feeLiquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+        closed =
+            target.liquidate(trader, sides, ticks, conditionals, trailings);
+    }
 
-        assertEq(closed, 0, "zero-depth liquidation unexpectedly closed");
-        assertEq(feeCore.protocolFeesAccrued(), protocolBefore, "zero close consumed protocol fees");
-        assertEq(feeCore.insuranceReserves(), insuranceBefore, "zero close consumed insurance");
-        assertEq(feeToken.balanceOf(liquidator), liquidatorBefore, "zero close paid reward");
-        assertEq(int256(_positionOn(feeCore, trader)), 100, "zero close changed position");
+    function _zeroCloseState(
+        OrderBookCore target,
+        MockERC20 targetToken,
+        address trader,
+        address liquidator
+    ) internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                target.protocolFeesAccrued(),
+                target.insuranceReserves(),
+                targetToken.balanceOf(liquidator),
+                _positionOn(target, trader)
+            )
+        );
     }
 
     function testPartialLiquidationRewardAndRetryAreProportionalToClosedLots() public {
@@ -2556,16 +2649,10 @@ contract AdvancedOrderModuleTest is TestBase {
         vm.prank(bidMaker);
         feeCore.addLiquidity(IOrderBookCore.Side.Bid, 50, 40);
 
-        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
-        uint16[] memory ticks = new uint16[](0);
-        uint64[] memory conditionals = new uint64[](0);
-        uint64[] memory trailings = new uint64[](0);
-
         uint256 insuranceBefore = feeCore.insuranceReserves();
 
-        vm.prank(liquidator);
         uint96 firstClosed =
-            feeLiquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            _liquidateWithoutCleanup(feeLiquidation, trader, liquidator);
 
         assertEq(firstClosed, 40, "first partial close mismatch");
         assertEq(int256(_positionOn(feeCore, trader)), 60, "first residual position mismatch");
@@ -2575,9 +2662,8 @@ contract AdvancedOrderModuleTest is TestBase {
         vm.prank(bidMaker);
         feeCore.addLiquidity(IOrderBookCore.Side.Bid, 50, 60);
 
-        vm.prank(liquidator);
         uint96 secondClosed =
-            feeLiquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            _liquidateWithoutCleanup(feeLiquidation, trader, liquidator);
 
         assertEq(secondClosed, 60, "second close mismatch");
         assertEq(int256(_positionOn(feeCore, trader)), 0, "retry did not flatten position");

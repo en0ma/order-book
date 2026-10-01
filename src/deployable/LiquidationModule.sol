@@ -2,38 +2,8 @@
 pragma solidity ^0.8.24;
 
 import {IOrderBookCore} from "./IOrderBookCore.sol";
-import {OrderBookMath} from "./OrderBookMath.sol";
-
-interface IAdvancedLiquidationGateway {
-    function activeAdvancedOrders(address account) external view returns (uint32);
-
-    function liquidationCleanupAdvanced(
-        address account,
-        uint64[] calldata conditionalIds,
-        uint64[] calldata trailingIds
-    ) external;
-
-    function liquidationForceCancelQuote(
-        address account,
-        IOrderBookCore.Side side,
-        uint16 tick
-    ) external returns (uint96 removedLots);
-
-    function liquidationTake(
-        address account,
-        IOrderBookCore.Side side,
-        uint16 limitTick,
-        uint96 lots
-    ) external returns (uint96 filledLots);
-
-    function liquidationCoverBadDebt(address account, uint256 requested)
-        external
-        returns (uint256 covered);
-
-    function liquidationPayReward(address liquidator, uint256 requested)
-        external
-        returns (uint256 paid);
-}
+import {ILiquidationGateway} from "./ILiquidationGateway.sol";
+import {LiquidationPolicy} from "./LiquidationPolicy.sol";
 
 /// @title LiquidationModule
 /// @notice Maintenance-health policy and liquidation orchestration.
@@ -42,15 +12,14 @@ contract LiquidationModule {
     error InvalidLiquidationConfig();
     error NotLiquidatable();
     error UnsettledOrders();
-    error RewardAlreadyConfigured();
-    error Unauthorized();
 
     IOrderBookCore public immutable core;
-    IAdvancedLiquidationGateway public immutable gateway;
+    ILiquidationGateway public immutable gateway;
+    LiquidationPolicy public immutable policy;
     uint16 public immutable maintenanceMarginBps;
     address internal immutable owner;
     uint16 public liquidatorRewardBps;
-    bool public liquidatorRewardConfigured;
+    bool internal _liquidatorRewardConfigured;
 
     event Liquidated(
         address indexed liquidator,
@@ -77,52 +46,32 @@ contract LiquidationModule {
         ) revert InvalidLiquidationConfig();
 
         core = IOrderBookCore(core_);
-        gateway = IAdvancedLiquidationGateway(gateway_);
+        gateway = ILiquidationGateway(gateway_);
+        policy = new LiquidationPolicy(core_, gateway_, maintenanceBps_);
         maintenanceMarginBps = maintenanceBps_;
         owner = msg.sender;
     }
 
     function configureLiquidatorReward(uint16 rewardBps) external {
-        if (msg.sender != owner) revert Unauthorized();
-        if (liquidatorRewardConfigured) revert RewardAlreadyConfigured();
+        if (msg.sender != owner) revert InvalidLiquidationConfig();
+        if (_liquidatorRewardConfigured) revert InvalidLiquidationConfig();
         if (rewardBps > 1_000) revert InvalidLiquidationConfig();
 
-        liquidatorRewardConfigured = true;
+        _liquidatorRewardConfigured = true;
         liquidatorRewardBps = rewardBps;
         emit LiquidatorRewardConfigured(rewardBps);
     }
 
-    function maintenanceRequirement(address account) public view returns (uint256) {
-        (int80 position,,) = core.accountRisk(account);
-        uint256 absPosition = uint256(OrderBookMath.absPosition(position));
-
-        return core.notionalValue(uint96(absPosition), core.currentMarkTick())
-            * uint256(maintenanceMarginBps) / 10_000;
+    function maintenanceRequirement(address account) external view returns (uint256) {
+        return policy.maintenanceRequirement(account);
     }
 
-    function terminalBadDebt(address account) public view returns (uint256) {
-        if (
-            core.activeQuoteCount(account) != 0
-                || gateway.activeAdvancedOrders(account) != 0
-        ) return 0;
-
-        (int80 position,,) = core.accountRisk(account);
-        if (position != 0) return 0;
-
-        int256 equity = core.accountEquity(account);
-        return equity < 0 ? uint256(-equity) : 0;
+    function terminalBadDebt(address account) external view returns (uint256) {
+        return policy.terminalBadDebt(account);
     }
 
     function isLiquidatable(address account) external view returns (bool) {
-        if (
-            core.activeQuoteCount(account) != 0
-                || gateway.activeAdvancedOrders(account) != 0
-        ) return false;
-
-        (int80 position,,) = core.accountRisk(account);
-        if (position == 0) return false;
-
-        return core.accountEquity(account) < int256(maintenanceRequirement(account));
+        return policy.isLiquidatable(account);
     }
 
     function liquidate(
@@ -142,17 +91,16 @@ contract LiquidationModule {
             );
         }
 
-        if (
-            core.activeQuoteCount(account) != 0
-                || gateway.activeAdvancedOrders(account) != 0
-        ) revert UnsettledOrders();
+        if (policy.hasOpenOrders(account)) revert UnsettledOrders();
 
         int256 equityBefore = core.accountEquity(account);
-        if (equityBefore >= int256(maintenanceRequirement(account))) {
+        (int80 position,,) = core.accountRisk(account);
+        if (
+            equityBefore
+                >= int256(policy.maintenanceRequirementForPosition(position))
+        ) {
             revert NotLiquidatable();
         }
-
-        (int80 position,,) = core.accountRisk(account);
 
         if (position > 0) {
             closedLots = gateway.liquidationTake(
@@ -173,10 +121,16 @@ contract LiquidationModule {
         }
 
         emit Liquidated(msg.sender, account, closedLots, equityBefore);
+        _finalizeLiquidation(account, closedLots, msg.sender);
+    }
 
+    function _finalizeLiquidation(
+        address account,
+        uint96 closedLots,
+        address liquidator
+    ) internal {
         (int80 remainingPosition,,) = core.accountRisk(account);
         int256 equityAfter = core.accountEquity(account);
-        uint256 maintenanceAfter = maintenanceRequirement(account);
         uint256 badDebt =
             remainingPosition == 0 && equityAfter < 0 ? uint256(-equityAfter) : 0;
 
@@ -193,19 +147,19 @@ contract LiquidationModule {
             account,
             remainingPosition,
             equityAfter,
-            maintenanceAfter,
+            policy.maintenanceRequirementForPosition(remainingPosition),
             insuranceCovered,
             badDebt
         );
 
         uint16 rewardBps = liquidatorRewardBps;
-        if (closedLots != 0 && rewardBps != 0) {
-            uint256 requestedReward =
-                core.notionalValue(closedLots, core.currentMarkTick())
-                    * uint256(rewardBps) / 10_000;
-            uint256 paid =
-                gateway.liquidationPayReward(msg.sender, requestedReward);
-            if (paid != 0) emit LiquidatorRewardPaid(msg.sender, paid);
-        }
+        if (closedLots == 0 || rewardBps == 0) return;
+
+        uint256 requestedReward =
+            core.notionalValue(closedLots, core.currentMarkTick())
+                * uint256(rewardBps) / 10_000;
+        uint256 paid =
+            gateway.liquidationPayReward(liquidator, requestedReward);
+        if (paid != 0) emit LiquidatorRewardPaid(liquidator, paid);
     }
 }

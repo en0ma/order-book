@@ -840,7 +840,12 @@ contract OrderBookCore is IOrderBookCore {
             OrderBookMath.redeemableLotsCeil(q.shares, p.remainingLots, p.totalShares);
 
         if (currentClaim >= q.claimLots) {
+            uint96 claimIncrease = currentClaim - q.claimLots;
             q.claimLots = currentClaim;
+            if (claimIncrease != 0) {
+                _expandRisk(maker, side, claimIncrease);
+                _refreshReservedMargin(maker);
+            }
             return 0;
         }
 

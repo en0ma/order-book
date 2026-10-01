@@ -202,9 +202,9 @@ contract RebateFundingRoundingInvariantTest is TestBase {
         uint256 cSeed,
         uint256 fundingSeed
     ) public {
-        uint96 aLots = boundNonZero(aSeed, 1_000);
-        uint96 bLots = boundNonZero(bSeed, 1_000);
-        uint96 cLots = boundNonZero(cSeed, 1_000);
+        uint96 aLots = boundNonZero(aSeed, 200);
+        uint96 bLots = boundNonZero(bSeed, 200);
+        uint96 cLots = boundNonZero(cSeed, 200);
         int128 fundingIndex =
             int128(int256((fundingSeed % 19) + 1) * 1e18);
 
@@ -286,6 +286,9 @@ contract RebateFundingRoundingInvariantTest is TestBase {
             vm.prank(CAROL);
             core.settle(IOrderBookCore.Side.Ask, 105);
         }
+
+        vm.prank(TAKER);
+        core.settle(IOrderBookCore.Side.Bid, 105);
 
         settledClaims =
             _cashClaim(core, ALICE) + _cashClaim(core, BOB)

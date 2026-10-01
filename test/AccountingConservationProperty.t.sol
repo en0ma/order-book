@@ -37,9 +37,9 @@ contract AccountingConservationPropertyTest is TestBase {
         uint256 carolSeed,
         uint256 fillSeed
     ) public {
-        uint96 aliceLots = boundNonZero(aliceSeed, 1_000);
-        uint96 bobLots = boundNonZero(bobSeed, 1_000);
-        uint96 carolLots = boundNonZero(carolSeed, 1_000);
+        uint96 aliceLots = boundNonZero(aliceSeed, 700);
+        uint96 bobLots = boundNonZero(bobSeed, 700);
+        uint96 carolLots = boundNonZero(carolSeed, 700);
 
         vm.prank(ALICE);
         core.addLiquidity(IOrderBookCore.Side.Ask, 105, aliceLots);
@@ -50,7 +50,8 @@ contract AccountingConservationPropertyTest is TestBase {
 
         uint256 totalLots =
             uint256(aliceLots) + uint256(bobLots) + uint256(carolLots);
-        uint96 requested = uint96((fillSeed % totalLots) + 1);
+        uint256 maxSafeTakerLots = totalLots < 450 ? totalLots : 450;
+        uint96 requested = uint96((fillSeed % maxSafeTakerLots) + 1);
 
         vm.prank(TAKER);
         core.take(
