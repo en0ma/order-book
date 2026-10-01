@@ -23,6 +23,7 @@ contract PortfolioCollateralVault {
 
     uint256 public totalAccountedCollateral;
     mapping(address => uint256) public balanceOf;
+    mapping(address => uint256) public portfolioCredited;
     mapping(address => uint256) public portfolioWithdrawn;
     mapping(address => uint256) public lockedCollateral;
 
@@ -34,6 +35,7 @@ contract PortfolioCollateralVault {
         address indexed recipient,
         uint256 amount
     );
+    event PortfolioClaimCredited(address indexed account, uint256 amount);
     event LockedCollateralUpdated(
         address indexed account,
         uint256 previousLocked,
@@ -119,8 +121,17 @@ contract PortfolioCollateralVault {
         emit PortfolioWithdrawn(account, recipient, amount);
     }
 
+    function controllerCreditClaim(address account, uint256 amount)
+        external
+        onlyController
+    {
+        if (amount == 0) return;
+        portfolioCredited[account] += amount;
+        emit PortfolioClaimCredited(account, amount);
+    }
+
     function collateralClaim(address account) public view returns (int256 claim) {
-        uint256 balance = balanceOf[account];
+        uint256 balance = balanceOf[account] + portfolioCredited[account];
         uint256 withdrawn = portfolioWithdrawn[account];
 
         if (balance >= withdrawn) {
