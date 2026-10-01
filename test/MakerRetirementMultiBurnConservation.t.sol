@@ -174,17 +174,9 @@ contract MakerRetirementMultiBurnConservationTest is TestBase {
         view
         returns (uint256 claim)
     {
-        (uint256 collateral, int256 trading, int256 funding,, int128 checkpoint) =
+        (uint256 collateral, int256 trading, int256 funding,,) =
             core.accountingStateTest(account);
-        int256 pendingFunding = -(
-            int256(_position(core, account))
-                * (
-                    int256(core.fundingIndexTest())
-                        - int256(checkpoint)
-                ) / 1e18
-        );
-        int256 signedClaim =
-            int256(collateral) + trading + funding + pendingFunding;
+        int256 signedClaim = int256(collateral) + trading + funding;
         assertTrue(signedClaim >= 0, "negative settled cash claim");
         claim = uint256(signedClaim);
     }
