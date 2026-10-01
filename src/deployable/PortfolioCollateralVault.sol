@@ -34,6 +34,7 @@ contract PortfolioCollateralVault {
         address indexed recipient,
         uint256 amount
     );
+    event SystemWithdrawn(address indexed recipient, uint256 amount);
     event LockedCollateralUpdated(
         address indexed account,
         uint256 previousLocked,
@@ -117,6 +118,21 @@ contract PortfolioCollateralVault {
         }
 
         emit PortfolioWithdrawn(account, recipient, amount);
+    }
+
+    function controllerSystemWithdraw(address recipient, uint256 amount)
+        external
+        onlyController
+    {
+        if (recipient == address(0) || amount == 0) revert ZeroAmount();
+        if (amount > totalAccountedCollateral) revert InsufficientFreeCollateral();
+
+        totalAccountedCollateral -= amount;
+        if (!collateralToken.transfer(recipient, amount)) {
+            revert TokenTransferFailed();
+        }
+
+        emit SystemWithdrawn(recipient, amount);
     }
 
     function collateralClaim(address account) public view returns (int256 claim) {
