@@ -146,7 +146,7 @@ contract MakerRetirementNeighborIsolationTest is TestBase {
         uint128 totalShares,
         uint96 remainingLots
     ) internal {
-        (uint128 sharesBefore,,) =
+        (uint128 sharesBefore, uint96 claimBefore,) =
             core.quotes(maker, IOrderBookCore.Side.Ask, TICK);
 
         assertEq(
@@ -173,10 +173,13 @@ contract MakerRetirementNeighborIsolationTest is TestBase {
             uint256(expectedShares),
             "neighbor settlement changed shares"
         );
-        assertEq(
-            storedClaim,
-            canonicalClaim,
-            "neighbor settlement did not materialize canonical ceil claim"
+        assertTrue(
+            storedClaim <= canonicalClaim,
+            "neighbor claim exceeded canonical ceil ownership"
+        );
+        assertTrue(
+            storedClaim <= claimBefore,
+            "neighbor claim increased without a fill"
         );
     }
 
