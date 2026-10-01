@@ -409,7 +409,7 @@ contract OrderBookCore is IOrderBookCore {
     function moduleSettle(address account, Side side, uint16 tick)
         external
         override
-        onlyModule
+        onlyRiskModule
         returns (uint96 filledLots)
     {
         filledLots = _settle(account, side, tick);
@@ -441,7 +441,7 @@ contract OrderBookCore is IOrderBookCore {
         uint16 tick,
         uint32 generation,
         uint128 shares
-    ) external override onlyModule {
+    ) external override onlyRiskModule {
         ModuleLock storage lock = moduleLocks[account][side][tick];
 
         // The referenced generation can already be fully consumed and replaced.
