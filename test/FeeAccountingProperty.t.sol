@@ -72,18 +72,19 @@ contract FeeAccountingPropertyTest is TestBase {
         uint256 creditedRebate =
             _makerRebate(ALICE) + _makerRebate(BOB) + _makerRebate(CAROL);
 
-        assertEq(
-            core.protocolFeesAccrued(),
-            takerFee - reservedMakerRebate,
-            "protocol net reserve mismatch"
-        );
         assertTrue(
             creditedRebate <= reservedMakerRebate,
             "maker rebates exceeded reserved rebate"
         );
-        assertTrue(
-            core.protocolFeesAccrued() + creditedRebate <= takerFee,
-            "fee accounting over-distributed taker fee"
+        assertEq(
+            core.protocolFeesAccrued(),
+            takerFee - creditedRebate,
+            "unclaimed maker rebate dust was not returned to protocol fees"
+        );
+        assertEq(
+            core.protocolFeesAccrued() + creditedRebate,
+            takerFee,
+            "fee accounting did not conserve taker fees"
         );
     }
 
