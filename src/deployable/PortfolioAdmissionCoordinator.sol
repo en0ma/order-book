@@ -189,6 +189,24 @@ contract PortfolioAdmissionCoordinator {
         syncAccount(msg.sender);
     }
 
+    function removeLiquidity(
+        uint256 marketIndex,
+        IOrderBookCore.Side side,
+        uint16 tick,
+        uint32 generation,
+        uint128 shares
+    ) external returns (uint96 removedLots) {
+        MarketConfig storage market = _market(marketIndex);
+        removedLots = market.core.moduleRemoveLockedShares(
+            msg.sender,
+            side,
+            tick,
+            generation,
+            shares
+        );
+        syncAccount(msg.sender);
+    }
+
     function gatewayReserveExposure(
         uint256 marketIndex,
         address account,
