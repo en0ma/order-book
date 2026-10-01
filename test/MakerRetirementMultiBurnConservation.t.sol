@@ -41,6 +41,50 @@ contract MakerRetirementMultiBurnConservationTest is TestBase {
         );
     }
 
+    function testRegression_FinalMakerCanRetireUnownedPoolDust() public {
+        MockERC20 token = new MockERC20();
+        SegmentTreeExtremaOracle oracle =
+            new SegmentTreeExtremaOracle(address(this), TICK, 3_600);
+        OrderBookCoreHarness core = new OrderBookCoreHarness(
+            address(token), address(oracle), 100, 1_000, 10, 5
+        );
+
+        _fund(core, token, MAKER0);
+        _fund(core, token, MAKER1);
+        _fund(core, token, TAKER);
+
+        _add(core, MAKER0, 78);
+        _add(core, MAKER1, 1);
+
+        // Retiring the tiny maker can leave conservative cancellation dust in
+        // the pool denominator without assigning it to MAKER0's canonical claim.
+        vm.prank(MAKER1);
+        (uint128 smallShares,,) =
+            core.quotes(MAKER1, IOrderBookCore.Side.Ask, TICK);
+        core.removeShares(IOrderBookCore.Side.Ask, TICK, smallShares);
+
+        (uint128 finalShares, uint96 finalClaim,) =
+            core.quotes(MAKER0, IOrderBookCore.Side.Ask, TICK);
+        (, uint96 poolRemaining,) =
+            core.pools(IOrderBookCore.Side.Ask, TICK);
+
+        assertTrue(poolRemaining >= finalClaim, "pool below canonical claim");
+
+        vm.prank(MAKER0);
+        core.removeShares(IOrderBookCore.Side.Ask, TICK, finalShares);
+
+        (uint128 totalShares, uint96 remainingLots,) =
+            core.pools(IOrderBookCore.Side.Ask, TICK);
+        assertEq(uint256(totalShares), 0, "final shares remained");
+        assertEq(uint256(remainingLots), 0, "unowned dust remained");
+        assertEq(
+            int256(_position(core, MAKER0)),
+            int256(0),
+            "dust retirement created maker execution"
+        );
+        _assertRiskEnvelope(core, MAKER0);
+    }
+
     function testFuzz_MultiBurnsNeverOverCreditMakerExecution(
         uint256 maker0Seed,
         uint256 maker1Seed,
