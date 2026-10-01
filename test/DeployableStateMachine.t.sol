@@ -34,7 +34,7 @@ contract DeployableStateMachineTest is TestBase {
     function setUp() public {
         token = new MockERC20();
         oracle = new SegmentTreeExtremaOracle(address(this), 100, 3_600);
-        core = new OrderBookCoreHarness(address(token), address(oracle), 40, 1_000, 0, 0);
+        core = new OrderBookCoreHarness(address(token), address(oracle), 40, 1_000, 10, 5);
         advanced = new AdvancedOrderModule(address(core), address(oracle));
         marketMaker = new MarketMakerModule(address(core), address(advanced));
         liquidation = new LiquidationModule(address(core), address(advanced), 500);
@@ -239,6 +239,27 @@ contract DeployableStateMachineTest is TestBase {
             _checkPool(IOrderBookCore.Side.Bid, BID_TICKS[i], i, actors);
             _checkPool(IOrderBookCore.Side.Ask, ASK_TICKS[i], i + 3, actors);
         }
+
+        int256 userClaims;
+        for (uint256 a; a < actors.length; ++a) {
+            userClaims += _cashClaim(actors[a]);
+        }
+
+        int256 internalClaims =
+            userClaims + int256(core.protocolFeesAccrued())
+                + int256(core.insuranceReserves());
+
+        assertTrue(internalClaims >= 0, "aggregate internal claims negative");
+        assertTrue(
+            uint256(internalClaims) <= token.balanceOf(address(core)),
+            "fee/rebate accounting exceeded token custody"
+        );
+    }
+
+    function _cashClaim(address account) internal view returns (int256) {
+        (uint256 collateral, int256 trading, int256 funding,,) =
+            core.accountingStateTest(account);
+        return int256(collateral) + trading + funding;
     }
 
     function _checkPool(
