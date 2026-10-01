@@ -647,9 +647,10 @@ contract OrderBookCore is IOrderBookCore {
         removedLots = uint96(redeemed);
 
         uint96 claimBefore = q.claimLots;
+        uint96 remainingBefore = p.remainingLots;
 
         p.totalShares -= sharesToBurn;
-        p.remainingLots -= removedLots;
+        p.remainingLots = remainingBefore - removedLots;
         q.shares -= sharesToBurn;
 
         uint96 claimAfter;
@@ -661,10 +662,23 @@ contract OrderBookCore is IOrderBookCore {
             );
         }
         if (claimAfter > claimBefore) revert InvalidShareAmount();
-        q.claimLots = claimAfter;
 
         uint96 claimReduction = claimBefore - claimAfter;
-        if (claimReduction < removedLots) revert InvalidShareAmount();
+        if (claimReduction < removedLots) {
+            removedLots = claimReduction;
+            p.remainingLots = remainingBefore - removedLots;
+
+            if (q.shares != 0) {
+                claimAfter = OrderBookMath.redeemableLotsCeil(
+                    q.shares,
+                    p.remainingLots,
+                    p.totalShares
+                );
+            }
+            if (claimAfter > claimBefore) revert InvalidShareAmount();
+            claimReduction = claimBefore - claimAfter;
+        }
+        q.claimLots = claimAfter;
 
         if (claimReduction == 0 && q.shares != 0) {
             int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
