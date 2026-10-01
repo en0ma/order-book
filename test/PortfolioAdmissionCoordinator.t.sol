@@ -195,9 +195,10 @@ contract PortfolioAdmissionCoordinatorTest is TestBase {
         vm.prank(TAKER);
         coordinator.withdraw(21_000);
 
+        uint256 withdrawnTokens = token.balanceOf(TAKER) - beforeTokens;
         assertEq(
-            token.balanceOf(TAKER) - beforeTokens,
-            21_000,
+            withdrawnTokens,
+            uint256(21_000),
             "profit withdrawal amount mismatch"
         );
         int256 collateralClaimAfter = vault.collateralClaim(TAKER);
