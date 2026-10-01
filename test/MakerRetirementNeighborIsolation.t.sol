@@ -145,20 +145,38 @@ contract MakerRetirementNeighborIsolationTest is TestBase {
         uint128 expectedShares,
         uint128 totalShares,
         uint96 remainingLots
-    ) internal view {
-        (uint128 shares, uint96 storedClaim,) =
+    ) internal {
+        (uint128 sharesBefore,,) =
             core.quotes(maker, IOrderBookCore.Side.Ask, TICK);
 
-        assertEq(uint256(shares), uint256(expectedShares), "neighbor shares changed");
+        assertEq(
+            uint256(sharesBefore),
+            uint256(expectedShares),
+            "neighbor shares changed"
+        );
 
         uint96 canonicalClaim =
-            OrderBookMath.redeemableLotsCeil(shares, remainingLots, totalShares);
+            OrderBookMath.redeemableLotsCeil(
+                sharesBefore,
+                remainingLots,
+                totalShares
+            );
 
-        // Stored claim can lag downward until settlement, but it must never understate
-        // the currently reachable ceil claim after another maker burns shares.
-        assertTrue(
-            storedClaim >= canonicalClaim,
-            "neighbor claim understated canonical ceil ownership"
+        vm.prank(maker);
+        core.settle(IOrderBookCore.Side.Ask, TICK);
+
+        (uint128 sharesAfter, uint96 storedClaim,) =
+            core.quotes(maker, IOrderBookCore.Side.Ask, TICK);
+
+        assertEq(
+            uint256(sharesAfter),
+            uint256(expectedShares),
+            "neighbor settlement changed shares"
+        );
+        assertEq(
+            storedClaim,
+            canonicalClaim,
+            "neighbor settlement did not materialize canonical ceil claim"
         );
     }
 
