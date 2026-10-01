@@ -23,6 +23,8 @@ interface IOrderBookCore {
 
     function activeQuoteCount(address account) external view returns (uint32);
     function accountEquity(address account) external view returns (int256);
+    function accountMarketValue(address account) external view returns (int256);
+    function portfolioController() external view returns (address);
     function notionalValue(uint96 lots, uint16 tick) external view returns (uint256);
 
     function pools(Side side, uint16 tick)
@@ -89,4 +91,28 @@ interface IOrderBookCore {
     function modulePayLiquidationReward(address liquidator, uint256 requested)
         external
         returns (uint256 paid);
+
+    function portfolioReserveExposure(address account, Side side, uint96 lots)
+        external
+        returns (uint16 riskCeilingTick);
+
+    function portfolioReleaseExposure(address account, Side side, uint96 lots) external;
+
+    function portfolioTake(
+        address account,
+        Side side,
+        uint16 limitTick,
+        uint96 lots,
+        FillPolicy policy,
+        bool reduceOnly,
+        bool preReserved
+    ) external returns (uint96 filledLots);
+
+    function portfolioAddLiquidity(
+        address account,
+        Side side,
+        uint16 tick,
+        uint96 lots,
+        uint16 reservedRiskCeiling
+    ) external returns (uint128 mintedShares);
 }
