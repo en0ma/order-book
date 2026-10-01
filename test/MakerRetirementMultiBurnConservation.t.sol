@@ -75,6 +75,9 @@ contract MakerRetirementMultiBurnConservationTest is TestBase {
         _settle(core, MAKER1);
         _settle(core, MAKER2);
 
+        vm.prank(TAKER);
+        core.settle(IOrderBookCore.Side.Bid, TICK);
+
         int256 makerPosition =
             int256(_position(core, MAKER0))
                 + int256(_position(core, MAKER1))
