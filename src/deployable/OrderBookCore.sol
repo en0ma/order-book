@@ -839,15 +839,11 @@ contract OrderBookCore is IOrderBookCore {
         uint96 currentClaim =
             OrderBookMath.redeemableLotsCeil(q.shares, p.remainingLots, p.totalShares);
 
-        if (currentClaim >= q.claimLots) {
-            uint96 claimIncrease = currentClaim - q.claimLots;
-            q.claimLots = currentClaim;
-            if (claimIncrease != 0) {
-                _expandRisk(maker, side, claimIncrease);
-                _refreshReservedMargin(maker);
-            }
-            return 0;
-        }
+        // claimLots is a monotonic remaining fill entitlement. Another
+        // maker burning shares can increase the instantaneous ceil redemption,
+        // but promoting that rounding headroom into claimLots would later turn
+        // cancellation dust into synthetic maker fills.
+        if (currentClaim >= q.claimLots) return 0;
 
         filledLots = q.claimLots - currentClaim;
         q.claimLots = currentClaim;
@@ -895,11 +891,10 @@ contract OrderBookCore is IOrderBookCore {
         int256 deltaPerShare =
             finalFundingEntryPerShareX96 - quoteFundingCheckpointX96[maker][side][tick];
 
-        int256 weightedEntry =
-            _divNearestSigned(
-                int256(uint256(shares)) * deltaPerShare,
-                int256(ACCUMULATOR_SCALE)
-            );
+        int256 weightedEntry = _divFundingEntry(
+            side,
+            int256(uint256(shares)) * deltaPerShare
+        );
 
         int256 signedLots =
             side == Side.Bid ? int256(uint256(filledLots)) : -int256(uint256(filledLots));
@@ -1323,13 +1318,20 @@ contract OrderBookCore is IOrderBookCore {
         if (x >> 1 != 0) r += 1;
     }
 
-    function _divNearestSigned(int256 numerator, int256 denominator)
+    function _divFundingEntry(Side side, int256 numerator)
         internal
         pure
-        returns (int256)
+        returns (int256 quotient)
     {
-        int256 half = denominator / 2;
-        if (numerator >= 0) return (numerator + half) / denominator;
-        return -((-numerator + half) / denominator);
+        int256 denominator = int256(ACCUMULATOR_SCALE);
+        quotient = numerator / denominator;
+        int256 remainder = numerator % denominator;
+        if (remainder == 0) return quotient;
+
+        if (side == Side.Bid) {
+            if (numerator < 0) --quotient;
+        } else if (numerator > 0) {
+            ++quotient;
+        }
     }
 }
