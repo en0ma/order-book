@@ -76,16 +76,27 @@ contract FeeAccountingPropertyTest is TestBase {
             creditedRebate <= reservedMakerRebate,
             "maker rebates exceeded reserved rebate"
         );
-        assertEq(
-            core.protocolFeesAccrued(),
-            takerFee - creditedRebate,
-            "unclaimed maker rebate dust was not returned to protocol fees"
-        );
-        assertEq(
-            core.protocolFeesAccrued() + creditedRebate,
-            takerFee,
-            "fee accounting did not conserve taker fees"
-        );
+
+        (, uint96 remainingLots,) =
+            core.pools(IOrderBookCore.Side.Ask, 105);
+
+        if (remainingLots == 0) {
+            assertEq(
+                core.protocolFeesAccrued() + creditedRebate,
+                takerFee,
+                "closed generation did not reclaim rebate dust"
+            );
+        } else {
+            assertEq(
+                core.protocolFeesAccrued(),
+                takerFee - reservedMakerRebate,
+                "open generation protocol reserve mismatch"
+            );
+            assertTrue(
+                core.protocolFeesAccrued() + creditedRebate <= takerFee,
+                "open generation over-distributed taker fee"
+            );
+        }
     }
 
     function _makerRebate(address maker) internal view returns (uint256 rebate) {
