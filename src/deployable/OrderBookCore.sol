@@ -752,7 +752,13 @@ contract OrderBookCore is IOrderBookCore {
         uint96 claimReduction = claimBefore - claimAfter;
         if (claimReduction < removedLots) {
             uint256 otherShares = uint256(p.totalShares) - uint256(q.shares);
-            if (otherShares != 0) {
+            if (otherShares == 0) {
+                // The final maker may own fewer canonical claim lots than the
+                // pool's residual cancellation dust. Retire only the maker's
+                // claim; the unowned dust is cleared once all shares are gone.
+                removedLots = claimReduction;
+                p.remainingLots = remainingBefore - removedLots;
+            } else {
                 uint256 safeLeft =
                     uint256(claimBefore) * uint256(p.totalShares);
                 uint256 safeRight =
@@ -830,7 +836,9 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         if (p.totalShares == 0) {
-            if (p.remainingLots != 0) revert InvalidShareAmount();
+            // Any residual lots here are unowned cancellation dust left by
+            // conservative claim rounding. They must not become maker fills.
+            p.remainingLots = 0;
 
             uint128 rebateDust = currentMakerRebateReserve[side][tick];
             if (rebateDust != 0) {
