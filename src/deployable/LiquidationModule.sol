@@ -2,38 +2,8 @@
 pragma solidity ^0.8.24;
 
 import {IOrderBookCore} from "./IOrderBookCore.sol";
-import {OrderBookMath} from "./OrderBookMath.sol";
-
-interface IAdvancedLiquidationGateway {
-    function activeAdvancedOrders(address account) external view returns (uint32);
-
-    function liquidationCleanupAdvanced(
-        address account,
-        uint64[] calldata conditionalIds,
-        uint64[] calldata trailingIds
-    ) external;
-
-    function liquidationForceCancelQuote(
-        address account,
-        IOrderBookCore.Side side,
-        uint16 tick
-    ) external returns (uint96 removedLots);
-
-    function liquidationTake(
-        address account,
-        IOrderBookCore.Side side,
-        uint16 limitTick,
-        uint96 lots
-    ) external returns (uint96 filledLots);
-
-    function liquidationCoverBadDebt(address account, uint256 requested)
-        external
-        returns (uint256 covered);
-
-    function liquidationPayReward(address liquidator, uint256 requested)
-        external
-        returns (uint256 paid);
-}
+import {ILiquidationGateway} from "./ILiquidationGateway.sol";
+import {LiquidationPolicy} from "./LiquidationPolicy.sol";
 
 /// @title LiquidationModule
 /// @notice Maintenance-health policy and liquidation orchestration.
@@ -44,7 +14,8 @@ contract LiquidationModule {
     error UnsettledOrders();
 
     IOrderBookCore public immutable core;
-    IAdvancedLiquidationGateway public immutable gateway;
+    ILiquidationGateway public immutable gateway;
+    LiquidationPolicy public immutable policy;
     uint16 public immutable maintenanceMarginBps;
     address internal immutable owner;
     uint16 public liquidatorRewardBps;
@@ -75,7 +46,8 @@ contract LiquidationModule {
         ) revert InvalidLiquidationConfig();
 
         core = IOrderBookCore(core_);
-        gateway = IAdvancedLiquidationGateway(gateway_);
+        gateway = ILiquidationGateway(gateway_);
+        policy = new LiquidationPolicy(core_, gateway_, maintenanceBps_);
         maintenanceMarginBps = maintenanceBps_;
         owner = msg.sender;
     }
@@ -91,28 +63,15 @@ contract LiquidationModule {
     }
 
     function maintenanceRequirement(address account) external view returns (uint256) {
-        (int80 position,,) = core.accountRisk(account);
-        return _maintenanceRequirementForPosition(position);
+        return policy.maintenanceRequirement(account);
     }
 
     function terminalBadDebt(address account) external view returns (uint256) {
-        if (_hasOpenOrders(account)) return 0;
-
-        (int80 position,,) = core.accountRisk(account);
-        if (position != 0) return 0;
-
-        int256 equity = core.accountEquity(account);
-        return equity < 0 ? uint256(-equity) : 0;
+        return policy.terminalBadDebt(account);
     }
 
     function isLiquidatable(address account) external view returns (bool) {
-        if (_hasOpenOrders(account)) return false;
-
-        (int80 position,,) = core.accountRisk(account);
-        if (position == 0) return false;
-
-        return core.accountEquity(account)
-            < int256(_maintenanceRequirementForPosition(position));
+        return policy.isLiquidatable(account);
     }
 
     function liquidate(
@@ -132,13 +91,13 @@ contract LiquidationModule {
             );
         }
 
-        if (_hasOpenOrders(account)) revert UnsettledOrders();
+        if (policy.hasOpenOrders(account)) revert UnsettledOrders();
 
         int256 equityBefore = core.accountEquity(account);
         (int80 position,,) = core.accountRisk(account);
         if (
             equityBefore
-                >= int256(_maintenanceRequirementForPosition(position))
+                >= int256(policy.maintenanceRequirementForPosition(position))
         ) {
             revert NotLiquidatable();
         }
@@ -165,22 +124,6 @@ contract LiquidationModule {
         _finalizeLiquidation(account, closedLots, msg.sender);
     }
 
-    function _hasOpenOrders(address account) internal view returns (bool) {
-        return core.activeQuoteCount(account) != 0
-            || gateway.activeAdvancedOrders(account) != 0;
-    }
-
-    function _maintenanceRequirementForPosition(int80 position)
-        internal
-        view
-        returns (uint256)
-    {
-        uint256 absPosition = uint256(OrderBookMath.absPosition(position));
-
-        return core.notionalValue(uint96(absPosition), core.currentMarkTick())
-            * uint256(maintenanceMarginBps) / 10_000;
-    }
-
     function _finalizeLiquidation(
         address account,
         uint96 closedLots,
@@ -204,7 +147,7 @@ contract LiquidationModule {
             account,
             remainingPosition,
             equityAfter,
-            _maintenanceRequirementForPosition(remainingPosition),
+            policy.maintenanceRequirementForPosition(remainingPosition),
             insuranceCovered,
             badDebt
         );
