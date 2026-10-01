@@ -42,7 +42,6 @@ contract LiquidationModule {
     error InvalidLiquidationConfig();
     error NotLiquidatable();
     error UnsettledOrders();
-    error RewardAlreadyConfigured();
     error Unauthorized();
 
     IOrderBookCore public immutable core;
@@ -84,7 +83,7 @@ contract LiquidationModule {
 
     function configureLiquidatorReward(uint16 rewardBps) external {
         if (msg.sender != owner) revert Unauthorized();
-        if (_liquidatorRewardConfigured) revert RewardAlreadyConfigured();
+        if (_liquidatorRewardConfigured) revert InvalidLiquidationConfig();
         if (rewardBps > 1_000) revert InvalidLiquidationConfig();
 
         _liquidatorRewardConfigured = true;
