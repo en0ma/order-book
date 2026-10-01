@@ -666,6 +666,25 @@ contract OrderBookCore is IOrderBookCore {
         uint96 claimReduction = claimBefore - claimAfter;
         if (claimReduction < removedLots) revert InvalidShareAmount();
 
+        if (claimReduction == 0 && q.shares != 0) {
+            int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
+            int256 priorCheckpoint =
+                quoteFundingCheckpointX96[maker][side][tick];
+            int256 pendingEntryPerShare =
+                currentFundingEntry - priorCheckpoint;
+
+            if (pendingEntryPerShare != 0) {
+                int256 inheritedEntryPerShare = _divFundingDirected(
+                    side,
+                    int256(uint256(q.shares + sharesToBurn))
+                        * pendingEntryPerShare,
+                    int256(uint256(q.shares))
+                );
+                quoteFundingCheckpointX96[maker][side][tick] =
+                    currentFundingEntry - inheritedEntryPerShare;
+            }
+        }
+
         uint96 burnAttributedFill = claimReduction - removedLots;
         if (burnAttributedFill != 0) {
             int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
