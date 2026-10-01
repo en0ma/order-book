@@ -50,7 +50,7 @@ contract LiquidationModule {
     uint16 public immutable maintenanceMarginBps;
     address internal immutable owner;
     uint16 public liquidatorRewardBps;
-    bool public liquidatorRewardConfigured;
+    bool internal _liquidatorRewardConfigured;
 
     event Liquidated(
         address indexed liquidator,
@@ -84,10 +84,10 @@ contract LiquidationModule {
 
     function configureLiquidatorReward(uint16 rewardBps) external {
         if (msg.sender != owner) revert Unauthorized();
-        if (liquidatorRewardConfigured) revert RewardAlreadyConfigured();
+        if (_liquidatorRewardConfigured) revert RewardAlreadyConfigured();
         if (rewardBps > 1_000) revert InvalidLiquidationConfig();
 
-        liquidatorRewardConfigured = true;
+        _liquidatorRewardConfigured = true;
         liquidatorRewardBps = rewardBps;
         emit LiquidatorRewardConfigured(rewardBps);
     }
