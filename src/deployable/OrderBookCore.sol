@@ -190,7 +190,7 @@ contract OrderBookCore is IOrderBookCore {
     function configurePortfolioController(address controller) external onlyOwner {
         if (controller == address(0)) revert Unauthorized();
         if (portfolioController != address(0)) revert ModuleAlreadyConfigured();
-        if (totalLocalCollateral != 0 || feeSchedulePacked != 0 || insuranceReserves != 0) {
+        if (totalLocalCollateral != 0 || insuranceReserves != 0) {
             revert InvalidRiskConfig();
         }
 
@@ -478,26 +478,31 @@ contract OrderBookCore is IOrderBookCore {
         onlyModule
         returns (uint256 covered)
     {
-        if (portfolioController != address(0)) revert Unauthorized();
         if (requested == 0) return 0;
         if (_accountMeta[account].activeQuoteCount != 0) revert Unauthorized();
 
         int80 position = accountRisk[account].settledPosition;
         if (position != 0) revert ReduceOnlyViolation();
 
-        int256 equity = accountEquity(account);
-        if (equity >= 0) return 0;
+        uint256 debt = requested;
+        bool portfolioMode = portfolioController != address(0);
+        if (!portfolioMode) {
+            int256 equity = accountEquity(account);
+            if (equity >= 0) return 0;
 
-        uint256 debt = uint256(-equity);
-        covered = requested < debt ? requested : debt;
+            uint256 localDebt = uint256(-equity);
+            if (debt > localDebt) debt = localDebt;
+        }
 
         uint256 reserves = insuranceReserves;
-        if (covered > reserves) covered = reserves;
+        covered = debt < reserves ? debt : reserves;
         if (covered == 0) return 0;
 
         insuranceReserves = reserves - covered;
-        collateralBalance[account] += covered;
-        totalLocalCollateral += covered;
+        if (!portfolioMode) {
+            collateralBalance[account] += covered;
+            totalLocalCollateral += covered;
+        }
 
         emit BadDebtCovered(account, covered);
     }
@@ -517,7 +522,10 @@ contract OrderBookCore is IOrderBookCore {
 
         _feeAccountingPacked =
             (packed & ~uint256(type(uint128).max)) | (accrued - paid);
-        if (!collateralToken.transfer(liquidator, paid)) revert TokenTransferFailed();
+        if (
+            portfolioController == address(0)
+                && !collateralToken.transfer(liquidator, paid)
+        ) revert TokenTransferFailed();
 
         emit LiquidationRewardPaid(liquidator, paid);
     }
