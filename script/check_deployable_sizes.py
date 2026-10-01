@@ -10,6 +10,7 @@ TARGETS = [
     ("LiquidationModule", Path("out/LiquidationModule.sol/LiquidationModule.json"), 5_000),
     ("LiquidationPolicy", Path("out/LiquidationPolicy.sol/LiquidationPolicy.json"), 3_000),
     ("PortfolioMarginPolicy", Path("out/PortfolioMarginPolicy.sol/PortfolioMarginPolicy.json"), 5_000),
+    ("PortfolioLiquidationModule", Path("out/PortfolioLiquidationModule.sol/PortfolioLiquidationModule.json"), 6_000),
     ("SegmentTreeExtremaOracle", Path("out/SegmentTreeExtremaOracle.sol/SegmentTreeExtremaOracle.json"), 4_000),
 ]
 
