@@ -126,6 +126,35 @@ contract PortfolioMarginPolicyTest is TestBase {
         );
     }
 
+    function testHedgeCreditCannotRelyOnExposureThatMayFlip() public {
+        PortfolioMarginPolicy policy = _policy(1, 1, 1_000, 10_000);
+
+        // A is currently +100 against B's -100, but A has resting exposure
+        // that can flip it to -50. The current hedge is therefore not guaranteed.
+        marketA.setRisk(TRADER, 100, -50, 100);
+        marketB.setRisk(TRADER, -100, -100, -100);
+
+        assertEq(
+            policy.portfolioRequirement(TRADER),
+            2_000,
+            "flippable exposure received unsafe hedge credit"
+        );
+    }
+
+    function testHedgeCreditUsesOnlyGuaranteedDirectionalFloor() public {
+        PortfolioMarginPolicy policy = _policy(1, 1, 1_000, 10_000);
+
+        // Only 10 long lots are guaranteed to survive A's reachable envelope.
+        marketA.setRisk(TRADER, 100, 10, 100);
+        marketB.setRisk(TRADER, -100, -100, -100);
+
+        assertEq(
+            policy.portfolioRequirement(TRADER),
+            1_800,
+            "hedge credit exceeded guaranteed directional floor"
+        );
+    }
+
     function testZeroSettledCrossingEnvelopeIsChargedGross() public {
         PortfolioMarginPolicy policy = _policy(1, 1, 1_000, 10_000);
 
