@@ -25,6 +25,7 @@ contract DeployableStateMachineTest is TestBase {
     address internal constant BOB = address(0xB0B);
     address internal constant CAROL = address(0xCA401);
     address internal constant DAVE = address(0xDA7E);
+    address internal constant FINALIZER = address(0xF1A1);
 
     uint16[3] internal BID_TICKS = [uint16(94), uint16(95), uint16(96)];
     uint16[3] internal ASK_TICKS = [uint16(104), uint16(105), uint16(106)];
@@ -47,6 +48,7 @@ contract DeployableStateMachineTest is TestBase {
         _fund(BOB, 10_000_000);
         _fund(CAROL, 10_000_000);
         _fund(DAVE, 10_000_000);
+        _fund(FINALIZER, 1_000_000_000);
 
         _checkInvariants();
     }
@@ -72,6 +74,7 @@ contract DeployableStateMachineTest is TestBase {
             _checkInvariants();
         }
 
+        _drainTrackedBook();
         _settleAllTrackedState();
         _checkInvariants();
         _checkCustodyBacking();
@@ -246,8 +249,43 @@ contract DeployableStateMachineTest is TestBase {
 
     }
 
+    function _drainTrackedBook() internal {
+        uint96 askLots;
+        uint96 bidLots;
+
+        for (uint256 i; i < 3; ++i) {
+            (, uint96 bidRemaining,) =
+                core.pools(IOrderBookCore.Side.Bid, BID_TICKS[i]);
+            (, uint96 askRemaining,) =
+                core.pools(IOrderBookCore.Side.Ask, ASK_TICKS[i]);
+
+            bidLots += bidRemaining;
+            askLots += askRemaining;
+        }
+
+        if (askLots != 0) {
+            vm.prank(FINALIZER);
+            core.take(
+                IOrderBookCore.Side.Bid,
+                ASK_TICKS[2],
+                askLots,
+                IOrderBookCore.FillPolicy.IOC
+            );
+        }
+
+        if (bidLots != 0) {
+            vm.prank(FINALIZER);
+            core.take(
+                IOrderBookCore.Side.Ask,
+                BID_TICKS[0],
+                bidLots,
+                IOrderBookCore.FillPolicy.IOC
+            );
+        }
+    }
+
     function _settleAllTrackedState() internal {
-        address[4] memory actors = [ALICE, BOB, CAROL, DAVE];
+        address[5] memory actors = [ALICE, BOB, CAROL, DAVE, FINALIZER];
 
         for (uint256 a; a < actors.length; ++a) {
             for (uint256 i; i < 3; ++i) {
@@ -261,7 +299,7 @@ contract DeployableStateMachineTest is TestBase {
     }
 
     function _checkCustodyBacking() internal view {
-        address[4] memory actors = [ALICE, BOB, CAROL, DAVE];
+        address[5] memory actors = [ALICE, BOB, CAROL, DAVE, FINALIZER];
         int256 userClaims;
 
         for (uint256 a; a < actors.length; ++a) {
