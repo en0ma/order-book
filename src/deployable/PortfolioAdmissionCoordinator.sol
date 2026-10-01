@@ -26,10 +26,21 @@ contract PortfolioAdmissionCoordinator {
     error InvalidPortfolioAdmissionConfig();
     error UnauthorizedGateway();
     error InsufficientPortfolioCollateral();
+    error UnauthorizedLiquidationModule();
+    error LiquidationModuleAlreadyConfigured();
 
+    address public immutable owner;
+    address public portfolioLiquidationModule;
     PortfolioMarginPolicy public immutable policy;
     PortfolioCollateralVault public immutable vault;
     MarketConfig[] public markets;
+
+    event PortfolioLiquidationModuleConfigured(address indexed module);
+    event PortfolioLiquidatorRewardPaid(
+        address indexed liquidator,
+        uint256 requested,
+        uint256 paid
+    );
 
     event PortfolioLockSynchronized(
         address indexed account,
@@ -74,8 +85,29 @@ contract PortfolioAdmissionCoordinator {
             );
         }
 
+        owner = msg.sender;
         policy = policyRef;
         vault = PortfolioCollateralVault(vault_);
+    }
+
+    modifier onlyPortfolioLiquidationModule() {
+        if (
+            msg.sender != portfolioLiquidationModule
+                || msg.sender == address(0)
+        ) revert UnauthorizedLiquidationModule();
+        _;
+    }
+
+    function configurePortfolioLiquidationModule(address module) external {
+        if (msg.sender != owner || module == address(0)) {
+            revert UnauthorizedLiquidationModule();
+        }
+        if (portfolioLiquidationModule != address(0)) {
+            revert LiquidationModuleAlreadyConfigured();
+        }
+
+        portfolioLiquidationModule = module;
+        emit PortfolioLiquidationModuleConfigured(module);
     }
 
     function marketCount() external view returns (uint256) {
@@ -117,6 +149,7 @@ contract PortfolioAdmissionCoordinator {
 
     function coverBadDebt(address account)
         external
+        onlyPortfolioLiquidationModule
         returns (uint256 totalCovered)
     {
         int256 equity = policy.portfolioEquity(account);
@@ -138,6 +171,32 @@ contract PortfolioAdmissionCoordinator {
             totalCovered += covered;
             debt -= covered;
         }
+    }
+
+    function payLiquidationReward(address liquidator, uint256 requested)
+        external
+        onlyPortfolioLiquidationModule
+        returns (uint256 totalPaid)
+    {
+        if (liquidator == address(0) || requested == 0) return 0;
+
+        uint256 remaining = requested;
+        for (uint256 i; i < markets.length && remaining != 0; ++i) {
+            uint256 paid =
+                markets[i].core.modulePayLiquidationReward(liquidator, remaining);
+            totalPaid += paid;
+            remaining -= paid;
+        }
+
+        if (totalPaid != 0) {
+            vault.controllerSystemWithdraw(liquidator, totalPaid);
+        }
+
+        emit PortfolioLiquidatorRewardPaid(
+            liquidator,
+            requested,
+            totalPaid
+        );
     }
 
     function syncAccount(address account)
