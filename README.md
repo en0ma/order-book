@@ -143,10 +143,12 @@ A recurring fee-enabled taker fill has a dedicated gas regression asserting less
 
 ### Portfolio admission boundary
 
-Portfolio-mode cores are opt-in and may only be enabled before any local user collateral exists. The initial integration is deliberately limited to zero-fee cores: direct risk-increasing `take` / `addLiquidity` paths and direct advanced-order reservation are disabled, and risk growth must pass through `PortfolioAdmissionCoordinator`. The portfolio policy counts the shared vault balance once and adds each market's mark-to-market value, preventing duplicate collateral counting across markets.
+Portfolio-mode cores are opt-in and may only be enabled before any local user collateral or pre-funded insurance exists. Direct risk-increasing `take` / `addLiquidity` paths and direct advanced-order reservation are disabled, and risk growth must pass through `PortfolioAdmissionCoordinator`. The portfolio policy counts the shared vault claim once and adds each market's mark-to-market value, preventing duplicate collateral counting across markets.
+
+Fee-bearing portfolio cores are supported. Taker fees and lazy maker rebates remain in the core's existing fee-accounting path while the collateral tokens remain in shared custody. Protocol fees may be allocated to a market's insurance reserve without moving tokens. When a fully flattened portfolio has negative equity, configured portfolio liquidation can consume those insurance reserves and credit the corresponding shared-vault claim, preserving pooled custody while clearing bad debt.
 
 The coordinator locks enough vault collateral so that the account's post-action portfolio equity remains above its aggregate requirement. Risk-reducing actions may leave excess collateral locked until `syncAccount` is called; this is conservative.
 
 Once a vault controller is configured, direct vault withdrawals are disabled. Portfolio withdrawals must go through `PortfolioAdmissionCoordinator.withdraw`, which recomputes current settled cash equity and post-withdraw portfolio margin atomically. Realized trading/funding gains may therefore be withdrawn beyond the user's original deposit, while unrealized mark-to-market gains cannot. The vault records any withdrawal beyond gross deposits as a signed collateral claim offset by market cashflow, preserving pooled custody conservation.
 
-Fee-bearing portfolio mode and shared insurance / protocol-fee settlement remain separate follow-up work.
+Protocol-fee withdrawal as treasury revenue remains deliberately separate from user/insurance settlement; protocol fees can currently remain accrued or be allocated to portfolio insurance.
