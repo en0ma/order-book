@@ -103,7 +103,6 @@ contract OrderBookCore is IOrderBookCore {
     mapping(Side => uint256) internal _occupiedWords;
 
     event AdvancedModuleConfigured(address indexed module);
-    event PortfolioControllerConfigured(address indexed controller);
     event FundingUpdaterChanged(address indexed previousUpdater, address indexed newUpdater);
     event FundingIndexUpdated(int128 fundingIndexX18);
     event CollateralCredited(address indexed account, uint256 amount);
@@ -175,10 +174,7 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     modifier onlyRiskModule() {
-        if (
-            msg.sender == address(0)
-                || (msg.sender != advancedModule && msg.sender != portfolioController)
-        ) {
+        if (msg.sender != advancedModule && msg.sender != portfolioController) {
             revert Unauthorized();
         }
         _;
@@ -199,7 +195,6 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         portfolioController = controller;
-        emit PortfolioControllerConfigured(controller);
     }
 
     function configureAccountingUnitScale(uint128 collateralUnitsPerLotTick_) external onlyOwner {
