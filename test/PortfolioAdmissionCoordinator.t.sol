@@ -87,6 +87,33 @@ contract PortfolioAdmissionCoordinatorTest is TestBase {
         );
     }
 
+    function testPortfolioMakerCanRemoveCoordinatorAdmittedLiquidity() public {
+        vm.prank(MAKER);
+        uint128 shares = coordinator.addLiquidity(
+            0,
+            IOrderBookCore.Side.Ask,
+            100,
+            100
+        );
+
+        vm.prank(MAKER);
+        uint96 removed =
+            core.removeShares(IOrderBookCore.Side.Ask, 100, shares);
+
+        assertEq(uint256(removed), uint256(100), "maker removal mismatch");
+
+        (uint128 remainingShares, uint96 claimLots,) =
+            core.quotes(MAKER, IOrderBookCore.Side.Ask, 100);
+        assertEq(uint256(remainingShares), 0, "maker shares remained");
+        assertEq(uint256(claimLots), 0, "maker claim remained");
+
+        (int80 settled, int80 minPosition, int80 maxPosition) =
+            core.accountRisk(MAKER);
+        assertEq(int256(settled), int256(0), "maker settled position changed");
+        assertEq(int256(minPosition), int256(0), "maker min risk remained");
+        assertEq(int256(maxPosition), int256(0), "maker max risk remained");
+    }
+
     function testDirectRiskIncreaseIsBlockedInPortfolioMode() public {
         vm.prank(MAKER);
         (bool addOk,) = address(core).call(
