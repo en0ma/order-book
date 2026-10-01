@@ -128,14 +128,25 @@ contract MakerRetirementAdvancedEquivalenceTest is TestBase {
     }
 
     function _digest(OrderBookCoreHarness core) internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                _accountDigest(core),
+                _bookDigest(core),
+                core.protocolFeesAccrued(),
+                core.accountEquity(MAKER) + core.accountEquity(TAKER)
+            )
+        );
+    }
+
+    function _accountDigest(OrderBookCoreHarness core)
+        internal
+        view
+        returns (bytes32)
+    {
         (int80 settled, int80 minPosition, int80 maxPosition) =
             core.accountRisk(MAKER);
         (, int256 trading, int256 funding, uint256 reserved,) =
             core.accountingStateTest(MAKER);
-        (uint128 totalShares, uint96 remainingLots, uint32 generation) =
-            core.pools(IOrderBookCore.Side.Bid, TICK);
-        (uint128 shares, uint96 claim, uint32 quoteGeneration) =
-            core.quotes(MAKER, IOrderBookCore.Side.Bid, TICK);
 
         return keccak256(
             abi.encode(
@@ -145,15 +156,29 @@ contract MakerRetirementAdvancedEquivalenceTest is TestBase {
                 trading,
                 funding,
                 reserved,
-                core.protocolFeesAccrued(),
+                core.activeQuoteCount(MAKER)
+            )
+        );
+    }
+
+    function _bookDigest(OrderBookCoreHarness core)
+        internal
+        view
+        returns (bytes32)
+    {
+        (uint128 totalShares, uint96 remainingLots, uint32 generation) =
+            core.pools(IOrderBookCore.Side.Bid, TICK);
+        (uint128 shares, uint96 claim, uint32 quoteGeneration) =
+            core.quotes(MAKER, IOrderBookCore.Side.Bid, TICK);
+
+        return keccak256(
+            abi.encode(
                 totalShares,
                 remainingLots,
                 generation,
                 shares,
                 claim,
-                quoteGeneration,
-                core.activeQuoteCount(MAKER),
-                core.accountEquity(MAKER) + core.accountEquity(TAKER)
+                quoteGeneration
             )
         );
     }
