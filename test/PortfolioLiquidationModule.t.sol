@@ -138,6 +138,27 @@ contract MockPortfolioLiquidationGateway is ILiquidationGateway {
     }
 }
 
+contract MockPortfolioSettlement {
+    address public coveredAccount;
+    address public rewardedLiquidator;
+    uint256 public rewardRequested;
+    uint256 public coverReturn = 80;
+
+    function coverBadDebt(address account) external returns (uint256 covered) {
+        coveredAccount = account;
+        return coverReturn;
+    }
+
+    function payLiquidationReward(address liquidator, uint256 requested)
+        external
+        returns (uint256 paid)
+    {
+        rewardedLiquidator = liquidator;
+        rewardRequested = requested;
+        return requested;
+    }
+}
+
 contract PortfolioLiquidationModuleTest is TestBase {
     address internal constant TRADER = address(0xBEEF);
 
@@ -147,6 +168,7 @@ contract PortfolioLiquidationModuleTest is TestBase {
     MockPortfolioLiquidationGateway internal gatewayB;
     PortfolioMarginPolicy internal policy;
     PortfolioLiquidationModule internal module;
+    MockPortfolioSettlement internal settlement;
 
     function setUp() public {
         coreA = new MockPortfolioLiquidationCore();
@@ -181,6 +203,7 @@ contract PortfolioLiquidationModuleTest is TestBase {
             gateway: address(gatewayB)
         });
         module = new PortfolioLiquidationModule(address(policy), liquidationInputs);
+        settlement = new MockPortfolioSettlement();
     }
 
     function testHealthyPortfolioCannotBeLiquidated() public {
@@ -252,6 +275,35 @@ contract PortfolioLiquidationModuleTest is TestBase {
         (int80 bPosition,,) = coreB.accountRisk(TRADER);
         assertEq(int256(aPosition), int256(60), "market A residual mismatch");
         assertEq(int256(bPosition), int256(0), "market B was not closed");
+    }
+
+    function testConfiguredSettlementCoversFlatDebtAndPaysReward() public {
+        coreA.setRisk(TRADER, 100, 100, 100);
+        coreB.setRisk(TRADER, 0, 0, 0);
+        coreA.setEquity(TRADER, -100);
+        coreB.setEquity(TRADER, 0);
+
+        module.configureSettlement(address(settlement), 500);
+
+        vm.prank(address(0x1A11));
+        uint96 filled = module.liquidate(TRADER, _emptyCleanups());
+
+        assertEq(filled, 100, "settlement liquidation fill mismatch");
+        assertEq(
+            uint256(uint160(settlement.coveredAccount())),
+            uint256(uint160(TRADER)),
+            "flat bad debt was not routed to settlement"
+        );
+        assertEq(
+            uint256(uint160(settlement.rewardedLiquidator())),
+            uint256(uint160(address(0x1A11))),
+            "liquidator reward recipient mismatch"
+        );
+        assertEq(
+            settlement.rewardRequested(),
+            500,
+            "reward notional calculation mismatch"
+        );
     }
 
     function testCleanupLengthMismatchRevertsAtomically() public {
