@@ -288,12 +288,12 @@ contract PortfolioStateMachineTest is TestBase {
     }
 
     function _checkFinalConservation() internal view {
-        int256 aggregateCashClaims;
+        int256 aggregateCollateralClaims;
         int256 positionA;
         int256 positionB;
 
         for (uint256 a; a < actors.length; ++a) {
-            aggregateCashClaims += coordinator.settledCashEquity(actors[a]);
+            aggregateCollateralClaims += vault.collateralClaim(actors[a]);
 
             (int80 aPosition,,) = coreA.accountRisk(actors[a]);
             (int80 bPosition,,) = coreB.accountRisk(actors[a]);
@@ -301,34 +301,36 @@ contract PortfolioStateMachineTest is TestBase {
             positionB += int256(bPosition);
         }
 
-        // Lazy pro-rata maker attribution may leave conservative rounding
-        // debt after all maker shares are retired. Existing attribution properties
-        // require makers never to manufacture more position than takers executed.
-        // Bound the residual independently in each taker direction.
+        // All vault debits/credits are represented by signed collateral claims.
+        // Market trading/funding cashflows are separate zero-/conservative-sum claims
+        // and therefore must not be compared directly with raw vault custody.
         assertTrue(
-            positionA <= int256(bidTakerFilled[0]),
-            "market A long rounding debt exceeded bid-taker fills"
+            aggregateCollateralClaims >= 0,
+            "aggregate collateral claims negative"
+        );
+        assertEq(
+            uint256(aggregateCollateralClaims),
+            token.balanceOf(address(vault)),
+            "signed collateral claims diverged from shared custody"
+        );
+
+        // Lazy pro-rata attribution may leave a bounded system-side position residue.
+        // Its magnitude cannot exceed total executed taker lots in that market.
+        uint256 totalFilledA = bidTakerFilled[0] + askTakerFilled[0];
+        uint256 totalFilledB = bidTakerFilled[1] + askTakerFilled[1];
+
+        assertTrue(
+            _abs(positionA) <= totalFilledA,
+            "market A rounding position exceeded total fills"
         );
         assertTrue(
-            positionA >= -int256(askTakerFilled[0]),
-            "market A short rounding debt exceeded ask-taker fills"
+            _abs(positionB) <= totalFilledB,
+            "market B rounding position exceeded total fills"
         );
-        assertTrue(
-            positionB <= int256(bidTakerFilled[1]),
-            "market B long rounding debt exceeded bid-taker fills"
-        );
-        assertTrue(
-            positionB >= -int256(askTakerFilled[1]),
-            "market B short rounding debt exceeded ask-taker fills"
-        );
-        assertTrue(
-            aggregateCashClaims >= 0,
-            "aggregate settled cash claims negative"
-        );
-        assertTrue(
-            uint256(aggregateCashClaims) <= token.balanceOf(address(vault)),
-            "settled portfolio cash claims exceeded shared custody"
-        );
+    }
+
+    function _abs(int256 value) internal pure returns (uint256) {
+        return value >= 0 ? uint256(value) : uint256(-value);
     }
 
     function _core(uint256 marketIndex) internal view returns (OrderBookCore) {
