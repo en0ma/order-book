@@ -422,7 +422,7 @@ contract OrderBookCore is IOrderBookCore {
         uint16 tick,
         uint32 generation,
         uint128 shares
-    ) external override onlyModule returns (uint96 removedLots) {
+    ) external override onlyRiskModule returns (uint96 removedLots) {
         ModuleLock storage lock = moduleLocks[account][side][tick];
         if (
             shares == 0 || lock.generation != generation
