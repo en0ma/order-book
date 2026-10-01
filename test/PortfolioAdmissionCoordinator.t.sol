@@ -200,13 +200,15 @@ contract PortfolioAdmissionCoordinatorTest is TestBase {
             21_000,
             "profit withdrawal amount mismatch"
         );
+        int256 collateralClaimAfter = vault.collateralClaim(TAKER);
+        int256 settledCashAfter = coordinator.settledCashEquity(TAKER);
         assertEq(
-            vault.collateralClaim(TAKER),
+            collateralClaimAfter,
             int256(-1_000),
             "signed collateral claim mismatch"
         );
         assertEq(
-            coordinator.settledCashEquity(TAKER),
+            settledCashAfter,
             int256(1_000),
             "post-withdraw cash equity mismatch"
         );
