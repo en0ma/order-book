@@ -204,7 +204,7 @@ contract PortfolioLiquidationModule {
 
         IPortfolioLiquidationSettlement settlement = settlementCoordinator;
         if (address(settlement) != address(0)) {
-            if (_isFlat(account)) {
+            if (_isFlat(account) && policy.portfolioEquity(account) < 0) {
                 uint256 covered = settlement.coverBadDebt(account);
                 if (covered != 0) emit PortfolioBadDebtCovered(account, covered);
             }
