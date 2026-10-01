@@ -16,7 +16,6 @@ contract PortfolioCollateralVaultTest is TestBase {
     function setUp() public {
         token = new MockERC20();
         vault = new PortfolioCollateralVault(address(token));
-        vault.configureController(CONTROLLER);
 
         token.mint(ALICE, 1_000_000 ether);
         vm.prank(ALICE);
@@ -46,6 +45,8 @@ contract PortfolioCollateralVaultTest is TestBase {
     }
 
     function testLockedCollateralCannotBeWithdrawn() public {
+        vault.configureController(CONTROLLER);
+
         vm.prank(ALICE);
         vault.deposit(1_000 ether);
 
@@ -54,17 +55,16 @@ contract PortfolioCollateralVaultTest is TestBase {
 
         vm.prank(ALICE);
         (bool ok,) =
-            address(vault).call(abi.encodeCall(vault.withdraw, (301 ether)));
-        assertTrue(!ok, "locked collateral withdrawn");
+            address(vault).call(abi.encodeCall(vault.withdraw, (1 ether)));
+        assertTrue(!ok, "direct withdrawal bypassed portfolio controller");
 
-        vm.prank(ALICE);
-        vault.withdraw(300 ether);
-
-        assertEq(vault.balanceOf(ALICE), 700 ether, "remaining balance mismatch");
+        assertEq(vault.balanceOf(ALICE), 1_000 ether, "portfolio deposit changed");
         assertEq(vault.lockedCollateral(ALICE), 700 ether, "lock changed");
     }
 
     function testControllerCanReleaseCollateral() public {
+        vault.configureController(CONTROLLER);
+
         vm.prank(ALICE);
         vault.deposit(1_000 ether);
 
@@ -90,6 +90,8 @@ contract PortfolioCollateralVaultTest is TestBase {
     }
 
     function testControllerCannotOverLock() public {
+        vault.configureController(CONTROLLER);
+
         vm.prank(ALICE);
         vault.deposit(100 ether);
 
@@ -98,6 +100,25 @@ contract PortfolioCollateralVaultTest is TestBase {
             abi.encodeCall(vault.setLockedCollateral, (ALICE, 101 ether))
         );
         assertTrue(!ok, "over-lock accepted");
+    }
+
+    function testControllerWithdrawalCanCreateSignedProfitDebit() public {
+        vault.configureController(CONTROLLER);
+
+        vm.prank(ALICE);
+        vault.deposit(100 ether);
+
+        vm.prank(CONTROLLER);
+        vault.controllerWithdraw(ALICE, ALICE, 125 ether);
+
+        assertEq(vault.balanceOf(ALICE), 100 ether, "gross deposit changed");
+        assertEq(vault.portfolioWithdrawn(ALICE), 125 ether, "portfolio debit mismatch");
+        assertEq(vault.collateralClaim(ALICE), int256(-25 ether), "signed claim mismatch");
+        assertEq(
+            token.balanceOf(address(vault)),
+            vault.totalAccountedCollateral(),
+            "controller withdrawal broke custody"
+        );
     }
 
     function testOwnerCanSweepOnlyUnaccountedDonations() public {
@@ -122,6 +143,8 @@ contract PortfolioCollateralVaultTest is TestBase {
         uint96 lockSeed,
         uint96 withdrawSeed
     ) public {
+        vault.configureController(CONTROLLER);
+
         uint256 amount = uint256(depositSeed % 1_000_000 ether) + 1;
         token.mint(ALICE, amount);
 
@@ -137,13 +160,15 @@ contract PortfolioCollateralVaultTest is TestBase {
             free == 0 ? 0 : uint256(withdrawSeed) % (free + 1);
 
         if (withdrawn != 0) {
-            vm.prank(ALICE);
-            vault.withdraw(withdrawn);
+            vm.prank(CONTROLLER);
+            vault.controllerWithdraw(ALICE, ALICE, withdrawn);
         }
 
+        int256 claim = vault.collateralClaim(ALICE);
+        uint256 positiveClaim = claim > 0 ? uint256(claim) : 0;
         assertTrue(
-            vault.lockedCollateral(ALICE) <= vault.balanceOf(ALICE),
-            "lock exceeded account balance"
+            vault.lockedCollateral(ALICE) <= positiveClaim,
+            "lock exceeded positive collateral claim"
         );
         assertEq(
             token.balanceOf(address(vault)),
