@@ -282,17 +282,16 @@ contract PortfolioAdmissionCoordinatorTest is TestBase {
         assertTrue(before < vault.balanceOf(TAKER), "risk did not constrain withdrawal");
     }
 
-    function testPortfolioModeRequiresZeroFeesAndNoLocalCollateral() public {
+    function testPortfolioModeAllowsFeesButRejectsLocalCollateral() public {
         OrderBookCore feeCore =
             new OrderBookCore(address(token), address(oracle), 20, 1_000, 10, 5);
 
-        (bool feeOk,) = address(feeCore).call(
-            abi.encodeCall(
-                feeCore.configurePortfolioController,
-                (address(coordinator))
-            )
+        feeCore.configurePortfolioController(address(coordinator));
+        assertEq(
+            feeCore.portfolioController(),
+            address(coordinator),
+            "fee-bearing core did not enter portfolio mode"
         );
-        assertTrue(!feeOk, "fee-bearing core entered portfolio mode");
 
         OrderBookCore fundedCore =
             new OrderBookCore(address(token), address(oracle), 20, 1_000, 0, 0);
