@@ -10,8 +10,6 @@ import {OrderBookMath} from "./OrderBookMath.sol";
 ///      Contingent exposure between settledPosition and the min/max risk envelope is always
 ///      charged without cross-market netting, so resting orders cannot manufacture margin credit.
 contract PortfolioMarginPolicy {
-    using OrderBookMath for int80;
-
     uint256 public constant MAX_MARKETS = 32;
 
     struct MarketConfig {
@@ -177,7 +175,7 @@ contract PortfolioMarginPolicy {
 
     function _absLots(int80 position) internal pure returns (uint96) {
         if (position >= 0) return uint96(uint80(position));
-        return uint96(uint80(-int256(position)));
+        return uint96(uint256(-int256(position)));
     }
 
     function _maxAbs(int80 first, int80 second)
