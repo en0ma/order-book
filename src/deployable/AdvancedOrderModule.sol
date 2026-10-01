@@ -7,6 +7,42 @@ import {IExtremaOracle} from "../interfaces/IExtremaOracle.sol";
 /// @title AdvancedOrderModule
 /// @notice Fully-on-chain conditional, triggered-limit, OCO/OTO, bracket and trailing logic.
 /// @dev The module owns only advanced-order state. Matching/risk/custody remain in OrderBookCore.
+interface IPortfolioAdmissionGateway {
+    function gatewayReserveExposure(
+        uint256 marketIndex,
+        address account,
+        IOrderBookCore.Side side,
+        uint96 lots
+    ) external returns (uint16 riskCeilingTick);
+
+    function gatewayReleaseExposure(
+        uint256 marketIndex,
+        address account,
+        IOrderBookCore.Side side,
+        uint96 lots
+    ) external;
+
+    function gatewayTake(
+        uint256 marketIndex,
+        address account,
+        IOrderBookCore.Side side,
+        uint16 limitTick,
+        uint96 lots,
+        IOrderBookCore.FillPolicy policy,
+        bool reduceOnly,
+        bool preReserved
+    ) external returns (uint96 filledLots);
+
+    function gatewayAddLiquidity(
+        uint256 marketIndex,
+        address account,
+        IOrderBookCore.Side side,
+        uint16 tick,
+        uint96 lots,
+        uint16 reservedRiskCeiling
+    ) external returns (uint128 mintedShares);
+}
+
 interface IMarketMakerLiquidationCleanup {
     function liquidationForgetManagedQuote(
         address maker,
@@ -67,12 +103,15 @@ contract AdvancedOrderModule {
     error MinimumFillNotMet();
     error MarketMakerModuleAlreadyConfigured();
     error LiquidationModuleAlreadyConfigured();
+    error PortfolioControllerAlreadyConfigured();
 
     IOrderBookCore public immutable core;
     IExtremaOracle internal immutable extremaOracle;
     address internal immutable owner;
     address public marketMakerModule;
     address public liquidationModule;
+    IPortfolioAdmissionGateway public portfolioController;
+    uint8 public portfolioMarketIndex;
 
     mapping(address => uint32) internal activeAdvancedCount;
 
@@ -153,6 +192,19 @@ contract AdvancedOrderModule {
         _;
     }
 
+    function configurePortfolioController(address controller_, uint8 marketIndex_)
+        external
+    {
+        if (msg.sender != owner) revert Unauthorized();
+        if (controller_ == address(0)) revert Unauthorized();
+        if (address(portfolioController) != address(0)) {
+            revert PortfolioControllerAlreadyConfigured();
+        }
+
+        portfolioController = IPortfolioAdmissionGateway(controller_);
+        portfolioMarketIndex = marketIndex_;
+    }
+
     function configureMarketMakerModule(address module_) external {
         if (msg.sender != owner) revert Unauthorized();
         if (module_ == address(0)) revert Unauthorized();
@@ -165,7 +217,7 @@ contract AdvancedOrderModule {
         IOrderBookCore.Side side,
         uint96 lots
     ) external onlyMarketMakerModule returns (uint16 riskCeilingTick) {
-        riskCeilingTick = core.moduleReserveExposure(maker, side, lots);
+        riskCeilingTick = _reserveExposure(maker, side, lots);
     }
 
     function marketMakerAddLiquidity(
@@ -175,7 +227,7 @@ contract AdvancedOrderModule {
         uint96 lots,
         uint16 riskCeilingTick
     ) external onlyMarketMakerModule returns (uint128 shares) {
-        shares = core.moduleAddLiquidity(maker, side, tick, lots, riskCeilingTick);
+        shares = _addLiquidity(maker, side, tick, lots, riskCeilingTick);
     }
 
     function marketMakerRemoveLockedShares(
@@ -318,7 +370,7 @@ contract AdvancedOrderModule {
     ) external returns (uint96 filledLots) {
         if (minFillLots == 0 || minFillLots > lots) revert MinimumFillNotMet();
 
-        filledLots = core.moduleTake(
+        filledLots = _take(
             msg.sender,
             side,
             limitTick,
@@ -389,7 +441,7 @@ contract AdvancedOrderModule {
 
         uint16 riskCeiling;
         if (!reduceOnly) {
-            riskCeiling = core.moduleReserveExposure(account, side, lots);
+            riskCeiling = _reserveExposure(account, side, lots);
         }
 
         uint8 flags = FLAG_ACTIVE;
@@ -522,7 +574,7 @@ contract AdvancedOrderModule {
         if (triggeredLimit) {
             filledLots = _executeTriggeredLimit(orderId, order);
         } else {
-            filledLots = core.moduleTake(
+            filledLots = _take(
                 order.owner,
                 order.side,
                 order.limitTick,
@@ -535,7 +587,7 @@ contract AdvancedOrderModule {
             if (!reduceOnly) {
                 uint96 unfilled = order.lots - filledLots;
                 if (unfilled != 0) {
-                    core.moduleReleaseExposure(order.owner, order.side, unfilled);
+                    _releaseExposure(order.owner, order.side, unfilled);
                 }
             }
 
@@ -562,7 +614,7 @@ contract AdvancedOrderModule {
         internal
         returns (uint96 filledLots)
     {
-        filledLots = core.moduleTake(
+        filledLots = _take(
             order.owner,
             order.side,
             order.limitTick,
@@ -575,7 +627,7 @@ contract AdvancedOrderModule {
         uint96 restingLots = order.lots - filledLots;
 
         if (restingLots != 0) {
-            uint128 shares = core.moduleAddLiquidity(
+            uint128 shares = _addLiquidity(
                 order.owner,
                 order.side,
                 order.limitTick,
@@ -729,7 +781,7 @@ contract AdvancedOrderModule {
 
         uint16 riskCeiling;
         if (!reduceOnly) {
-            riskCeiling = core.moduleReserveExposure(msg.sender, side, lots);
+            riskCeiling = _reserveExposure(msg.sender, side, lots);
         }
 
         orderId = nextTrailingOrderId++;
@@ -799,7 +851,7 @@ contract AdvancedOrderModule {
         stored.flags &= ~FLAG_ACTIVE;
         activeAdvancedCount[order.owner] -= 1;
 
-        filledLots = core.moduleTake(
+        filledLots = _take(
             order.owner,
             order.side,
             order.limitTick,
@@ -812,7 +864,7 @@ contract AdvancedOrderModule {
         if (!reduceOnly) {
             uint96 unfilled = order.lots - filledLots;
             if (unfilled != 0) {
-                core.moduleReleaseExposure(order.owner, order.side, unfilled);
+                _releaseExposure(order.owner, order.side, unfilled);
             }
         }
 
@@ -902,7 +954,7 @@ contract AdvancedOrderModule {
 
         bool reduceOnly = (order.flags & FLAG_REDUCE_ONLY) != 0;
         if (releaseRisk && !reduceOnly) {
-            core.moduleReleaseExposure(order.owner, order.side, order.lots);
+            _releaseExposure(order.owner, order.side, order.lots);
         }
 
         uint64 sibling = order.sibling;
@@ -933,10 +985,105 @@ contract AdvancedOrderModule {
 
         bool reduceOnly = (order.flags & FLAG_REDUCE_ONLY) != 0;
         if (releaseRisk && !reduceOnly) {
-            core.moduleReleaseExposure(order.owner, order.side, order.lots);
+            _releaseExposure(order.owner, order.side, order.lots);
         }
 
         emit TrailingOrderCancelled(orderId);
+    }
+
+    function _reserveExposure(
+        address account,
+        IOrderBookCore.Side side,
+        uint96 lots
+    ) internal returns (uint16 riskCeilingTick) {
+        IPortfolioAdmissionGateway controller = portfolioController;
+        if (address(controller) == address(0)) {
+            return core.moduleReserveExposure(account, side, lots);
+        }
+        return controller.gatewayReserveExposure(
+            portfolioMarketIndex,
+            account,
+            side,
+            lots
+        );
+    }
+
+    function _releaseExposure(
+        address account,
+        IOrderBookCore.Side side,
+        uint96 lots
+    ) internal {
+        IPortfolioAdmissionGateway controller = portfolioController;
+        if (address(controller) == address(0)) {
+            core.moduleReleaseExposure(account, side, lots);
+            return;
+        }
+        controller.gatewayReleaseExposure(
+            portfolioMarketIndex,
+            account,
+            side,
+            lots
+        );
+    }
+
+    function _take(
+        address account,
+        IOrderBookCore.Side side,
+        uint16 limitTick,
+        uint96 lots,
+        IOrderBookCore.FillPolicy policy,
+        bool reduceOnly,
+        bool preReserved
+    ) internal returns (uint96 filledLots) {
+        IPortfolioAdmissionGateway controller = portfolioController;
+        if (address(controller) == address(0) || reduceOnly) {
+            return core.moduleTake(
+                account,
+                side,
+                limitTick,
+                lots,
+                policy,
+                reduceOnly,
+                preReserved
+            );
+        }
+        return controller.gatewayTake(
+            portfolioMarketIndex,
+            account,
+            side,
+            limitTick,
+            lots,
+            policy,
+            reduceOnly,
+            preReserved
+        );
+    }
+
+    function _addLiquidity(
+        address account,
+        IOrderBookCore.Side side,
+        uint16 tick,
+        uint96 lots,
+        uint16 reservedRiskCeiling
+    ) internal returns (uint128 mintedShares) {
+        IPortfolioAdmissionGateway controller = portfolioController;
+        if (address(controller) == address(0)) {
+            return core.moduleAddLiquidity(
+                account,
+                side,
+                tick,
+                lots,
+                reservedRiskCeiling
+            );
+        }
+        return controller.gatewayAddLiquidity(
+            portfolioMarketIndex,
+            account,
+            side,
+            tick,
+            lots,
+            reservedRiskCeiling
+        );
     }
 
     function _active(ConditionalOrder storage order) internal view returns (bool) {

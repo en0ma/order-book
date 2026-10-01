@@ -7,6 +7,10 @@ import {IOrderBookCore} from "./IOrderBookCore.sol";
 /// @dev Settled positions inside the same risk group may receive a configurable hedge credit.
 ///      Contingent exposure between settledPosition and the min/max risk envelope is always
 ///      charged without cross-market netting, so resting orders cannot manufacture margin credit.
+interface IPortfolioCollateralSource {
+    function balanceOf(address account) external view returns (uint256);
+}
+
 contract PortfolioMarginPolicy {
     uint256 public constant MAX_MARKETS = 32;
 
@@ -28,10 +32,15 @@ contract PortfolioMarginPolicy {
     error DuplicateMarket();
     error InconsistentRiskGroup();
     error Overflow();
+    error Unauthorized();
+    error SharedCollateralAlreadyConfigured();
 
+    address public immutable owner;
+    IPortfolioCollateralSource public sharedCollateralVault;
     MarketConfig[] public markets;
 
     constructor(MarketInput[] memory configs) {
+        owner = msg.sender;
         uint256 length = configs.length;
         if (length == 0 || length > MAX_MARKETS) revert InvalidPortfolioConfig();
 
@@ -63,14 +72,37 @@ contract PortfolioMarginPolicy {
         }
     }
 
+    function configureSharedCollateralVault(address vault) external {
+        if (msg.sender != owner) revert Unauthorized();
+        if (vault == address(0)) revert InvalidPortfolioConfig();
+        if (address(sharedCollateralVault) != address(0)) {
+            revert SharedCollateralAlreadyConfigured();
+        }
+
+        sharedCollateralVault = IPortfolioCollateralSource(vault);
+    }
+
     function marketCount() external view returns (uint256) {
         return markets.length;
     }
 
     function portfolioEquity(address account) public view returns (int256 equity) {
         uint256 length = markets.length;
+        IPortfolioCollateralSource vault = sharedCollateralVault;
+
+        if (address(vault) == address(0)) {
+            for (uint256 i; i < length; ++i) {
+                equity += markets[i].core.accountEquity(account);
+            }
+            return equity;
+        }
+
+        uint256 collateral = vault.balanceOf(account);
+        if (collateral > uint256(type(int256).max)) revert Overflow();
+        equity = int256(collateral);
+
         for (uint256 i; i < length; ++i) {
-            equity += markets[i].core.accountEquity(account);
+            equity += markets[i].core.accountMarketValue(account);
         }
     }
 

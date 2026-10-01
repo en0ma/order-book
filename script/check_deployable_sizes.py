@@ -12,6 +12,7 @@ TARGETS = [
     ("PortfolioMarginPolicy", Path("out/PortfolioMarginPolicy.sol/PortfolioMarginPolicy.json"), 5_000),
     ("PortfolioLiquidationModule", Path("out/PortfolioLiquidationModule.sol/PortfolioLiquidationModule.json"), 6_000),
     ("PortfolioCollateralVault", Path("out/PortfolioCollateralVault.sol/PortfolioCollateralVault.json"), 4_000),
+    ("PortfolioAdmissionCoordinator", Path("out/PortfolioAdmissionCoordinator.sol/PortfolioAdmissionCoordinator.json"), 7_000),
     ("SegmentTreeExtremaOracle", Path("out/SegmentTreeExtremaOracle.sol/SegmentTreeExtremaOracle.json"), 4_000),
 ]
 

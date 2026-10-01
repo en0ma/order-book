@@ -63,6 +63,7 @@ contract OrderBookCore is IOrderBookCore {
     address internal immutable owner;
     address public fundingUpdater;
     address public advancedModule;
+    address public override portfolioController;
 
     IERC20Minimal internal immutable collateralToken;
     IMarkOracle public immutable markOracle;
@@ -78,6 +79,7 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => mapping(Side => mapping(uint16 => ModuleLock))) internal moduleLocks;
 
     mapping(address => uint256) internal collateralBalance;
+    uint256 internal totalLocalCollateral;
     mapping(address => uint256) internal reservedMargin;
     mapping(address => int256) internal fundingCashflow;
     mapping(address => int256) internal tradeCashflow;
@@ -171,11 +173,28 @@ contract OrderBookCore is IOrderBookCore {
         _;
     }
 
+    modifier onlyRiskModule() {
+        if (msg.sender != advancedModule && msg.sender != portfolioController) {
+            revert Unauthorized();
+        }
+        _;
+    }
+
     function configureAdvancedModule(address module) external onlyOwner {
         if (module == address(0)) revert ModuleNotConfigured();
         if (advancedModule != address(0)) revert ModuleAlreadyConfigured();
         advancedModule = module;
         emit AdvancedModuleConfigured(module);
+    }
+
+    function configurePortfolioController(address controller) external onlyOwner {
+        if (controller == address(0)) revert Unauthorized();
+        if (portfolioController != address(0)) revert ModuleAlreadyConfigured();
+        if (totalLocalCollateral != 0 || feeSchedulePacked != 0 || insuranceReserves != 0) {
+            revert InvalidRiskConfig();
+        }
+
+        portfolioController = controller;
     }
 
     function configureAccountingUnitScale(uint128 collateralUnitsPerLotTick_) external onlyOwner {
@@ -207,6 +226,7 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function depositCollateral(uint256 amount) external {
+        if (portfolioController != address(0)) revert Unauthorized();
         if (amount == 0) revert ZeroAmount();
         if (!unitScaleLocked) unitScaleLocked = true;
 
@@ -217,10 +237,12 @@ contract OrderBookCore is IOrderBookCore {
         if (received != amount) revert UnsupportedTokenBehavior();
 
         collateralBalance[msg.sender] += amount;
+        totalLocalCollateral += amount;
         emit CollateralCredited(msg.sender, amount);
     }
 
     function fundInsurance(uint256 amount) external {
+        if (portfolioController != address(0)) revert Unauthorized();
         if (amount == 0) revert ZeroAmount();
         if (!unitScaleLocked) unitScaleLocked = true;
 
@@ -250,6 +272,7 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function withdrawCollateral(uint256 amount) external {
+        if (portfolioController != address(0)) revert Unauthorized();
         if (amount == 0) revert ZeroAmount();
         if (_accountMeta[msg.sender].activeQuoteCount != 0) revert InsufficientCollateral();
 
@@ -263,7 +286,10 @@ contract OrderBookCore is IOrderBookCore {
         int256 equityAfter = accountEquity(msg.sender) - int256(amount);
         if (equityAfter < int256(reservedMargin[msg.sender])) revert InsufficientCollateral();
 
+        uint256 localBefore = collateralBalance[msg.sender];
         _debitSettledCash(msg.sender, amount);
+        uint256 localDebit = amount < localBefore ? amount : localBefore;
+        totalLocalCollateral -= localDebit;
 
         if (!collateralToken.transfer(msg.sender, amount)) revert TokenTransferFailed();
 
@@ -274,6 +300,7 @@ contract OrderBookCore is IOrderBookCore {
         external
         returns (uint128 mintedShares)
     {
+        if (portfolioController != address(0)) revert Unauthorized();
         mintedShares = _addLiquidityFor(msg.sender, side, tick, lots, false, 0, true);
     }
 
@@ -298,15 +325,20 @@ contract OrderBookCore is IOrderBookCore {
         external
         returns (uint96 filledLots)
     {
+        if (portfolioController != address(0)) revert Unauthorized();
         filledLots = _takeFor(msg.sender, side, limitTick, lots, policy, false, false);
     }
 
     function moduleReserveExposure(address account, Side side, uint96 lots)
         external
         override
-        onlyModule
+        onlyRiskModule
         returns (uint16 riskCeilingTick)
     {
+        if (
+            portfolioController != address(0)
+                && msg.sender != portfolioController
+        ) revert Unauthorized();
         if (lots == 0) revert ZeroAmount();
 
         _expandRisk(account, side, lots);
@@ -324,7 +356,7 @@ contract OrderBookCore is IOrderBookCore {
     function moduleReleaseExposure(address account, Side side, uint96 lots)
         external
         override
-        onlyModule
+        onlyRiskModule
     {
         if (lots == 0) return;
         _shrinkRisk(account, side, lots);
@@ -339,7 +371,11 @@ contract OrderBookCore is IOrderBookCore {
         FillPolicy policy,
         bool reduceOnly,
         bool preReserved
-    ) external override onlyModule returns (uint96 filledLots) {
+    ) external override onlyRiskModule returns (uint96 filledLots) {
+        if (
+            portfolioController != address(0) && !reduceOnly
+                && msg.sender != portfolioController
+        ) revert Unauthorized();
         if (reduceOnly && _accountMeta[account].activeQuoteCount != 0) {
             revert ReduceOnlyViolation();
         }
@@ -353,7 +389,11 @@ contract OrderBookCore is IOrderBookCore {
         uint16 tick,
         uint96 lots,
         uint16 reservedRiskCeiling
-    ) external override onlyModule returns (uint128 mintedShares) {
+    ) external override onlyRiskModule returns (uint128 mintedShares) {
+        if (
+            portfolioController != address(0)
+                && msg.sender != portfolioController
+        ) revert Unauthorized();
         mintedShares =
             _addLiquidityFor(account, side, tick, lots, true, reservedRiskCeiling, true);
 
@@ -438,6 +478,7 @@ contract OrderBookCore is IOrderBookCore {
         onlyModule
         returns (uint256 covered)
     {
+        if (portfolioController != address(0)) revert Unauthorized();
         if (requested == 0) return 0;
         if (_accountMeta[account].activeQuoteCount != 0) revert Unauthorized();
 
@@ -456,6 +497,7 @@ contract OrderBookCore is IOrderBookCore {
 
         insuranceReserves = reserves - covered;
         collateralBalance[account] += covered;
+        totalLocalCollateral += covered;
 
         emit BadDebtCovered(account, covered);
     }
@@ -480,7 +522,12 @@ contract OrderBookCore is IOrderBookCore {
         emit LiquidationRewardPaid(liquidator, paid);
     }
 
-    function accountEquity(address account) public view override returns (int256 equity) {
+    function accountMarketValue(address account)
+        public
+        view
+        override
+        returns (int256 value)
+    {
         AccountRisk memory a = accountRisk[account];
 
         int256 pendingFunding =
@@ -492,12 +539,16 @@ contract OrderBookCore is IOrderBookCore {
         int256 markedPositionValue;
         if (a.settledPosition != 0) {
             uint96 absLots = uint96(uint80(OrderBookMath.absPosition(a.settledPosition)));
-            int256 value = int256(notionalValue(absLots, currentMarkTick()));
-            markedPositionValue = a.settledPosition > 0 ? value : -value;
+            int256 marked = int256(notionalValue(absLots, currentMarkTick()));
+            markedPositionValue = a.settledPosition > 0 ? marked : -marked;
         }
 
-        equity = int256(collateralBalance[account]) + tradeCashflow[account]
-            + fundingCashflow[account] + pendingFunding + markedPositionValue;
+        value = tradeCashflow[account] + fundingCashflow[account]
+            + pendingFunding + markedPositionValue;
+    }
+
+    function accountEquity(address account) public view override returns (int256 equity) {
+        equity = int256(collateralBalance[account]) + accountMarketValue(account);
     }
 
     function notionalValue(uint96 lots, uint16 tick)
@@ -1245,7 +1296,10 @@ contract OrderBookCore is IOrderBookCore {
 
         uint256 previous = reservedMargin[account];
 
-        if (required > previous && accountEquity(account) < int256(required)) {
+        if (
+            portfolioController == address(0) && required > previous
+                && accountEquity(account) < int256(required)
+        ) {
             revert InsufficientCollateral();
         }
 
