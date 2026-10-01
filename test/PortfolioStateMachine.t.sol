@@ -288,12 +288,12 @@ contract PortfolioStateMachineTest is TestBase {
     }
 
     function _checkFinalConservation() internal view {
-        int256 aggregateEquity;
+        int256 aggregateCashClaims;
         int256 positionA;
         int256 positionB;
 
         for (uint256 a; a < actors.length; ++a) {
-            aggregateEquity += policy.portfolioEquity(actors[a]);
+            aggregateCashClaims += coordinator.settledCashEquity(actors[a]);
 
             (int80 aPosition,,) = coreA.accountRisk(actors[a]);
             (int80 bPosition,,) = coreB.accountRisk(actors[a]);
@@ -321,10 +321,13 @@ contract PortfolioStateMachineTest is TestBase {
             positionB >= -int256(askTakerFilled[1]),
             "market B short rounding debt exceeded ask-taker fills"
         );
-        assertTrue(aggregateEquity >= 0, "aggregate portfolio equity negative");
         assertTrue(
-            uint256(aggregateEquity) <= token.balanceOf(address(vault)),
-            "portfolio claims exceeded shared custody"
+            aggregateCashClaims >= 0,
+            "aggregate settled cash claims negative"
+        );
+        assertTrue(
+            uint256(aggregateCashClaims) <= token.balanceOf(address(vault)),
+            "settled portfolio cash claims exceeded shared custody"
         );
     }
 
