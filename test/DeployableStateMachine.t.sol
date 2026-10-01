@@ -71,6 +71,10 @@ contract DeployableStateMachineTest is TestBase {
             _step(randomness);
             _checkInvariants();
         }
+
+        _settleAllTrackedState();
+        _checkInvariants();
+        _checkCustodyBacking();
     }
 
     function _step(uint256 r) internal {
@@ -240,7 +244,26 @@ contract DeployableStateMachineTest is TestBase {
             _checkPool(IOrderBookCore.Side.Ask, ASK_TICKS[i], i + 3, actors);
         }
 
+    }
+
+    function _settleAllTrackedState() internal {
+        address[4] memory actors = [ALICE, BOB, CAROL, DAVE];
+
+        for (uint256 a; a < actors.length; ++a) {
+            for (uint256 i; i < 3; ++i) {
+                vm.prank(actors[a]);
+                core.settle(IOrderBookCore.Side.Bid, BID_TICKS[i]);
+
+                vm.prank(actors[a]);
+                core.settle(IOrderBookCore.Side.Ask, ASK_TICKS[i]);
+            }
+        }
+    }
+
+    function _checkCustodyBacking() internal view {
+        address[4] memory actors = [ALICE, BOB, CAROL, DAVE];
         int256 userClaims;
+
         for (uint256 a; a < actors.length; ++a) {
             userClaims += _cashClaim(actors[a]);
         }
