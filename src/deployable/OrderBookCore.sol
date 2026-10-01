@@ -84,15 +84,13 @@ contract OrderBookCore is IOrderBookCore {
 
     int128 internal fundingIndexX18;
     uint32 internal immutable feeSchedulePacked;
-    uint256 public protocolFeesAccrued;
+    uint256 internal _feeAccountingPacked;
     uint256 public insuranceReserves;
     mapping(Side => mapping(uint16 => int256)) internal fundingEntryPerShareX96;
     mapping(Side => mapping(uint16 => mapping(uint32 => int256)))
         internal closedFundingEntryPerShareX96;
     mapping(Side => mapping(uint16 => mapping(uint32 => uint128)))
         internal closedFundingOutstandingShares;
-    mapping(Side => mapping(uint16 => mapping(uint32 => uint256)))
-        internal makerRebateReserves;
     mapping(address => mapping(Side => mapping(uint16 => int256)))
         internal quoteFundingCheckpointX96;
 
@@ -235,9 +233,17 @@ contract OrderBookCore is IOrderBookCore {
         emit InsuranceFunded(msg.sender, amount);
     }
 
+    function protocolFeesAccrued() public view returns (uint256) {
+        return uint256(uint128(_feeAccountingPacked));
+    }
+
     function allocateProtocolFeesToInsurance(uint256 amount) external onlyOwner {
-        if (amount == 0 || amount > protocolFeesAccrued) revert InsufficientCollateral();
-        protocolFeesAccrued -= amount;
+        uint256 packed = _feeAccountingPacked;
+        uint256 accrued = uint256(uint128(packed));
+        if (amount == 0 || amount > accrued) revert InsufficientCollateral();
+
+        _feeAccountingPacked =
+            (packed & ~uint256(type(uint128).max)) | (accrued - amount);
         insuranceReserves += amount;
         emit ProtocolFeesAllocatedToInsurance(amount);
     }
@@ -461,11 +467,13 @@ contract OrderBookCore is IOrderBookCore {
     {
         if (liquidator == address(0) || requested == 0) return 0;
 
-        uint256 accrued = protocolFeesAccrued;
+        uint256 packed = _feeAccountingPacked;
+        uint256 accrued = uint256(uint128(packed));
         paid = requested < accrued ? requested : accrued;
         if (paid == 0) return 0;
 
-        protocolFeesAccrued = accrued - paid;
+        _feeAccountingPacked =
+            (packed & ~uint256(type(uint128).max)) | (accrued - paid);
         if (!collateralToken.transfer(liquidator, paid)) revert TokenTransferFailed();
 
         emit LiquidationRewardPaid(liquidator, paid);
@@ -565,7 +573,6 @@ contract OrderBookCore is IOrderBookCore {
             (bool ok, uint16 tick) = _bestExecutableTick(makerSide);
             if (!ok || !OrderBookMath.withinLimit(makerSide, tick, limitTick)) break;
 
-            uint32 generation = pools[makerSide][tick].generation;
             uint96 fill = _consumeTick(makerSide, tick, remaining);
             unchecked {
                 remaining -= fill;
@@ -575,10 +582,7 @@ contract OrderBookCore is IOrderBookCore {
             uint256 fillNotional = notionalValue(fill, tick);
             uint256 fillMakerRebate =
                 fillNotional * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
-            if (fillMakerRebate != 0) {
-                makerRebateReserves[makerSide][tick][generation] += fillMakerRebate;
-                reservedMakerRebate += fillMakerRebate;
-            }
+            reservedMakerRebate += fillMakerRebate;
 
             notional += fillNotional;
             emit Trade(account, takerSide, tick, fill);
@@ -744,7 +748,7 @@ contract OrderBookCore is IOrderBookCore {
                 burnAttributedFill,
                 currentFundingEntry
             );
-            _applyMakerFill(maker, side, tick, burnAttributedFill, q.generation);
+            _applyMakerFill(maker, side, tick, burnAttributedFill);
             emit MakerSettled(
                 maker,
                 side,
@@ -765,13 +769,6 @@ contract OrderBookCore is IOrderBookCore {
 
         if (p.totalShares == 0) {
             if (p.remainingLots != 0) revert InvalidShareAmount();
-
-            uint256 rebateDust =
-                makerRebateReserves[side][tick][p.generation];
-            if (rebateDust != 0) {
-                protocolFeesAccrued += rebateDust;
-                delete makerRebateReserves[side][tick][p.generation];
-            }
 
             _setOccupied(side, tick, false);
             delete poolRiskCeilingTick[side][tick];
@@ -887,7 +884,7 @@ contract OrderBookCore is IOrderBookCore {
             _settleFundingForQuote(
                 maker, side, tick, q.shares, filledLots, finalFundingEntry
             );
-            _applyMakerFill(maker, side, tick, filledLots, oldGeneration);
+            _applyMakerFill(maker, side, tick, filledLots);
             _refreshReservedMargin(maker);
 
             uint128 outstanding =
@@ -898,12 +895,6 @@ contract OrderBookCore is IOrderBookCore {
                 closedFundingOutstandingShares[side][tick][oldGeneration] = outstanding;
 
                 if (outstanding == 0) {
-                    uint256 rebateDust =
-                        makerRebateReserves[side][tick][oldGeneration];
-                    if (rebateDust != 0) {
-                        protocolFeesAccrued += rebateDust;
-                        delete makerRebateReserves[side][tick][oldGeneration];
-                    }
                     delete closedFundingOutstandingShares[side][tick][oldGeneration];
                     delete closedFundingEntryPerShareX96[side][tick][oldGeneration];
                 }
@@ -936,7 +927,7 @@ contract OrderBookCore is IOrderBookCore {
         );
         quoteFundingCheckpointX96[maker][side][tick] = currentFundingEntry;
 
-        _applyMakerFill(maker, side, tick, filledLots, q.generation);
+        _applyMakerFill(maker, side, tick, filledLots);
         _refreshReservedMargin(maker);
 
         emit MakerSettled(maker, side, tick, filledLots, q.generation);
@@ -989,8 +980,10 @@ contract OrderBookCore is IOrderBookCore {
         int256 signedLots =
             side == Side.Bid ? int256(uint256(filledLots)) : -int256(uint256(filledLots));
 
-        int256 currentFunding =
-            signedLots * int256(fundingIndexX18) / FUNDING_SCALE;
+        int256 currentFunding = _divFundingCeil(
+            signedLots * int256(fundingIndexX18),
+            FUNDING_SCALE
+        );
 
         int256 entryFunding =
             signedLots == 0 ? int256(0) : (signedLots > 0 ? weightedEntry : -weightedEntry);
@@ -1074,9 +1067,20 @@ contract OrderBookCore is IOrderBookCore {
         uint256 takerFee =
             notional * uint256(uint16(fees)) / 10_000;
         if (reservedMakerRebate > takerFee) revert InvalidRiskConfig();
-        if (takerFee != reservedMakerRebate) {
-            protocolFeesAccrued += takerFee - reservedMakerRebate;
-        }
+
+        uint256 packedFees = _feeAccountingPacked;
+        uint256 accruedProtocol = uint256(uint128(packedFees));
+        uint256 rebateReserve = packedFees >> 128;
+        uint256 nextProtocol =
+            accruedProtocol + takerFee - reservedMakerRebate;
+        uint256 nextRebateReserve =
+            rebateReserve + reservedMakerRebate;
+        if (
+            nextProtocol > type(uint128).max
+                || nextRebateReserve > type(uint128).max
+        ) revert Overflow();
+        _feeAccountingPacked =
+            (nextRebateReserve << 128) | nextProtocol;
 
         if (side == Side.Bid) {
             a.settledPosition += amount;
@@ -1097,8 +1101,7 @@ contract OrderBookCore is IOrderBookCore {
         address maker,
         Side side,
         uint16 tick,
-        uint96 filledLots,
-        uint32 generation
+        uint96 filledLots
     ) internal {
         if (filledLots == 0) return;
 
@@ -1108,14 +1111,15 @@ contract OrderBookCore is IOrderBookCore {
 
         uint256 requestedMakerRebate =
             uint256(notional) * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
-        uint256 availableMakerRebate =
-            makerRebateReserves[side][tick][generation];
+        uint256 packedFees = _feeAccountingPacked;
+        uint256 availableMakerRebate = packedFees >> 128;
         uint256 makerRebate = requestedMakerRebate < availableMakerRebate
             ? requestedMakerRebate
             : availableMakerRebate;
         if (makerRebate != 0) {
-            makerRebateReserves[side][tick][generation] =
-                availableMakerRebate - makerRebate;
+            _feeAccountingPacked =
+                (packedFees & uint256(type(uint128).max))
+                    | ((availableMakerRebate - makerRebate) << 128);
         }
 
         if (side == Side.Bid) {
@@ -1444,6 +1448,17 @@ contract OrderBookCore is IOrderBookCore {
             ++quotient;
         }
     }
+    function _divFundingCeil(int256 numerator, int256 denominator)
+        internal
+        pure
+        returns (int256 quotient)
+    {
+        quotient = numerator / denominator;
+        if (numerator > 0 && numerator % denominator != 0) {
+            ++quotient;
+        }
+    }
+
     function _divFundingDirected(
         Side side,
         int256 numerator,
