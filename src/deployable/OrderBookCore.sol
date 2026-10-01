@@ -1343,4 +1343,20 @@ contract OrderBookCore is IOrderBookCore {
             ++quotient;
         }
     }
+    function _divFundingDirected(
+        Side side,
+        int256 numerator,
+        int256 denominator
+    ) internal pure returns (int256 quotient) {
+        quotient = numerator / denominator;
+        int256 remainder = numerator % denominator;
+        if (remainder == 0) return quotient;
+
+        if (side == Side.Bid) {
+            if (numerator < 0) --quotient;
+        } else if (numerator > 0) {
+            ++quotient;
+        }
+    }
+
 }
