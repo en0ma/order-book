@@ -217,7 +217,7 @@ contract AdvancedOrderModule {
         IOrderBookCore.Side side,
         uint96 lots
     ) external onlyMarketMakerModule returns (uint16 riskCeilingTick) {
-        riskCeilingTick = core.moduleReserveExposure(maker, side, lots);
+        riskCeilingTick = _reserveExposure(maker, side, lots);
     }
 
     function marketMakerAddLiquidity(
@@ -370,7 +370,7 @@ contract AdvancedOrderModule {
     ) external returns (uint96 filledLots) {
         if (minFillLots == 0 || minFillLots > lots) revert MinimumFillNotMet();
 
-        filledLots = core.moduleTake(
+        filledLots = _take(
             msg.sender,
             side,
             limitTick,
@@ -864,7 +864,7 @@ contract AdvancedOrderModule {
         if (!reduceOnly) {
             uint96 unfilled = order.lots - filledLots;
             if (unfilled != 0) {
-                core.moduleReleaseExposure(order.owner, order.side, unfilled);
+                _releaseExposure(order.owner, order.side, unfilled);
             }
         }
 
@@ -954,7 +954,7 @@ contract AdvancedOrderModule {
 
         bool reduceOnly = (order.flags & FLAG_REDUCE_ONLY) != 0;
         if (releaseRisk && !reduceOnly) {
-            core.moduleReleaseExposure(order.owner, order.side, order.lots);
+            _releaseExposure(order.owner, order.side, order.lots);
         }
 
         uint64 sibling = order.sibling;
@@ -985,7 +985,7 @@ contract AdvancedOrderModule {
 
         bool reduceOnly = (order.flags & FLAG_REDUCE_ONLY) != 0;
         if (releaseRisk && !reduceOnly) {
-            core.moduleReleaseExposure(order.owner, order.side, order.lots);
+            _releaseExposure(order.owner, order.side, order.lots);
         }
 
         emit TrailingOrderCancelled(orderId);
