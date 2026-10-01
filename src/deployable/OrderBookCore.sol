@@ -665,19 +665,30 @@ contract OrderBookCore is IOrderBookCore {
 
         uint96 claimReduction = claimBefore - claimAfter;
         if (claimReduction < removedLots) {
-            removedLots = claimReduction;
-            p.remainingLots = remainingBefore - removedLots;
+            uint256 otherShares = uint256(p.totalShares) - uint256(q.shares);
+            if (otherShares != 0) {
+                uint256 safeNumerator =
+                    uint256(claimBefore) * uint256(p.totalShares)
+                        - uint256(q.shares) * uint256(remainingBefore);
+                uint96 maxSafeRemoval =
+                    uint96(safeNumerator / otherShares);
+                if (removedLots > maxSafeRemoval) {
+                    removedLots = maxSafeRemoval;
+                    p.remainingLots = remainingBefore - removedLots;
 
-            if (q.shares != 0) {
-                claimAfter = OrderBookMath.redeemableLotsCeil(
-                    q.shares,
-                    p.remainingLots,
-                    p.totalShares
-                );
+                    claimAfter = q.shares == 0
+                        ? 0
+                        : OrderBookMath.redeemableLotsCeil(
+                            q.shares,
+                            p.remainingLots,
+                            p.totalShares
+                        );
+                    if (claimAfter > claimBefore) revert InvalidShareAmount();
+                    claimReduction = claimBefore - claimAfter;
+                }
             }
-            if (claimAfter > claimBefore) revert InvalidShareAmount();
-            claimReduction = claimBefore - claimAfter;
         }
+        if (claimReduction < removedLots) revert InvalidShareAmount();
         q.claimLots = claimAfter;
 
         if (claimReduction == removedLots && q.shares != 0) {
