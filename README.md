@@ -150,3 +150,8 @@ The coordinator locks enough vault collateral so that the account's post-action 
 Once a vault controller is configured, direct vault withdrawals are disabled. Portfolio withdrawals must go through `PortfolioAdmissionCoordinator.withdraw`, which recomputes current settled cash equity and post-withdraw portfolio margin atomically. Realized trading/funding gains may therefore be withdrawn beyond the user's original deposit, while unrealized mark-to-market gains cannot. The vault records any withdrawal beyond gross deposits as a signed collateral claim offset by market cashflow, preserving pooled custody conservation.
 
 Protocol fees may be allocated to insurance using the existing owner-controlled accounting path. After a portfolio is fully closed and order-free, `PortfolioAdmissionCoordinator.coverBadDebt` can consume those insurance reserves against negative aggregate equity; coverage becomes user market cashflow rather than local collateral, preserving shared-custody semantics.
+
+
+### Portfolio liquidation settlement
+
+Portfolio liquidation can be connected one time to the admission coordinator. Once configured, a liquidation that fully closes an account automatically consumes available shared insurance against negative aggregate portfolio equity. Liquidator rewards are funded from protocol-fee claims across configured markets: the core burns the protocol claim without transferring local tokens, then the coordinator performs a system withdrawal from the shared collateral vault. This keeps reward payouts physically sourced from shared custody while leaving user collateral ledgers unchanged.
