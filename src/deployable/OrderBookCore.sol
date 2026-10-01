@@ -680,7 +680,7 @@ contract OrderBookCore is IOrderBookCore {
         }
         q.claimLots = claimAfter;
 
-        if (claimReduction == 0 && q.shares != 0) {
+        if (claimReduction == removedLots && q.shares != 0) {
             int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
             int256 priorCheckpoint =
                 quoteFundingCheckpointX96[maker][side][tick];
