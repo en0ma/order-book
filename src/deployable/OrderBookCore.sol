@@ -512,9 +512,11 @@ contract OrderBookCore is IOrderBookCore {
     function modulePayLiquidationReward(address liquidator, uint256 requested)
         external
         override
-        onlyModule
+        onlyRiskModule
         returns (uint256 paid)
     {
+        address controller = portfolioController;
+        if (controller != address(0) && msg.sender != controller) revert Unauthorized();
         if (liquidator == address(0) || requested == 0) return 0;
 
         uint256 packed = _feeAccountingPacked;
@@ -524,7 +526,12 @@ contract OrderBookCore is IOrderBookCore {
 
         _feeAccountingPacked =
             (packed & ~uint256(type(uint128).max)) | (accrued - paid);
-        if (!collateralToken.transfer(liquidator, paid)) revert TokenTransferFailed();
+
+        if (controller == address(0)) {
+            if (!collateralToken.transfer(liquidator, paid)) {
+                revert TokenTransferFailed();
+            }
+        }
 
         emit LiquidationRewardPaid(liquidator, paid);
     }
