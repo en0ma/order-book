@@ -19,6 +19,7 @@ contract OrderBookCore is IOrderBookCore {
         uint128 totalShares;
         uint96 remainingLots;
         uint32 generation;
+        uint128 makerRebateReserve;
     }
 
     struct MakerQuote {
@@ -89,8 +90,8 @@ contract OrderBookCore is IOrderBookCore {
     mapping(Side => mapping(uint16 => int256)) internal fundingEntryPerShareX96;
     mapping(Side => mapping(uint16 => mapping(uint32 => int256)))
         internal closedFundingEntryPerShareX96;
-    mapping(Side => mapping(uint16 => mapping(uint32 => uint128)))
-        internal closedFundingOutstandingShares;
+    mapping(Side => mapping(uint16 => mapping(uint32 => uint256)))
+        internal closedGenerationAccounting;
     mapping(address => mapping(Side => mapping(uint16 => int256)))
         internal quoteFundingCheckpointX96;
 
@@ -573,41 +574,48 @@ contract OrderBookCore is IOrderBookCore {
             (bool ok, uint16 tick) = _bestExecutableTick(makerSide);
             if (!ok || !OrderBookMath.withinLimit(makerSide, tick, limitTick)) break;
 
-            uint96 fill = _consumeTick(makerSide, tick, remaining);
+            (uint96 fill, uint256 fillMakerRebate) =
+                _consumeTick(makerSide, tick, remaining);
             unchecked {
                 remaining -= fill;
                 filledLots += fill;
             }
 
-            uint256 fillNotional = notionalValue(fill, tick);
-            uint256 fillMakerRebate =
-                fillNotional * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
             reservedMakerRebate += fillMakerRebate;
-
-            notional += fillNotional;
+            notional += notionalValue(fill, tick);
             emit Trade(account, takerSide, tick, fill);
         }
     }
 
     function _consumeTick(Side makerSide, uint16 tick, uint96 requested)
         internal
-        returns (uint96 fill)
+        returns (uint96 fill, uint256 reservedMakerRebate)
     {
         TickPool storage p = pools[makerSide][tick];
         fill = requested < p.remainingLots ? requested : p.remainingLots;
 
+        reservedMakerRebate =
+            notionalValue(fill, tick) * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
+        if (reservedMakerRebate != 0) {
+            uint256 nextReserve = uint256(p.makerRebateReserve) + reservedMakerRebate;
+            if (nextReserve > type(uint128).max) revert Overflow();
+            p.makerRebateReserve = uint128(nextReserve);
+        }
+
         _recordFundingEntry(makerSide, tick, p.totalShares, fill);
         p.remainingLots -= fill;
 
-        if (p.remainingLots != 0) return fill;
+        if (p.remainingLots != 0) return (fill, reservedMakerRebate);
 
         uint32 oldGeneration = p.generation;
         closedFundingEntryPerShareX96[makerSide][tick][oldGeneration] =
             fundingEntryPerShareX96[makerSide][tick];
-        closedFundingOutstandingShares[makerSide][tick][oldGeneration] = p.totalShares;
+        closedGenerationAccounting[makerSide][tick][oldGeneration] =
+            (uint256(p.makerRebateReserve) << 128) | uint256(p.totalShares);
         fundingEntryPerShareX96[makerSide][tick] = 0;
 
         p.totalShares = 0;
+        p.makerRebateReserve = 0;
         delete poolRiskCeilingTick[makerSide][tick];
 
         unchecked {
