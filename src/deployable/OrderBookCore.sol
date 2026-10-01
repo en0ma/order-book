@@ -174,8 +174,11 @@ contract OrderBookCore is IOrderBookCore {
         _;
     }
 
-    modifier onlyPortfolioController() {
-        if (msg.sender != portfolioController || msg.sender == address(0)) {
+    modifier onlyRiskModule() {
+        if (
+            msg.sender == address(0)
+                || (msg.sender != advancedModule && msg.sender != portfolioController)
+        ) {
             revert Unauthorized();
         }
         _;
@@ -331,77 +334,16 @@ contract OrderBookCore is IOrderBookCore {
         filledLots = _takeFor(msg.sender, side, limitTick, lots, policy, false, false);
     }
 
-    function portfolioReserveExposure(address account, Side side, uint96 lots)
-        external
-        override
-        onlyPortfolioController
-        returns (uint16 riskCeilingTick)
-    {
-        if (lots == 0) revert ZeroAmount();
-
-        _expandRisk(account, side, lots);
-        riskCeilingTick =
-            OrderBookMath.upperTick(currentMarkTick(), executionBandTicks);
-
-        if (riskCeilingTick > _accountMeta[account].riskCeilingTick) {
-            _accountMeta[account].riskCeilingTick = riskCeilingTick;
-        }
-
-        _refreshReservedMargin(account);
-    }
-
-    function portfolioReleaseExposure(address account, Side side, uint96 lots)
-        external
-        override
-        onlyPortfolioController
-    {
-        if (lots == 0) return;
-        _shrinkRisk(account, side, lots);
-        _refreshReservedMargin(account);
-    }
-
-    function portfolioTake(
-        address account,
-        Side side,
-        uint16 limitTick,
-        uint96 lots,
-        FillPolicy policy,
-        bool reduceOnly,
-        bool preReserved
-    ) external override onlyPortfolioController returns (uint96 filledLots) {
-        if (reduceOnly && _accountMeta[account].activeQuoteCount != 0) {
-            revert ReduceOnlyViolation();
-        }
-        filledLots =
-            _takeFor(account, side, limitTick, lots, policy, reduceOnly, preReserved);
-    }
-
-    function portfolioAddLiquidity(
-        address account,
-        Side side,
-        uint16 tick,
-        uint96 lots,
-        uint16 reservedRiskCeiling
-    ) external override onlyPortfolioController returns (uint128 mintedShares) {
-        mintedShares =
-            _addLiquidityFor(account, side, tick, lots, true, reservedRiskCeiling, true);
-
-        uint32 generation = pools[side][tick].generation;
-        ModuleLock storage lock = moduleLocks[account][side][tick];
-        if (lock.generation != generation) {
-            lock.generation = generation;
-            lock.shares = 0;
-        }
-        lock.shares += mintedShares;
-    }
-
     function moduleReserveExposure(address account, Side side, uint96 lots)
         external
         override
-        onlyModule
+        onlyRiskModule
         returns (uint16 riskCeilingTick)
     {
-        if (portfolioController != address(0)) revert Unauthorized();
+        if (
+            portfolioController != address(0)
+                && msg.sender != portfolioController
+        ) revert Unauthorized();
         if (lots == 0) revert ZeroAmount();
 
         _expandRisk(account, side, lots);
@@ -419,7 +361,7 @@ contract OrderBookCore is IOrderBookCore {
     function moduleReleaseExposure(address account, Side side, uint96 lots)
         external
         override
-        onlyModule
+        onlyRiskModule
     {
         if (lots == 0) return;
         _shrinkRisk(account, side, lots);
@@ -434,8 +376,11 @@ contract OrderBookCore is IOrderBookCore {
         FillPolicy policy,
         bool reduceOnly,
         bool preReserved
-    ) external override onlyModule returns (uint96 filledLots) {
-        if (portfolioController != address(0) && !reduceOnly) revert Unauthorized();
+    ) external override onlyRiskModule returns (uint96 filledLots) {
+        if (
+            portfolioController != address(0) && !reduceOnly
+                && msg.sender != portfolioController
+        ) revert Unauthorized();
         if (reduceOnly && _accountMeta[account].activeQuoteCount != 0) {
             revert ReduceOnlyViolation();
         }
@@ -449,8 +394,11 @@ contract OrderBookCore is IOrderBookCore {
         uint16 tick,
         uint96 lots,
         uint16 reservedRiskCeiling
-    ) external override onlyModule returns (uint128 mintedShares) {
-        if (portfolioController != address(0)) revert Unauthorized();
+    ) external override onlyRiskModule returns (uint128 mintedShares) {
+        if (
+            portfolioController != address(0)
+                && msg.sender != portfolioController
+        ) revert Unauthorized();
         mintedShares =
             _addLiquidityFor(account, side, tick, lots, true, reservedRiskCeiling, true);
 
