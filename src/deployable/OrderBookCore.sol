@@ -839,15 +839,11 @@ contract OrderBookCore is IOrderBookCore {
         uint96 currentClaim =
             OrderBookMath.redeemableLotsCeil(q.shares, p.remainingLots, p.totalShares);
 
-        if (currentClaim >= q.claimLots) {
-            uint96 claimIncrease = currentClaim - q.claimLots;
-            q.claimLots = currentClaim;
-            if (claimIncrease != 0) {
-                _expandRisk(maker, side, claimIncrease);
-                _refreshReservedMargin(maker);
-            }
-            return 0;
-        }
+        // claimLots is a monotonic remaining fill entitlement. Another
+        // maker burning shares can increase the instantaneous ceil redemption,
+        // but promoting that rounding headroom into claimLots would later turn
+        // cancellation dust into synthetic maker fills.
+        if (currentClaim >= q.claimLots) return 0;
 
         filledLots = q.claimLots - currentClaim;
         q.claimLots = currentClaim;
