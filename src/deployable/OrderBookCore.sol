@@ -79,7 +79,7 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => mapping(Side => mapping(uint16 => ModuleLock))) internal moduleLocks;
 
     mapping(address => uint256) internal collateralBalance;
-    uint256 public totalLocalCollateral;
+    uint256 internal totalLocalCollateral;
     mapping(address => uint256) internal reservedMargin;
     mapping(address => int256) internal fundingCashflow;
     mapping(address => int256) internal tradeCashflow;
