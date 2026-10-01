@@ -81,6 +81,39 @@ contract PortfolioAdmissionCoordinator {
         return markets.length;
     }
 
+    function settledCashEquity(address account) public view returns (int256 cashEquity) {
+        cashEquity = vault.collateralClaim(account);
+
+        for (uint256 i; i < markets.length; ++i) {
+            IOrderBookCore core = markets[i].core;
+            (int80 position,,) = core.accountRisk(account);
+            int256 markedPositionValue;
+
+            if (position != 0) {
+                uint96 absLots = position > 0
+                    ? uint96(uint80(position))
+                    : uint96(uint256(-int256(position)));
+                int256 marked =
+                    int256(core.notionalValue(absLots, core.currentMarkTick()));
+                markedPositionValue = position > 0 ? marked : -marked;
+            }
+
+            cashEquity += core.accountMarketValue(account) - markedPositionValue;
+        }
+    }
+
+    function withdraw(uint256 amount) external {
+        if (amount == 0) revert InsufficientPortfolioCollateral();
+
+        int256 cashEquity = settledCashEquity(msg.sender);
+        if (
+            cashEquity <= 0 || amount > uint256(cashEquity)
+        ) revert InsufficientPortfolioCollateral();
+
+        vault.controllerWithdraw(msg.sender, msg.sender, amount);
+        syncAccount(msg.sender);
+    }
+
     function syncAccount(address account)
         public
         returns (uint256 lockedCollateral)
@@ -101,11 +134,12 @@ contract PortfolioAdmissionCoordinator {
             revert InsufficientPortfolioCollateral();
         }
 
-        uint256 balance = vault.balanceOf(account);
+        int256 claim = vault.collateralClaim(account);
+        uint256 positiveClaim = claim > 0 ? uint256(claim) : 0;
         uint256 withdrawable = uint256(equity - int256(requirement));
-        if (withdrawable > balance) withdrawable = balance;
+        if (withdrawable > positiveClaim) withdrawable = positiveClaim;
 
-        lockedCollateral = balance - withdrawable;
+        lockedCollateral = positiveClaim - withdrawable;
         vault.setLockedCollateral(account, lockedCollateral);
 
         emit PortfolioLockSynchronized(
