@@ -85,12 +85,13 @@ The deployable path is split into:
 - `PortfolioMarginPolicy`: read-side cross-market risk aggregation with bounded hedge credits only for exposure guaranteed across each market's full risk envelope.
 - `PortfolioLiquidationModule`: portfolio-wide health enforcement and atomic multi-market order cleanup / position reduction; it deliberately does not provide cross-market collateral transfer or admission credit.
 - `PortfolioCollateralVault`: shared ERC-20 custody for portfolio deployments. Users retain ownership of deposited collateral; the configured controller may only lock/unlock balances for margin and cannot transfer user funds.
+- `PortfolioAdmissionCoordinator`: sole risk-increasing gateway for portfolio-mode markets. It executes a market action and atomically synchronizes the shared vault lock against aggregate portfolio equity/requirement; insufficient collateral reverts the whole action.
 - `OrderBookMath`: shared pure side/tick/share/risk arithmetic used by the deployable contracts.
 - `SegmentTreeExtremaOracle`: bounded on-chain range high/low observations for trailing triggers.
 
 Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 21,511 bytes for the core, 18,617 bytes for the advanced module, 4,434 bytes for the market-maker module, 4,001 bytes for the liquidation module, and 2,152 bytes for the extrema oracle.
 
-CI enforces stricter project budgets than EIP-170: 22,000 bytes for the core, 19,500 bytes for the advanced module, 5,000 bytes each for the market-maker, liquidation, and portfolio-margin modules, 6,000 bytes for the portfolio-liquidation module, 4,000 bytes for the portfolio-collateral vault, and 4,000 bytes for the extrema oracle. New order-type or execution-policy logic should normally be added to specialized modules rather than expanding the matching core.
+CI enforces stricter project budgets than EIP-170: 22,000 bytes for the core, 19,500 bytes for the advanced module, 5,000 bytes each for the market-maker, liquidation, and portfolio-margin modules, 6,000 bytes for the portfolio-liquidation module, 4,000 bytes for the portfolio-collateral vault, 7,000 bytes for the portfolio-admission coordinator, and 4,000 bytes for the extrema oracle. New order-type or execution-policy logic should normally be added to specialized modules rather than expanding the matching core.
 
 
 The advanced-order module is constructor-bound to the same oracle contract used by the core. Trailing-history verification therefore cannot silently use a different price source from execution.
@@ -138,3 +139,10 @@ Integer rounding is conservative. The taker path reserves the maximum aggregate 
 Protocol fee withdrawal/distribution is not implemented yet; `protocolFeesAccrued` is accounting state only.
 
 A recurring fee-enabled taker fill has a dedicated gas regression asserting less than 20,000 gas overhead versus the equivalent zero-fee fill after the protocol-fee storage slot has already been initialized.
+
+
+### Portfolio admission boundary
+
+Portfolio-mode cores are opt-in and may only be enabled before any local user collateral exists. The initial integration is deliberately limited to zero-fee cores: direct risk-increasing `take` / `addLiquidity` paths and direct advanced-order reservation are disabled, and risk growth must pass through `PortfolioAdmissionCoordinator`. The portfolio policy counts the shared vault balance once and adds each market's mark-to-market value, preventing duplicate collateral counting across markets.
+
+The coordinator locks enough vault collateral so that the account's post-action portfolio equity remains above its aggregate requirement. Risk-reducing actions may leave excess collateral locked until `syncAccount` is called; this is conservative. Realized cross-market profit transfer and fee/insurance settlement are not yet implemented, so shared-vault profit withdrawals are limited to the account's deposited vault balance.
