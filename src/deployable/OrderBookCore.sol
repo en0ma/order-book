@@ -1042,7 +1042,14 @@ contract OrderBookCore is IOrderBookCore {
         int256 deltaIndex = int256(currentIndex) - int256(checkpoint);
 
         if (position != 0) {
-            int256 cashflowDelta = -(position * deltaIndex / FUNDING_SCALE);
+            int256 fundingNumerator = -(position * deltaIndex);
+            int256 cashflowDelta = fundingNumerator / FUNDING_SCALE;
+            if (
+                fundingNumerator < 0
+                    && fundingNumerator % FUNDING_SCALE != 0
+            ) {
+                --cashflowDelta;
+            }
             fundingCashflow[account] += cashflowDelta;
             emit FundingSettled(account, cashflowDelta);
         }
