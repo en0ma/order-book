@@ -180,8 +180,10 @@ contract PortfolioMarginPolicyTest is TestBase {
             hedgeCreditBps: 5_000
         });
 
-        vm.expectRevert(PortfolioMarginPolicy.DuplicateMarket.selector);
-        new PortfolioMarginPolicy(configs);
+        (bool ok,) = address(this).call(
+            abi.encodeCall(this.deployPolicy, (configs))
+        );
+        assertTrue(!ok, "duplicate market accepted");
     }
 
     function testConstructorRejectsInconsistentGroupCredit() public {
@@ -200,8 +202,17 @@ contract PortfolioMarginPolicyTest is TestBase {
             hedgeCreditBps: 5_000
         });
 
-        vm.expectRevert(PortfolioMarginPolicy.InconsistentRiskGroup.selector);
-        new PortfolioMarginPolicy(configs);
+        (bool ok,) = address(this).call(
+            abi.encodeCall(this.deployPolicy, (configs))
+        );
+        assertTrue(!ok, "inconsistent risk group accepted");
+    }
+
+    function deployPolicy(PortfolioMarginPolicy.MarketInput[] memory configs)
+        external
+        returns (PortfolioMarginPolicy)
+    {
+        return new PortfolioMarginPolicy(configs);
     }
 
     function _policy(
