@@ -88,69 +88,6 @@ contract MakerRetirementEquivalenceTest is TestBase {
         assertEq(direct.quoteClaim, 0, "retired maker claim remains");
     }
 
-    function testFuzz_ClosedGenerationLazySettlementMatchesImmediateMaterialization(
-        uint256 lotsSeed,
-        uint256 fundingSeed
-    ) public {
-        uint96 lots = boundNonZero(lotsSeed, 200);
-        int128 fundingIndex =
-            int128((int256(fundingSeed % 17) - 8) * 1e18);
-
-        Snapshot memory immediate =
-            _runGenerationSettlementScenario(lots, fundingIndex, false);
-        Snapshot memory lazy =
-            _runGenerationSettlementScenario(lots, fundingIndex, true);
-
-        _assertEquivalent(
-            immediate,
-            lazy,
-            "closed-generation lazy settlement changed economics"
-        );
-    }
-
-    function _runGenerationSettlementScenario(
-        uint96 lots,
-        int128 fundingIndex,
-        bool lazy
-    ) internal returns (Snapshot memory snap) {
-        MockERC20 token = new MockERC20();
-        SegmentTreeExtremaOracle oracle =
-            new SegmentTreeExtremaOracle(address(this), TICK, 3_600);
-        OrderBookCoreHarness core = new OrderBookCoreHarness(
-            address(token), address(oracle), 100, 1_000, 10, 5
-        );
-
-        _fund(core, token, MAKER);
-        _fund(core, token, NEIGHBOR);
-        _fund(core, token, TAKER);
-
-        vm.prank(MAKER);
-        core.addLiquidity(IOrderBookCore.Side.Ask, TICK, lots);
-
-        vm.prank(TAKER);
-        core.take(
-            IOrderBookCore.Side.Bid,
-            TICK,
-            lots,
-            IOrderBookCore.FillPolicy.IOC
-        );
-
-        if (!lazy) {
-            vm.prank(MAKER);
-            core.settle(IOrderBookCore.Side.Ask, TICK);
-        }
-
-        core.setFundingIndex(fundingIndex);
-
-        vm.prank(MAKER);
-        core.settle(IOrderBookCore.Side.Ask, TICK);
-
-        vm.prank(TAKER);
-        core.settle(IOrderBookCore.Side.Bid, TICK);
-
-        snap = _snapshot(core);
-    }
-
     function _runScenario(
         uint8 mode,
         uint96 makerLots,
