@@ -869,27 +869,11 @@ contract OrderBookCore is IOrderBookCore {
     ) internal {
         if (fillLots == 0 || totalShares == 0) return;
 
-        int256 index = int256(fundingIndexX18);
-        uint256 absIndex = uint256(index < 0 ? -index : index);
-        uint256 denominator = uint256(totalShares) * uint256(FUNDING_SCALE);
-        bool roundMagnitudeUp =
-            (side == Side.Ask) == (index > 0);
+        uint256 fillPerShareX96 =
+            uint256(fillLots) * ACCUMULATOR_SCALE / uint256(totalShares);
 
-        uint256 weightedMagnitude = roundMagnitudeUp
-            ? OrderBookMath.mulDivUp(
-                uint256(fillLots) * absIndex,
-                ACCUMULATOR_SCALE,
-                denominator
-            )
-            : OrderBookMath.mulDiv(
-                uint256(fillLots) * absIndex,
-                ACCUMULATOR_SCALE,
-                denominator
-            );
-
-        int256 weighted = index < 0
-            ? -int256(weightedMagnitude)
-            : int256(weightedMagnitude);
+        int256 weighted =
+            int256(fillPerShareX96) * int256(fundingIndexX18) / FUNDING_SCALE;
 
         fundingEntryPerShareX96[side][tick] += weighted;
     }
@@ -907,10 +891,9 @@ contract OrderBookCore is IOrderBookCore {
         int256 deltaPerShare =
             finalFundingEntryPerShareX96 - quoteFundingCheckpointX96[maker][side][tick];
 
-        int256 weightedEntry = _divFundingDirected(
+        int256 weightedEntry = _divFundingEntry(
             side,
-            int256(uint256(shares)) * deltaPerShare,
-            int256(ACCUMULATOR_SCALE)
+            int256(uint256(shares)) * deltaPerShare
         );
 
         int256 signedLots =
@@ -1335,11 +1318,12 @@ contract OrderBookCore is IOrderBookCore {
         if (x >> 1 != 0) r += 1;
     }
 
-    function _divFundingDirected(
-        Side side,
-        int256 numerator,
-        int256 denominator
-    ) internal pure returns (int256 quotient) {
+    function _divFundingEntry(Side side, int256 numerator)
+        internal
+        pure
+        returns (int256 quotient)
+    {
+        int256 denominator = int256(ACCUMULATOR_SCALE);
         quotient = numerator / denominator;
         int256 remainder = numerator % denominator;
         if (remainder == 0) return quotient;
