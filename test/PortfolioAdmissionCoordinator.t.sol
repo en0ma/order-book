@@ -13,6 +13,7 @@ import {TestBase} from "./TestBase.sol";
 contract PortfolioAdmissionCoordinatorTest is TestBase {
     address internal constant MAKER = address(0xA11CE);
     address internal constant TAKER = address(0xB0B);
+    address internal constant EXIT_MAKER = address(0xD00D);
 
     MockERC20 internal token;
     MockMarkOracle internal oracle;
@@ -56,6 +57,7 @@ contract PortfolioAdmissionCoordinatorTest is TestBase {
 
         _deposit(MAKER, 20_000);
         _deposit(TAKER, 20_000);
+        _deposit(EXIT_MAKER, 20_000);
     }
 
     function testCoordinatorCanAdmitMakerAndTakerFromSharedCollateral() public {
@@ -144,6 +146,118 @@ contract PortfolioAdmissionCoordinatorTest is TestBase {
 
         (, uint96 remaining,) = core.pools(IOrderBookCore.Side.Ask, 100);
         assertEq(uint256(remaining), uint256(100), "reverted action consumed liquidity");
+    }
+
+    function testRealizedProfitCanBeWithdrawnFromSharedPool() public {
+        vm.prank(MAKER);
+        coordinator.addLiquidity(
+            0,
+            IOrderBookCore.Side.Ask,
+            100,
+            100
+        );
+
+        vm.prank(TAKER);
+        coordinator.take(
+            0,
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        oracle.setMarkTick(120);
+
+        vm.prank(EXIT_MAKER);
+        coordinator.addLiquidity(
+            0,
+            IOrderBookCore.Side.Bid,
+            120,
+            100
+        );
+
+        vm.prank(TAKER);
+        coordinator.take(
+            0,
+            IOrderBookCore.Side.Ask,
+            120,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        assertEq(
+            coordinator.settledCashEquity(TAKER),
+            int256(22_000),
+            "realized cash equity mismatch"
+        );
+
+        uint256 beforeTokens = token.balanceOf(TAKER);
+        vm.prank(TAKER);
+        coordinator.withdraw(21_000);
+
+        uint256 withdrawnTokens = token.balanceOf(TAKER) - beforeTokens;
+        assertEq(
+            withdrawnTokens,
+            uint256(21_000),
+            "profit withdrawal amount mismatch"
+        );
+        int256 collateralClaimAfter = vault.collateralClaim(TAKER);
+        int256 settledCashAfter = coordinator.settledCashEquity(TAKER);
+        assertEq(
+            collateralClaimAfter,
+            int256(-1_000),
+            "signed collateral claim mismatch"
+        );
+        assertEq(
+            settledCashAfter,
+            int256(1_000),
+            "post-withdraw cash equity mismatch"
+        );
+    }
+
+    function testUnrealizedProfitCannotBeWithdrawnAsCash() public {
+        vm.prank(MAKER);
+        coordinator.addLiquidity(
+            0,
+            IOrderBookCore.Side.Ask,
+            100,
+            100
+        );
+
+        vm.prank(TAKER);
+        coordinator.take(
+            0,
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        oracle.setMarkTick(120);
+
+        assertEq(
+            policy.portfolioEquity(TAKER),
+            int256(22_000),
+            "marked equity mismatch"
+        );
+        assertEq(
+            coordinator.settledCashEquity(TAKER),
+            int256(10_000),
+            "unrealized mark leaked into cash equity"
+        );
+
+        vm.prank(TAKER);
+        (bool ok,) = address(coordinator).call(
+            abi.encodeCall(coordinator.withdraw, (10_001))
+        );
+        assertTrue(!ok, "unrealized profit was withdrawn");
+    }
+
+    function testDirectVaultWithdrawIsBlockedAfterControllerSetup() public {
+        vm.prank(TAKER);
+        (bool ok,) =
+            address(vault).call(abi.encodeCall(vault.withdraw, (1)));
+        assertTrue(!ok, "direct vault withdrawal bypassed live risk check");
     }
 
     function testRealizedLossReducesWithdrawableSharedCollateral() public {

@@ -8,7 +8,7 @@ import {IOrderBookCore} from "./IOrderBookCore.sol";
 ///      Contingent exposure between settledPosition and the min/max risk envelope is always
 ///      charged without cross-market netting, so resting orders cannot manufacture margin credit.
 interface IPortfolioCollateralSource {
-    function balanceOf(address account) external view returns (uint256);
+    function collateralClaim(address account) external view returns (int256);
 }
 
 contract PortfolioMarginPolicy {
@@ -97,9 +97,7 @@ contract PortfolioMarginPolicy {
             return equity;
         }
 
-        uint256 collateral = vault.balanceOf(account);
-        if (collateral > uint256(type(int256).max)) revert Overflow();
-        equity = int256(collateral);
+        equity = vault.collateralClaim(account);
 
         for (uint256 i; i < length; ++i) {
             equity += markets[i].core.accountMarketValue(account);
