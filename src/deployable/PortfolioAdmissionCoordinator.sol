@@ -124,7 +124,7 @@ contract PortfolioAdmissionCoordinator {
         IOrderBookCore.FillPolicy fillPolicy
     ) external returns (uint96 filledLots) {
         MarketConfig storage market = _market(marketIndex);
-        filledLots = market.core.portfolioTake(
+        filledLots = market.core.moduleTake(
             msg.sender,
             side,
             limitTick,
@@ -144,8 +144,8 @@ contract PortfolioAdmissionCoordinator {
     ) external returns (uint128 mintedShares) {
         MarketConfig storage market = _market(marketIndex);
         uint16 ceiling =
-            market.core.portfolioReserveExposure(msg.sender, side, lots);
-        mintedShares = market.core.portfolioAddLiquidity(
+            market.core.moduleReserveExposure(msg.sender, side, lots);
+        mintedShares = market.core.moduleAddLiquidity(
             msg.sender,
             side,
             tick,
@@ -163,7 +163,7 @@ contract PortfolioAdmissionCoordinator {
     ) external returns (uint16 riskCeilingTick) {
         MarketConfig storage market = _gatewayMarket(marketIndex);
         riskCeilingTick =
-            market.core.portfolioReserveExposure(account, side, lots);
+            market.core.moduleReserveExposure(account, side, lots);
         syncAccount(account);
     }
 
@@ -174,7 +174,7 @@ contract PortfolioAdmissionCoordinator {
         uint96 lots
     ) external {
         MarketConfig storage market = _gatewayMarket(marketIndex);
-        market.core.portfolioReleaseExposure(account, side, lots);
+        market.core.moduleReleaseExposure(account, side, lots);
         syncAccount(account);
     }
 
@@ -189,7 +189,7 @@ contract PortfolioAdmissionCoordinator {
         bool preReserved
     ) external returns (uint96 filledLots) {
         MarketConfig storage market = _gatewayMarket(marketIndex);
-        filledLots = market.core.portfolioTake(
+        filledLots = market.core.moduleTake(
             account,
             side,
             limitTick,
@@ -210,7 +210,7 @@ contract PortfolioAdmissionCoordinator {
         uint16 reservedRiskCeiling
     ) external returns (uint128 mintedShares) {
         MarketConfig storage market = _gatewayMarket(marketIndex);
-        mintedShares = market.core.portfolioAddLiquidity(
+        mintedShares = market.core.moduleAddLiquidity(
             account,
             side,
             tick,
