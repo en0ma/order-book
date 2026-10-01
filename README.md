@@ -145,4 +145,8 @@ A recurring fee-enabled taker fill has a dedicated gas regression asserting less
 
 Portfolio-mode cores are opt-in and may only be enabled before any local user collateral exists. The initial integration is deliberately limited to zero-fee cores: direct risk-increasing `take` / `addLiquidity` paths and direct advanced-order reservation are disabled, and risk growth must pass through `PortfolioAdmissionCoordinator`. The portfolio policy counts the shared vault balance once and adds each market's mark-to-market value, preventing duplicate collateral counting across markets.
 
-The coordinator locks enough vault collateral so that the account's post-action portfolio equity remains above its aggregate requirement. Risk-reducing actions may leave excess collateral locked until `syncAccount` is called; this is conservative. Realized cross-market profit transfer and fee/insurance settlement are not yet implemented, so shared-vault profit withdrawals are limited to the account's deposited vault balance.
+The coordinator locks enough vault collateral so that the account's post-action portfolio equity remains above its aggregate requirement. Risk-reducing actions may leave excess collateral locked until `syncAccount` is called; this is conservative.
+
+Once a vault controller is configured, direct vault withdrawals are disabled. Portfolio withdrawals must go through `PortfolioAdmissionCoordinator.withdraw`, which recomputes current settled cash equity and post-withdraw portfolio margin atomically. Realized trading/funding gains may therefore be withdrawn beyond the user's original deposit, while unrealized mark-to-market gains cannot. The vault records any withdrawal beyond gross deposits as a signed collateral claim offset by market cashflow, preserving pooled custody conservation.
+
+Fee-bearing portfolio mode and shared insurance / protocol-fee settlement remain separate follow-up work.
