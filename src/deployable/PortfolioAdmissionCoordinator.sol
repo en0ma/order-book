@@ -25,7 +25,10 @@ contract PortfolioAdmissionCoordinator {
     error InvalidPortfolioAdmissionConfig();
     error UnauthorizedGateway();
     error InsufficientPortfolioCollateral();
+    error SettlementModuleAlreadyConfigured();
 
+    address public immutable owner;
+    address public settlementModule;
     PortfolioMarginPolicy public immutable policy;
     PortfolioCollateralVault public immutable vault;
     MarketConfig[] public markets;
@@ -42,6 +45,7 @@ contract PortfolioAdmissionCoordinator {
         address vault_,
         MarketInput[] memory configs
     ) {
+        owner = msg.sender;
         if (policy_ == address(0) || vault_ == address(0)) {
             revert InvalidPortfolioAdmissionConfig();
         }
@@ -79,6 +83,23 @@ contract PortfolioAdmissionCoordinator {
 
     function marketCount() external view returns (uint256) {
         return markets.length;
+    }
+
+    function configureSettlementModule(address module) external {
+        if (msg.sender != owner || module == address(0)) {
+            revert InvalidPortfolioAdmissionConfig();
+        }
+        if (settlementModule != address(0)) {
+            revert SettlementModuleAlreadyConfigured();
+        }
+        settlementModule = module;
+    }
+
+    function creditSystemClaim(address account, uint256 amount) external {
+        if (msg.sender != settlementModule || msg.sender == address(0)) {
+            revert UnauthorizedGateway();
+        }
+        vault.controllerCreditClaim(account, amount);
     }
 
     function settledCashEquity(address account) public view returns (int256 cashEquity) {
