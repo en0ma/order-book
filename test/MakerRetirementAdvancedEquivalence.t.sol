@@ -26,8 +26,8 @@ contract MakerRetirementAdvancedEquivalenceTest is TestBase {
         int128 fundingIndex =
             int128((int256(fundingSeed % 17) - 8) * 1e18);
 
-        bytes32 direct = _scenarioDigest(lots, fillLots, fundingIndex, false);
-        bytes32 advanced = _scenarioDigest(lots, fillLots, fundingIndex, true);
+        bytes32 direct = _directScenarioDigest(lots, fillLots, fundingIndex);
+        bytes32 advanced = _advancedScenarioDigest(lots, fillLots, fundingIndex);
 
         assertEq(
             uint256(advanced),
@@ -36,11 +36,10 @@ contract MakerRetirementAdvancedEquivalenceTest is TestBase {
         );
     }
 
-    function _scenarioDigest(
+    function _directScenarioDigest(
         uint96 lots,
         uint96 fillLots,
-        int128 fundingIndex,
-        bool useAdvanced
+        int128 fundingIndex
     ) internal returns (bytes32 digest) {
         MockERC20 token = new MockERC20();
         SegmentTreeExtremaOracle oracle =
@@ -49,65 +48,83 @@ contract MakerRetirementAdvancedEquivalenceTest is TestBase {
             address(token), address(oracle), 40, 1_000, 10, 5
         );
 
-        AdvancedOrderModule advanced;
-        uint64 orderId;
-
-        if (useAdvanced) {
-            advanced = new AdvancedOrderModule(address(core), address(oracle));
-            core.configureAdvancedModule(address(advanced));
-        }
-
         _fund(core, token, MAKER);
         _fund(core, token, TAKER);
 
-        if (useAdvanced) {
-            vm.prank(MAKER);
-            orderId = advanced.placeTriggeredLimitOrder(
-                IOrderBookCore.Side.Bid,
-                true,
-                MARK,
-                TICK,
-                lots
-            );
-            advanced.executeConditionalOrder(orderId);
-        } else {
-            vm.prank(MAKER);
-            core.addLiquidity(IOrderBookCore.Side.Bid, TICK, lots);
-        }
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Bid, TICK, lots);
 
-        if (fillLots != 0) {
-            vm.prank(TAKER);
-            core.take(
-                IOrderBookCore.Side.Ask,
-                TICK,
-                fillLots,
-                IOrderBookCore.FillPolicy.IOC
-            );
-        }
-
+        _takeIfAny(core, fillLots);
         core.setFundingIndex(fundingIndex);
 
-        if (useAdvanced) {
+        (uint128 shares,,) =
+            core.quotes(MAKER, IOrderBookCore.Side.Bid, TICK);
+        if (shares != 0) {
             vm.prank(MAKER);
-            advanced.cancelRestingOrder(orderId);
-            assertEq(
-                advanced.activeAdvancedOrders(MAKER),
-                0,
-                "advanced retirement left active order"
-            );
-        } else {
-            (uint128 shares,,) =
-                core.quotes(MAKER, IOrderBookCore.Side.Bid, TICK);
-            if (shares != 0) {
-                vm.prank(MAKER);
-                core.removeShares(IOrderBookCore.Side.Bid, TICK, shares);
-            }
+            core.removeShares(IOrderBookCore.Side.Bid, TICK, shares);
         }
 
         vm.prank(TAKER);
         core.settle(IOrderBookCore.Side.Ask, TICK);
 
         digest = _digest(core);
+    }
+
+    function _advancedScenarioDigest(
+        uint96 lots,
+        uint96 fillLots,
+        int128 fundingIndex
+    ) internal returns (bytes32 digest) {
+        MockERC20 token = new MockERC20();
+        SegmentTreeExtremaOracle oracle =
+            new SegmentTreeExtremaOracle(address(this), MARK, 3_600);
+        OrderBookCoreHarness core = new OrderBookCoreHarness(
+            address(token), address(oracle), 40, 1_000, 10, 5
+        );
+        AdvancedOrderModule advanced =
+            new AdvancedOrderModule(address(core), address(oracle));
+
+        core.configureAdvancedModule(address(advanced));
+        _fund(core, token, MAKER);
+        _fund(core, token, TAKER);
+
+        vm.prank(MAKER);
+        uint64 orderId = advanced.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            MARK,
+            TICK,
+            lots
+        );
+        advanced.executeConditionalOrder(orderId);
+
+        _takeIfAny(core, fillLots);
+        core.setFundingIndex(fundingIndex);
+
+        vm.prank(MAKER);
+        advanced.cancelRestingOrder(orderId);
+        assertEq(
+            advanced.activeAdvancedOrders(MAKER),
+            0,
+            "advanced retirement left active order"
+        );
+
+        vm.prank(TAKER);
+        core.settle(IOrderBookCore.Side.Ask, TICK);
+
+        digest = _digest(core);
+    }
+
+    function _takeIfAny(OrderBookCoreHarness core, uint96 fillLots) internal {
+        if (fillLots == 0) return;
+
+        vm.prank(TAKER);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            TICK,
+            fillLots,
+            IOrderBookCore.FillPolicy.IOC
+        );
     }
 
     function _digest(OrderBookCoreHarness core) internal view returns (bytes32) {
