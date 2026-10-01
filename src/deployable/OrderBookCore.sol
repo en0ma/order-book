@@ -288,8 +288,10 @@ contract OrderBookCore is IOrderBookCore {
         int256 equityAfter = accountEquity(msg.sender) - int256(amount);
         if (equityAfter < int256(reservedMargin[msg.sender])) revert InsufficientCollateral();
 
+        uint256 localBefore = collateralBalance[msg.sender];
         _debitSettledCash(msg.sender, amount);
-        totalLocalCollateral -= amount;
+        uint256 localDebit = amount < localBefore ? amount : localBefore;
+        totalLocalCollateral -= localDebit;
 
         if (!collateralToken.transfer(msg.sender, amount)) revert TokenTransferFailed();
 
@@ -552,6 +554,7 @@ contract OrderBookCore is IOrderBookCore {
 
         insuranceReserves = reserves - covered;
         collateralBalance[account] += covered;
+        totalLocalCollateral += covered;
 
         emit BadDebtCovered(account, covered);
     }
