@@ -58,9 +58,9 @@ contract MakerRetirementMultiBurnConservationTest is TestBase {
 
         // Retiring the tiny maker can leave conservative cancellation dust in
         // the pool denominator without assigning it to MAKER0's canonical claim.
-        vm.prank(MAKER1);
         (uint128 smallShares,,) =
             core.quotes(MAKER1, IOrderBookCore.Side.Ask, TICK);
+        vm.prank(MAKER1);
         core.removeShares(IOrderBookCore.Side.Ask, TICK, smallShares);
 
         (uint128 finalShares, uint96 finalClaim,) =
