@@ -15,6 +15,19 @@ contract MakerRetirementMultiBurnConservationTest is TestBase {
     address internal constant TAKER = address(0xB0);
     uint16 internal constant TICK = 10_000;
 
+    function testRegression_PureCancellationTransfersPendingFundingBasis() public {
+        testFuzz_MultiBurnsNeverOverCreditMakerExecution(
+            44,
+            3,
+            37,
+            3,
+            13,
+            11,
+            68,
+            16
+        );
+    }
+
     function testFuzz_MultiBurnsNeverOverCreditMakerExecution(
         uint256 maker0Seed,
         uint256 maker1Seed,
