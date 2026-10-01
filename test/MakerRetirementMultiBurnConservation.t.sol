@@ -28,6 +28,19 @@ contract MakerRetirementMultiBurnConservationTest is TestBase {
         );
     }
 
+    function testRegression_ZeroLotBurnCannotPromoteCeilClaim() public {
+        testFuzz_MultiBurnsNeverOverCreditMakerExecution(
+            1658430977897,
+            1,
+            212521579167430931844821027961619,
+            779,
+            393529077688649832194399472615527365759349911498915169967130266704,
+            929033019645645257543618256479030637142708,
+            1,
+            1353047529533353940640803025083638372
+        );
+    }
+
     function testFuzz_MultiBurnsNeverOverCreditMakerExecution(
         uint256 maker0Seed,
         uint256 maker1Seed,

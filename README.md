@@ -82,12 +82,13 @@ The deployable path is split into:
 - `AdvancedOrderModule`: reduce-only/min-fill wrappers, conditional orders, triggered limits, OCO/OTO, lazy bracket resizing, trailing stops, and authenticated forwarding to specialized modules.
 - `MarketMakerModule`: managed maker-quote metadata plus atomic batch refresh/cancel policy.
 - `LiquidationModule`: maintenance-margin policy and liquidation orchestration.
+- `PortfolioMarginPolicy`: read-side cross-market risk aggregation with bounded hedge credits only for exposure guaranteed across each market's full risk envelope.
 - `OrderBookMath`: shared pure side/tick/share/risk arithmetic used by the deployable contracts.
 - `SegmentTreeExtremaOracle`: bounded on-chain range high/low observations for trailing triggers.
 
 Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 21,511 bytes for the core, 18,617 bytes for the advanced module, 4,434 bytes for the market-maker module, 4,001 bytes for the liquidation module, and 2,152 bytes for the extrema oracle.
 
-CI enforces stricter project budgets than EIP-170: 22,000 bytes for the core, 19,500 bytes for the advanced module, 5,000 bytes each for the market-maker and liquidation modules, and 4,000 bytes for the extrema oracle. New order-type or execution-policy logic should normally be added to specialized modules rather than expanding the matching core.
+CI enforces stricter project budgets than EIP-170: 22,000 bytes for the core, 19,500 bytes for the advanced module, 5,000 bytes each for the market-maker, liquidation, and portfolio-margin modules, and 4,000 bytes for the extrema oracle. New order-type or execution-policy logic should normally be added to specialized modules rather than expanding the matching core.
 
 
 The advanced-order module is constructor-bound to the same oracle contract used by the core. Trailing-history verification therefore cannot silently use a different price source from execution.

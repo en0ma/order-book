@@ -696,15 +696,18 @@ contract OrderBookCore is IOrderBookCore {
                 p.totalShares
             );
         }
-        if (claimAfter > claimBefore) revert InvalidShareAmount();
+        if (claimAfter > claimBefore) claimAfter = claimBefore;
 
         uint96 claimReduction = claimBefore - claimAfter;
         if (claimReduction < removedLots) {
             uint256 otherShares = uint256(p.totalShares) - uint256(q.shares);
             if (otherShares != 0) {
+                uint256 safeLeft =
+                    uint256(claimBefore) * uint256(p.totalShares);
+                uint256 safeRight =
+                    uint256(q.shares) * uint256(remainingBefore);
                 uint256 safeNumerator =
-                    uint256(claimBefore) * uint256(p.totalShares)
-                        - uint256(q.shares) * uint256(remainingBefore);
+                    safeLeft > safeRight ? safeLeft - safeRight : 0;
                 uint96 maxSafeRemoval =
                     uint96(safeNumerator / otherShares);
                 if (removedLots > maxSafeRemoval) {
@@ -718,7 +721,7 @@ contract OrderBookCore is IOrderBookCore {
                             p.remainingLots,
                             p.totalShares
                         );
-                    if (claimAfter > claimBefore) revert InvalidShareAmount();
+                    if (claimAfter > claimBefore) claimAfter = claimBefore;
                     claimReduction = claimBefore - claimAfter;
                 }
             }
