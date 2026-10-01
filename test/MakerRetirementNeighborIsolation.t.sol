@@ -198,12 +198,13 @@ contract MakerRetirementNeighborIsolationTest is TestBase {
     function _cashClaim(OrderBookCoreHarness core, address account)
         internal
         view
-        returns (uint256)
+        returns (uint256 claim)
     {
         (uint256 collateral, int256 trading, int256 funding,,) =
             core.accountingStateTest(account);
-        int256 claim = int256(collateral) + trading + funding;
-        return claim > 0 ? uint256(claim) : 0;
+        int256 signedClaim = int256(collateral) + trading + funding;
+        assertTrue(signedClaim >= 0, "negative settled cash claim");
+        claim = uint256(signedClaim);
     }
 
     function _fund(
