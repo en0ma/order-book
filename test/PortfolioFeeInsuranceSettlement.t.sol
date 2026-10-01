@@ -15,6 +15,7 @@ contract PortfolioFeeInsuranceSettlementTest is TestBase {
     address internal constant MAKER = address(0xA11CE);
     address internal constant TAKER = address(0xB0B);
     address internal constant EXIT_MAKER = address(0xD00D);
+    address internal constant LIQUIDATOR = address(0x1A11);
 
     MockERC20 internal token;
     MockMarkOracle internal oracle;
@@ -65,6 +66,7 @@ contract PortfolioFeeInsuranceSettlementTest is TestBase {
         vault.configureController(address(coordinator));
         policy.configureSharedCollateralVault(address(vault));
         core.configurePortfolioController(address(coordinator));
+        coordinator.configurePortfolioLiquidationModule(address(this));
 
         _deposit(MAKER, 50_000);
         _deposit(TAKER, 1_010);
@@ -100,6 +102,50 @@ contract PortfolioFeeInsuranceSettlementTest is TestBase {
             token.balanceOf(address(vault)),
             vault.totalAccountedCollateral(),
             "fee accrual changed physical shared custody"
+        );
+    }
+
+    function testPortfolioLiquidatorRewardConsumesProtocolClaimAndSharedCustody() public {
+        vm.prank(MAKER);
+        coordinator.addLiquidity(
+            0,
+            IOrderBookCore.Side.Ask,
+            100,
+            100
+        );
+
+        vm.prank(TAKER);
+        coordinator.take(
+            0,
+            IOrderBookCore.Side.Bid,
+            100,
+            100,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        assertEq(core.protocolFeesAccrued(), 10, "protocol fee precondition");
+
+        uint256 custodyBefore = token.balanceOf(address(vault));
+        uint256 liquidatorBefore = token.balanceOf(LIQUIDATOR);
+
+        uint256 paid = coordinator.payLiquidationReward(LIQUIDATOR, 7);
+
+        assertEq(paid, 7, "portfolio reward payment mismatch");
+        assertEq(core.protocolFeesAccrued(), 3, "protocol fee claim not burned");
+        assertEq(
+            token.balanceOf(LIQUIDATOR) - liquidatorBefore,
+            7,
+            "liquidator did not receive shared custody"
+        );
+        assertEq(
+            custodyBefore - token.balanceOf(address(vault)),
+            7,
+            "shared custody did not fund reward"
+        );
+        assertEq(
+            token.balanceOf(address(vault)),
+            vault.totalAccountedCollateral(),
+            "system reward broke vault accounting"
         );
     }
 
