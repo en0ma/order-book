@@ -57,9 +57,12 @@ contract MakerRetirementAdvancedEquivalenceTest is TestBase {
         _takeIfAny(core, fillLots);
         core.setFundingIndex(fundingIndex);
 
-        (uint128 shares,,) =
-            core.quotes(MAKER, IOrderBookCore.Side.Bid, TICK);
-        if (shares != 0) {
+        if (fillLots == lots) {
+            vm.prank(MAKER);
+            core.settle(IOrderBookCore.Side.Bid, TICK);
+        } else {
+            (uint128 shares,,) =
+                core.quotes(MAKER, IOrderBookCore.Side.Bid, TICK);
             vm.prank(MAKER);
             core.removeShares(IOrderBookCore.Side.Bid, TICK, shares);
         }
@@ -101,8 +104,12 @@ contract MakerRetirementAdvancedEquivalenceTest is TestBase {
         _takeIfAny(core, fillLots);
         core.setFundingIndex(fundingIndex);
 
-        vm.prank(MAKER);
-        advanced.cancelRestingOrder(orderId);
+        if (fillLots == lots) {
+            advanced.syncRestingOrder(orderId);
+        } else {
+            vm.prank(MAKER);
+            advanced.cancelRestingOrder(orderId);
+        }
         assertEq(
             advanced.activeAdvancedOrders(MAKER),
             0,
