@@ -42,7 +42,6 @@ contract LiquidationModule {
     error InvalidLiquidationConfig();
     error NotLiquidatable();
     error UnsettledOrders();
-    error Unauthorized();
 
     IOrderBookCore public immutable core;
     IAdvancedLiquidationGateway public immutable gateway;
@@ -82,7 +81,7 @@ contract LiquidationModule {
     }
 
     function configureLiquidatorReward(uint16 rewardBps) external {
-        if (msg.sender != owner) revert Unauthorized();
+        if (msg.sender != owner) revert InvalidLiquidationConfig();
         if (_liquidatorRewardConfigured) revert InvalidLiquidationConfig();
         if (rewardBps > 1_000) revert InvalidLiquidationConfig();
 
