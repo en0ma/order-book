@@ -869,13 +869,8 @@ contract OrderBookCore is IOrderBookCore {
     ) internal {
         if (fillLots == 0 || totalShares == 0) return;
 
-        uint256 fillNumerator = uint256(fillLots) * ACCUMULATOR_SCALE;
-        bool roundFillUp =
-            (side == Side.Ask) == (fundingIndexX18 >= 0);
-
-        uint256 fillPerShareX96 = roundFillUp
-            ? (fillNumerator + uint256(totalShares) - 1) / uint256(totalShares)
-            : fillNumerator / uint256(totalShares);
+        uint256 fillPerShareX96 =
+            uint256(fillLots) * ACCUMULATOR_SCALE / uint256(totalShares);
 
         int256 weighted = _divFundingDirected(
             side,
