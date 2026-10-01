@@ -290,9 +290,8 @@ contract PortfolioAdmissionCoordinatorTest is TestBase {
             new OrderBookCore(address(token), address(oracle), 20, 1_000, 10, 5);
 
         feeCore.configurePortfolioController(address(coordinator));
-        assertEq(
-            feeCore.portfolioController(),
-            address(coordinator),
+        assertTrue(
+            feeCore.portfolioController() == address(coordinator),
             "fee-bearing core did not enter portfolio mode"
         );
 
