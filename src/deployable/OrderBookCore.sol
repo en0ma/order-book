@@ -981,9 +981,8 @@ contract OrderBookCore is IOrderBookCore {
 
         if (q.generation != p.generation) {
             uint32 oldGeneration = q.generation;
-            uint256 closedAccounting =
-                closedGenerationAccounting[side][tick][oldGeneration];
-            uint128 outstanding = uint128(closedAccounting);
+            uint128 outstanding =
+                uint128(closedGenerationAccounting[side][tick][oldGeneration]);
 
             filledLots = q.claimLots;
 
@@ -1005,6 +1004,10 @@ contract OrderBookCore is IOrderBookCore {
                 }
             }
             _refreshReservedMargin(maker);
+
+            uint256 closedAccounting =
+                closedGenerationAccounting[side][tick][oldGeneration];
+            outstanding = uint128(closedAccounting);
 
             if (outstanding >= q.shares) {
                 outstanding -= q.shares;
