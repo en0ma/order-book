@@ -108,6 +108,78 @@ contract MakerAttributionPropertyTest is TestBase {
         );
     }
 
+    function testFundingRoundingResidualSettlesOnFinalRetirement() public {
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 105, 1);
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 105, 1);
+        vm.prank(CAROL);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 105, 1);
+
+        core.setFundingIndex(5e17);
+
+        vm.prank(TAKER);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            105,
+            1,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        core.setFundingIndex(15e17);
+
+        (uint128 aliceShares,,) =
+            core.quotes(ALICE, IOrderBookCore.Side.Ask, 105);
+        vm.prank(ALICE);
+        core.removeShares(IOrderBookCore.Side.Ask, 105, aliceShares);
+
+        (uint96 residualLots, int256 residualFundingEntry) =
+            core.makerResidualTest(IOrderBookCore.Side.Ask, 105, 0);
+        assertEq(uint256(residualLots), 0, "execution residual not consumed");
+        assertEq(
+            residualFundingEntry,
+            int256(1),
+            "funding rounding residual not explicit"
+        );
+
+        (uint128 bobShares,,) =
+            core.quotes(BOB, IOrderBookCore.Side.Ask, 105);
+        vm.prank(BOB);
+        core.removeShares(IOrderBookCore.Side.Ask, 105, bobShares);
+
+        (uint128 carolShares,,) =
+            core.quotes(CAROL, IOrderBookCore.Side.Ask, 105);
+        vm.prank(CAROL);
+        core.removeShares(IOrderBookCore.Side.Ask, 105, carolShares);
+
+        (residualLots, residualFundingEntry) =
+            core.makerResidualTest(IOrderBookCore.Side.Ask, 105, 0);
+        assertEq(uint256(residualLots), 0, "execution residual survived generation");
+        assertEq(
+            residualFundingEntry,
+            int256(0),
+            "funding residual survived generation"
+        );
+
+        (, int256 aliceTrading, int256 aliceFunding,,) =
+            core.accountingStateTest(ALICE);
+        (, int256 bobTrading, int256 bobFunding,,) =
+            core.accountingStateTest(BOB);
+        (, int256 carolTrading, int256 carolFunding,,) =
+            core.accountingStateTest(CAROL);
+
+        assertEq(
+            aliceFunding + bobFunding + carolFunding,
+            int256(1),
+            "canonical maker funding residual not conserved"
+        );
+        assertEq(
+            aliceTrading + bobTrading + carolTrading,
+            int256(105),
+            "maker trade cashflow not conserved"
+        );
+    }
+
     function _position(address account) internal view returns (int80 position) {
         (position,,) = core.accountRisk(account);
     }
