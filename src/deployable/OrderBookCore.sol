@@ -1539,40 +1539,12 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _lsb(uint256 x) internal pure returns (uint8 r) {
-        if (x == 0) revert InsufficientLiquidity();
-
-        if (x & type(uint128).max == 0) {
-            x >>= 128;
-            r += 128;
+        unchecked {
+            r = _msb(x & (~x + 1));
         }
-        if (x & type(uint64).max == 0) {
-            x >>= 64;
-            r += 64;
-        }
-        if (x & type(uint32).max == 0) {
-            x >>= 32;
-            r += 32;
-        }
-        if (x & type(uint16).max == 0) {
-            x >>= 16;
-            r += 16;
-        }
-        if (x & type(uint8).max == 0) {
-            x >>= 8;
-            r += 8;
-        }
-        if (x & 0x0f == 0) {
-            x >>= 4;
-            r += 4;
-        }
-        if (x & 0x03 == 0) {
-            x >>= 2;
-            r += 2;
-        }
-        if (x & 0x01 == 0) r += 1;
     }
 
-    function _msb(uint256 x) internal pure returns (uint8 r) {
+        function _msb(uint256 x) internal pure returns (uint8 r) {
         if (x == 0) revert InsufficientLiquidity();
 
         if (x >> 128 != 0) {
