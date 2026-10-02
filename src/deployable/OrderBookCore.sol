@@ -346,8 +346,7 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function settle(Side side, uint16 tick) external returns (uint96 filledLots) {
-        filledLots = _settle(msg.sender, side, tick);
-        _settleExistingPositionFunding(msg.sender);
+        filledLots = _settleAndFunding(msg.sender, side, tick);
     }
 
     function take(Side side, uint16 limitTick, uint96 lots, FillPolicy policy)
@@ -432,8 +431,7 @@ contract OrderBookCore is IOrderBookCore {
         onlyRiskModule
         returns (uint96 filledLots)
     {
-        filledLots = _settle(account, side, tick);
-        _settleExistingPositionFunding(account);
+        filledLots = _settleAndFunding(account, side, tick);
     }
 
     function moduleRemoveLockedShares(
@@ -469,6 +467,14 @@ contract OrderBookCore is IOrderBookCore {
         if (shares > lock.shares) revert InvalidShareAmount();
 
         _decreaseModuleLock(account, side, tick, shares);
+    }
+
+    function _settleAndFunding(address account, Side side, uint16 tick)
+        internal
+        returns (uint96 filledLots)
+    {
+        filledLots = _settle(account, side, tick);
+        _settleExistingPositionFunding(account);
     }
 
     function _decreaseModuleLock(
