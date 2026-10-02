@@ -1339,16 +1339,12 @@ contract OrderBookCore is IOrderBookCore {
         if (side == Side.Bid) {
             a.settledPosition += amount;
             a.minPosition += amount;
-            if (widen && a.maxPosition < a.settledPosition) {
-                a.maxPosition = a.settledPosition;
-            }
+            if (widen) a.maxPosition += amount;
             tradeCashflow[maker] += int256(makerRebate) - int256(notional);
         } else {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
-            if (widen && a.minPosition > a.settledPosition) {
-                a.minPosition = a.settledPosition;
-            }
+            if (widen) a.minPosition -= amount;
             tradeCashflow[maker] += int256(notional + makerRebate);
         }
     }
