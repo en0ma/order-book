@@ -195,6 +195,17 @@ contract OrderBookCore is IOrderBookCore {
         }
     }
 
+    function _requireStandalone() internal view {
+        if (portfolioController != address(0)) revert Unauthorized();
+    }
+
+    function _requirePortfolioControllerIfEnabled() internal view {
+        if (
+            portfolioController != address(0)
+                && msg.sender != portfolioController
+        ) revert Unauthorized();
+    }
+
     function configureAdvancedModule(address module) external onlyOwner {
         if (module == address(0)) revert ModuleNotConfigured();
         if (advancedModule != address(0)) revert ModuleAlreadyConfigured();
@@ -256,7 +267,7 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _pullCollateralExact(uint256 amount) internal {
-        if (portfolioController != address(0)) revert Unauthorized();
+        _requireStandalone();
         if (amount == 0) revert ZeroAmount();
         if (!unitScaleLocked) unitScaleLocked = true;
 
@@ -290,7 +301,7 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function withdrawCollateral(uint256 amount) external {
-        if (portfolioController != address(0)) revert Unauthorized();
+        _requireStandalone();
         if (amount == 0) revert ZeroAmount();
         if (_accountMeta[msg.sender].activeQuoteCount != 0) revert InsufficientCollateral();
 
@@ -318,7 +329,7 @@ contract OrderBookCore is IOrderBookCore {
         external
         returns (uint128 mintedShares)
     {
-        if (portfolioController != address(0)) revert Unauthorized();
+        _requireStandalone();
         mintedShares = _addLiquidityFor(msg.sender, side, tick, lots, false, 0, true);
     }
 
@@ -343,7 +354,7 @@ contract OrderBookCore is IOrderBookCore {
         external
         returns (uint96 filledLots)
     {
-        if (portfolioController != address(0)) revert Unauthorized();
+        _requireStandalone();
         filledLots = _takeFor(msg.sender, side, limitTick, lots, policy, false, false);
     }
 
@@ -353,10 +364,7 @@ contract OrderBookCore is IOrderBookCore {
         onlyRiskModule
         returns (uint16 riskCeilingTick)
     {
-        if (
-            portfolioController != address(0)
-                && msg.sender != portfolioController
-        ) revert Unauthorized();
+        _requirePortfolioControllerIfEnabled();
         if (lots == 0) revert ZeroAmount();
 
         _adjustRisk(account, side, lots, true);
@@ -390,10 +398,7 @@ contract OrderBookCore is IOrderBookCore {
         bool reduceOnly,
         bool preReserved
     ) external override onlyRiskModule returns (uint96 filledLots) {
-        if (
-            portfolioController != address(0) && !reduceOnly
-                && msg.sender != portfolioController
-        ) revert Unauthorized();
+        if (!reduceOnly) _requirePortfolioControllerIfEnabled();
         if (reduceOnly && _accountMeta[account].activeQuoteCount != 0) {
             revert ReduceOnlyViolation();
         }
@@ -408,10 +413,7 @@ contract OrderBookCore is IOrderBookCore {
         uint96 lots,
         uint16 reservedRiskCeiling
     ) external override onlyRiskModule returns (uint128 mintedShares) {
-        if (
-            portfolioController != address(0)
-                && msg.sender != portfolioController
-        ) revert Unauthorized();
+        _requirePortfolioControllerIfEnabled();
         mintedShares =
             _addLiquidityFor(account, side, tick, lots, true, reservedRiskCeiling, true);
 
@@ -505,7 +507,7 @@ contract OrderBookCore is IOrderBookCore {
         onlyModule
         returns (uint256 covered)
     {
-        if (portfolioController != address(0)) revert Unauthorized();
+        _requireStandalone();
         if (requested == 0) return 0;
         if (_accountMeta[account].activeQuoteCount != 0) revert Unauthorized();
 
