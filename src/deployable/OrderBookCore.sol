@@ -1510,13 +1510,7 @@ contract OrderBookCore is IOrderBookCore {
         if (words == 0) return (false, 0);
 
         uint8 wordIndex = _edgeBit(side, words);
-        uint256 word = _tickWords[side][wordIndex];
-        uint8 bitIndex = _edgeBit(side, word);
-
-        return (
-            true,
-            (uint16(wordIndex) << 8) | uint16(bitIndex)
-        );
+        return (true, _tickFromWord(side, wordIndex, _tickWords[side][wordIndex]));
     }
 
     function _nextTick(Side side, uint16 current)
@@ -1532,7 +1526,7 @@ contract OrderBookCore is IOrderBookCore {
             uint256 sameWord =
                 word & (type(uint256).max << (uint256(bi) + 1));
             if (sameWord != 0) {
-                return (true, (uint16(wi) << 8) | uint16(_edgeBit(side, sameWord)));
+                return (true, _tickFromWord(side, wi, sameWord));
             }
 
             uint256 higherWords =
@@ -1541,10 +1535,7 @@ contract OrderBookCore is IOrderBookCore {
             if (higherWords == 0) return (false, 0);
 
             wi = _edgeBit(side, higherWords);
-            return (
-                true,
-                (uint16(wi) << 8) | uint16(_edgeBit(side, _tickWords[side][wi]))
-            );
+            return (true, _tickFromWord(side, wi, _tickWords[side][wi]));
         }
 
         uint256 sameWord = word & ((uint256(1) << bi) - 1);
@@ -1561,6 +1552,14 @@ contract OrderBookCore is IOrderBookCore {
             true,
             (uint16(wi) << 8) | uint16(_edgeBit(side, _tickWords[side][wi]))
         );
+    }
+
+    function _tickFromWord(Side side, uint8 wordIndex, uint256 word)
+        internal
+        pure
+        returns (uint16)
+    {
+        return (uint16(wordIndex) << 8) | uint16(_edgeBit(side, word));
     }
 
     function _edgeBit(Side side, uint256 x) internal pure returns (uint8) {
