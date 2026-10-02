@@ -1499,11 +1499,9 @@ contract OrderBookCore is IOrderBookCore {
         uint256 words = _occupiedWords[side];
         if (words == 0) return (false, 0);
 
-        uint8 wordIndex =
-            side == Side.Ask ? _lsb(words) : _msb(words);
+        uint8 wordIndex = _edgeBit(side, words);
         uint256 word = _tickWords[side][wordIndex];
-        uint8 bitIndex =
-            side == Side.Ask ? _lsb(word) : _msb(word);
+        uint8 bitIndex = _edgeBit(side, word);
 
         return (
             true,
@@ -1524,7 +1522,7 @@ contract OrderBookCore is IOrderBookCore {
             uint256 sameWord =
                 word & (type(uint256).max << (uint256(bi) + 1));
             if (sameWord != 0) {
-                return (true, (uint16(wi) << 8) | uint16(_lsb(sameWord)));
+                return (true, (uint16(wi) << 8) | uint16(_edgeBit(side, sameWord)));
             }
 
             uint256 higherWords =
@@ -1532,27 +1530,31 @@ contract OrderBookCore is IOrderBookCore {
                     & (type(uint256).max << (uint256(wi) + 1));
             if (higherWords == 0) return (false, 0);
 
-            wi = _lsb(higherWords);
+            wi = _edgeBit(side, higherWords);
             return (
                 true,
-                (uint16(wi) << 8) | uint16(_lsb(_tickWords[side][wi]))
+                (uint16(wi) << 8) | uint16(_edgeBit(side, _tickWords[side][wi]))
             );
         }
 
         uint256 sameWord = word & ((uint256(1) << bi) - 1);
         if (sameWord != 0) {
-            return (true, (uint16(wi) << 8) | uint16(_msb(sameWord)));
+            return (true, (uint16(wi) << 8) | uint16(_edgeBit(side, sameWord)));
         }
 
         uint256 lowerWords =
             _occupiedWords[side] & ((uint256(1) << wi) - 1);
         if (lowerWords == 0) return (false, 0);
 
-        wi = _msb(lowerWords);
+        wi = _edgeBit(side, lowerWords);
         return (
             true,
-            (uint16(wi) << 8) | uint16(_msb(_tickWords[side][wi]))
+            (uint16(wi) << 8) | uint16(_edgeBit(side, _tickWords[side][wi]))
         );
+    }
+
+    function _edgeBit(Side side, uint256 x) internal pure returns (uint8) {
+        return side == Side.Ask ? _lsb(x) : _msb(x);
     }
 
     function _lsb(uint256 x) internal pure returns (uint8 r) {
