@@ -289,16 +289,9 @@ contract PortfolioStateMachineTest is TestBase {
 
     function _checkFinalConservation() internal view {
         int256 aggregateCollateralClaims;
-        int256 positionA;
-        int256 positionB;
 
         for (uint256 a; a < actors.length; ++a) {
             aggregateCollateralClaims += vault.collateralClaim(actors[a]);
-
-            (int80 aPosition,,) = coreA.accountRisk(actors[a]);
-            (int80 bPosition,,) = coreB.accountRisk(actors[a]);
-            positionA += int256(aPosition);
-            positionB += int256(bPosition);
         }
 
         assertTrue(
@@ -311,21 +304,29 @@ contract PortfolioStateMachineTest is TestBase {
             "signed collateral claims diverged from shared custody"
         );
 
-        uint256 totalFilledA = bidTakerFilled[0] + askTakerFilled[0];
-        uint256 totalFilledB = bidTakerFilled[1] + askTakerFilled[1];
-
-        assertTrue(
-            _abs(positionA) <= totalFilledA,
-            "market A rounding position exceeded total fills"
-        );
-        assertTrue(
-            _abs(positionB) <= totalFilledB,
-            "market B rounding position exceeded total fills"
-        );
+        _checkDirectionalPositionDebt(coreA, 0);
+        _checkDirectionalPositionDebt(coreB, 1);
     }
 
-    function _abs(int256 value) internal pure returns (uint256) {
-        return value >= 0 ? uint256(value) : uint256(-value);
+    function _checkDirectionalPositionDebt(
+        OrderBookCore core,
+        uint256 marketIndex
+    ) internal view {
+        int256 aggregatePosition;
+
+        for (uint256 a; a < actors.length; ++a) {
+            (int80 position,,) = core.accountRisk(actors[a]);
+            aggregatePosition += int256(position);
+        }
+
+        assertTrue(
+            aggregatePosition <= int256(bidTakerFilled[marketIndex]),
+            "positive maker-rounding debt exceeded ask-side executions"
+        );
+        assertTrue(
+            aggregatePosition >= -int256(askTakerFilled[marketIndex]),
+            "negative maker-rounding debt exceeded bid-side executions"
+        );
     }
 
     function _core(uint256 marketIndex) internal view returns (OrderBookCore) {
