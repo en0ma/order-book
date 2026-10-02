@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {OrderBookCore} from "../src/deployable/OrderBookCore.sol";
+import {OrderBookCoreHarness} from "./harness/OrderBookCoreHarness.sol";
 import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
 import {SegmentTreeExtremaOracle} from "../src/SegmentTreeExtremaOracle.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {TestBase} from "./TestBase.sol";
 
 contract MakerAttributionPropertyTest is TestBase {
-    OrderBookCore internal core;
+    OrderBookCoreHarness internal core;
     SegmentTreeExtremaOracle internal oracle;
     MockERC20 internal token;
 
@@ -20,7 +20,7 @@ contract MakerAttributionPropertyTest is TestBase {
     function setUp() public {
         token = new MockERC20();
         oracle = new SegmentTreeExtremaOracle(address(this), 100, 3_600);
-        core = new OrderBookCore(address(token), address(oracle), 40, 1_000, 0, 0);
+        core = new OrderBookCoreHarness(address(token), address(oracle), 40, 1_000, 0, 0);
 
         _fund(ALICE);
         _fund(BOB);
@@ -86,14 +86,20 @@ contract MakerAttributionPropertyTest is TestBase {
             int256(_position(ALICE)) + int256(_position(BOB)) + int256(_position(CAROL));
 
         int256 roundingDebt = makerPosition + takerPosition;
+        (uint96 residual0,) =
+            core.makerResidualTest(IOrderBookCore.Side.Ask, 105, 0);
+        (uint96 residual1,) =
+            core.makerResidualTest(IOrderBookCore.Side.Ask, 105, 1);
+        uint256 residualLots = uint256(residual0) + uint256(residual1);
 
         assertTrue(
             roundingDebt >= 0,
             "lazy maker attribution exceeded executed taker lots"
         );
-        assertTrue(
-            roundingDebt <= 2,
-            "three-maker rounding debt exceeded makers-1 bound"
+        assertEq(
+            uint256(roundingDebt),
+            residualLots,
+            "maker position + explicit residual != taker execution"
         );
         assertEq(
             takerPosition,
