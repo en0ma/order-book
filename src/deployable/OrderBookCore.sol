@@ -1252,12 +1252,9 @@ contract OrderBookCore is IOrderBookCore {
 
         generationMakerFillBudget[side][tick][generation] -= filledLots;
 
-        AccountRisk storage a = accountRisk[maker];
-        int80 amount = _positionAmount(filledLots);
-        int256 notional = int256(notionalValue(filledLots, tick));
-
+        uint256 notional = notionalValue(filledLots, tick);
         uint256 requestedMakerRebate =
-            uint256(notional) * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
+            notional * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
         TickPool storage p = pools[side][tick];
         uint256 localReserve;
         bool currentGeneration = generation == p.generation;
@@ -1291,15 +1288,9 @@ contract OrderBookCore is IOrderBookCore {
             }
         }
 
-        if (side == Side.Bid) {
-            a.settledPosition += amount;
-            a.minPosition += amount;
-            tradeCashflow[maker] += int256(makerRebate) - notional;
-        } else {
-            a.settledPosition -= amount;
-            a.maxPosition -= amount;
-            tradeCashflow[maker] += notional + int256(makerRebate);
-        }
+        _applyMakerPositionCashflow(
+            maker, side, filledLots, notional, makerRebate, false
+        );
     }
 
     function _settleMakerRoundingTail(
@@ -1310,37 +1301,38 @@ contract OrderBookCore is IOrderBookCore {
     ) internal returns (uint96 tail) {
         tail = generationMakerFillBudget[side][tick][generation];
         if (tail == 0) return 0;
-        _applyMakerRoundingTail(maker, side, tick, tail, generation);
+        generationMakerFillBudget[side][tick][generation] = 0;
+        _applyMakerPositionCashflow(
+            maker, side, tail, notionalValue(tail, tick), 0, true
+        );
         emit MakerSettled(maker, side, tick, tail, generation);
     }
 
-    function _applyMakerRoundingTail(
+    function _applyMakerPositionCashflow(
         address maker,
         Side side,
-        uint16 tick,
         uint96 filledLots,
-        uint32 generation
+        uint256 notional,
+        uint256 makerRebate,
+        bool widen
     ) internal {
-        generationMakerFillBudget[side][tick][generation] -= filledLots;
-
         AccountRisk storage a = accountRisk[maker];
         int80 amount = _positionAmount(filledLots);
-        int256 notional = int256(notionalValue(filledLots, tick));
 
         if (side == Side.Bid) {
             a.settledPosition += amount;
             a.minPosition += amount;
-            if (a.maxPosition < a.settledPosition) {
+            if (widen && a.maxPosition < a.settledPosition) {
                 a.maxPosition = a.settledPosition;
             }
-            tradeCashflow[maker] -= notional;
+            tradeCashflow[maker] += int256(makerRebate) - int256(notional);
         } else {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
-            if (a.minPosition > a.settledPosition) {
+            if (widen && a.minPosition > a.settledPosition) {
                 a.minPosition = a.settledPosition;
             }
-            tradeCashflow[maker] += notional;
+            tradeCashflow[maker] += int256(notional + makerRebate);
         }
     }
 
