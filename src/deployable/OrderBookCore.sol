@@ -801,9 +801,7 @@ contract OrderBookCore is IOrderBookCore {
         uint96 availableFill =
             generationMakerFillBudget[side][tick][q.generation];
         uint96 burnAttributedFill = claimReduction - removedLots;
-        if (p.totalShares == 0) {
-            burnAttributedFill = availableFill;
-        } else if (burnAttributedFill > availableFill) {
+        if (burnAttributedFill > availableFill) {
             burnAttributedFill = availableFill;
         }
 
@@ -832,6 +830,15 @@ contract OrderBookCore is IOrderBookCore {
                 burnAttributedFill,
                 q.generation
             );
+        }
+
+        if (p.totalShares == 0) {
+            uint96 tail =
+                generationMakerFillBudget[side][tick][q.generation];
+            if (tail != 0) {
+                _applyMakerRoundingTail(maker, side, tick, tail, q.generation);
+                emit MakerSettled(maker, side, tick, tail, q.generation);
+            }
         }
 
         // Pure cancellation must transfer the burned shares' pending
@@ -986,10 +993,6 @@ contract OrderBookCore is IOrderBookCore {
             uint128 outstanding = uint128(closedAccounting);
 
             filledLots = q.claimLots;
-            if (outstanding == q.shares) {
-                filledLots =
-                    generationMakerFillBudget[side][tick][oldGeneration];
-            }
 
             int256 finalFundingEntry =
                 closedFundingEntryPerShareX96[side][tick][oldGeneration];
@@ -998,6 +1001,16 @@ contract OrderBookCore is IOrderBookCore {
                 maker, side, tick, q.shares, filledLots, finalFundingEntry
             );
             _applyMakerFill(maker, side, tick, filledLots, oldGeneration);
+            if (outstanding == q.shares) {
+                uint96 tail =
+                    generationMakerFillBudget[side][tick][oldGeneration];
+                if (tail != 0) {
+                    _applyMakerRoundingTail(
+                        maker, side, tick, tail, oldGeneration
+                    );
+                    filledLots += tail;
+                }
+            }
             _refreshReservedMargin(maker);
 
             if (outstanding >= q.shares) {
@@ -1271,6 +1284,30 @@ contract OrderBookCore is IOrderBookCore {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
             tradeCashflow[maker] += notional + int256(makerRebate);
+        }
+    }
+
+    function _applyMakerRoundingTail(
+        address maker,
+        Side side,
+        uint16 tick,
+        uint96 filledLots,
+        uint32 generation
+    ) internal {
+        generationMakerFillBudget[side][tick][generation] -= filledLots;
+
+        AccountRisk storage a = accountRisk[maker];
+        int80 amount = _positionAmount(filledLots);
+        int256 notional = int256(notionalValue(filledLots, tick));
+
+        if (side == Side.Bid) {
+            a.settledPosition += amount;
+            a.minPosition += amount;
+            tradeCashflow[maker] -= notional;
+        } else {
+            a.settledPosition -= amount;
+            a.maxPosition -= amount;
+            tradeCashflow[maker] += notional;
         }
     }
 
