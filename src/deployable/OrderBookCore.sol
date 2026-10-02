@@ -702,14 +702,8 @@ contract OrderBookCore is IOrderBookCore {
         _recordFundingEntry(makerSide, tick, p.totalShares, fill);
         uint32 generation = p.generation;
         generationMakerFillBudget[makerSide][tick][generation] += fill;
-        int256 signedFill = makerSide == Side.Bid
-            ? int256(uint256(fill))
-            : -int256(uint256(fill));
         generationMakerFundingEntryBudget[makerSide][tick][generation] +=
-            _divFundingCeil(
-                signedFill * int256(fundingIndexX18),
-                FUNDING_SCALE
-            );
+            _fundingAtIndex(makerSide, fill, fundingIndexX18);
         p.remainingLots -= fill;
 
         if (p.remainingLots != 0) return (fill, reservedMakerRebate);
@@ -1176,10 +1170,8 @@ contract OrderBookCore is IOrderBookCore {
         int256 signedLots =
             side == Side.Bid ? int256(uint256(filledLots)) : -int256(uint256(filledLots));
 
-        int256 currentFunding = _divFundingCeil(
-            signedLots * int256(fundingIndexX18),
-            FUNDING_SCALE
-        );
+        int256 currentFunding =
+            _fundingAtIndex(side, filledLots, fundingIndexX18);
 
         entryFunding =
             signedLots == 0 ? int256(0) : (signedLots > 0 ? weightedEntry : -weightedEntry);
@@ -1363,13 +1355,8 @@ contract OrderBookCore is IOrderBookCore {
 
         _settleExistingPositionFunding(maker);
 
-        int256 signedTail =
-            side == Side.Bid ? int256(uint256(tail)) : -int256(uint256(tail));
-        makerFundingRoundingDust += entryFunding
-            - _divFundingCeil(
-                signedTail * int256(fundingIndexX18),
-                FUNDING_SCALE
-            );
+        makerFundingRoundingDust +=
+            entryFunding - _fundingAtIndex(side, tail, fundingIndexX18);
 
         if (tail != 0) {
             _applyMakerPositionCashflow(
@@ -1663,6 +1650,19 @@ contract OrderBookCore is IOrderBookCore {
 
             r := or(r, iszero(iszero(shr(1, x))))
         }
+    }
+
+    function _fundingAtIndex(
+        Side side,
+        uint96 lots,
+        int128 indexX18
+    ) internal pure returns (int256) {
+        int256 signedLots =
+            side == Side.Bid ? int256(uint256(lots)) : -int256(uint256(lots));
+        return _divFundingCeil(
+            signedLots * int256(indexX18),
+            FUNDING_SCALE
+        );
     }
 
     function _divFundingCeil(int256 numerator, int256 denominator)
