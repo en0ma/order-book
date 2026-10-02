@@ -11,9 +11,9 @@ import {OrderBookMath} from "./OrderBookMath.sol";
 /// @dev Advanced order state lives in a separate module set once after deployment.
 contract OrderBookCore is IOrderBookCore {
     using OrderBookMath for Side;
-    uint256 public constant INITIAL_SHARE_SCALE = 1_000_000;
-    uint256 public constant ACCUMULATOR_SCALE = 1 << 96;
-    int256 public constant FUNDING_SCALE = 1e18;
+    uint256 internal constant INITIAL_SHARE_SCALE = 1_000_000;
+    uint256 internal constant ACCUMULATOR_SCALE = 1 << 96;
+    int256 internal constant FUNDING_SCALE = 1e18;
 
     struct TickPool {
         uint128 totalShares;
@@ -664,11 +664,8 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         _recordFundingEntry(makerSide, tick, p.totalShares, fill);
-        uint128 budget = generationMakerFillBudget[makerSide][tick][p.generation];
-        uint256 nextBudget = uint256(budget) + uint256(fill);
-        if (nextBudget > type(uint128).max) revert Overflow();
-        generationMakerFillBudget[makerSide][tick][p.generation] =
-            uint128(nextBudget);
+        generationMakerFillBudget[makerSide][tick][p.generation] +=
+            uint128(fill);
         p.remainingLots -= fill;
 
         if (p.remainingLots != 0) return (fill, reservedMakerRebate);
