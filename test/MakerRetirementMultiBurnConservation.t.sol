@@ -92,6 +92,83 @@ contract MakerRetirementMultiBurnConservationTest is TestBase {
         );
     }
 
+    function testRegression_LastMakerAbsorbsRealExecutionRoundingDust() public {
+        MockERC20 token = new MockERC20();
+        SegmentTreeExtremaOracle oracle =
+            new SegmentTreeExtremaOracle(address(this), TICK, 3_600);
+        OrderBookCoreHarness core = new OrderBookCoreHarness(
+            address(token), address(oracle), 100, 1_000, 10, 5
+        );
+
+        _fund(core, token, MAKER0);
+        _fund(core, token, MAKER1);
+        address maker2 = address(0xCAFE);
+        address taker = address(0xD00D);
+        _fund(core, token, maker2);
+        _fund(core, token, taker);
+
+        vm.prank(MAKER0);
+        core.addLiquidity(IOrderBookCore.Side.Bid, TICK, 48);
+        vm.prank(MAKER1);
+        core.addLiquidity(IOrderBookCore.Side.Bid, TICK, 64);
+
+        vm.prank(taker);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            TICK,
+            20,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(maker2);
+        core.addLiquidity(IOrderBookCore.Side.Bid, TICK, 5);
+
+        (uint128 maker1Shares,,) =
+            core.quotes(MAKER1, IOrderBookCore.Side.Bid, TICK);
+        vm.prank(MAKER1);
+        core.removeShares(
+            IOrderBookCore.Side.Bid,
+            TICK,
+            maker1Shares
+        );
+
+        vm.prank(MAKER1);
+        core.addLiquidity(IOrderBookCore.Side.Bid, TICK, 6);
+
+        (uint128 maker0Shares,,) =
+            core.quotes(MAKER0, IOrderBookCore.Side.Bid, TICK);
+        vm.prank(MAKER0);
+        core.removeShares(
+            IOrderBookCore.Side.Bid,
+            TICK,
+            maker0Shares
+        );
+
+        vm.prank(taker);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            TICK,
+            12,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        vm.prank(MAKER1);
+        core.settle(IOrderBookCore.Side.Bid, TICK);
+        vm.prank(maker2);
+        core.settle(IOrderBookCore.Side.Bid, TICK);
+
+        int256 makerLots =
+            int256(_position(core, MAKER0))
+                + int256(_position(core, MAKER1))
+                + int256(_position(core, maker2));
+        assertEq(makerLots, int256(32), "executed maker lots not fully attributed");
+        assertEq(
+            int256(_position(core, taker)),
+            int256(-32),
+            "taker execution mismatch"
+        );
+    }
+
     function testFuzz_MultiBurnsNeverOverCreditMakerExecution(
         uint256 maker0Seed,
         uint256 maker1Seed,
