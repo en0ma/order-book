@@ -295,7 +295,7 @@ contract OrderBookCore is IOrderBookCore {
         if (amount == 0 || amount > accrued) revert InsufficientCollateral();
 
         _feeAccountingPacked =
-            (packed & ~uint256(type(uint128).max)) | (accrued - amount);
+            ((packed >> 128) << 128) | (accrued - amount);
         insuranceReserves += amount;
         emit ProtocolFeesAllocatedToInsurance(amount);
     }
@@ -545,7 +545,7 @@ contract OrderBookCore is IOrderBookCore {
         if (paid == 0) return 0;
 
         _feeAccountingPacked =
-            (packed & ~uint256(type(uint128).max)) | (accrued - paid);
+            ((packed >> 128) << 128) | (accrued - paid);
         _transferCollateralOut(liquidator, paid);
 
         emit LiquidationRewardPaid(liquidator, paid);
