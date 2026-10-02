@@ -702,14 +702,8 @@ contract OrderBookCore is IOrderBookCore {
         _recordFundingEntry(makerSide, tick, p.totalShares, fill);
         uint32 generation = p.generation;
         generationMakerFillBudget[makerSide][tick][generation] += fill;
-        int256 signedFill = makerSide == Side.Bid
-            ? int256(uint256(fill))
-            : -int256(uint256(fill));
         generationMakerFundingEntryBudget[makerSide][tick][generation] +=
-            _divFundingCeil(
-                signedFill * int256(fundingIndexX18),
-                FUNDING_SCALE
-            );
+            _currentFunding(makerSide, fill);
         p.remainingLots -= fill;
 
         if (p.remainingLots != 0) return (fill, reservedMakerRebate);
@@ -1173,16 +1167,11 @@ contract OrderBookCore is IOrderBookCore {
             int256(ACCUMULATOR_SCALE)
         );
 
-        int256 signedLots =
-            side == Side.Bid ? int256(uint256(filledLots)) : -int256(uint256(filledLots));
+        int256 currentFunding = _currentFunding(side, filledLots);
 
-        int256 currentFunding = _divFundingCeil(
-            signedLots * int256(fundingIndexX18),
-            FUNDING_SCALE
-        );
-
-        entryFunding =
-            signedLots == 0 ? int256(0) : (signedLots > 0 ? weightedEntry : -weightedEntry);
+        entryFunding = filledLots == 0
+            ? int256(0)
+            : (side == Side.Bid ? weightedEntry : -weightedEntry);
 
         int256 cashflowDelta = entryFunding - currentFunding;
 
@@ -1363,13 +1352,8 @@ contract OrderBookCore is IOrderBookCore {
 
         _settleExistingPositionFunding(maker);
 
-        int256 signedTail =
-            side == Side.Bid ? int256(uint256(tail)) : -int256(uint256(tail));
-        makerFundingRoundingDust += entryFunding
-            - _divFundingCeil(
-                signedTail * int256(fundingIndexX18),
-                FUNDING_SCALE
-            );
+        makerFundingRoundingDust +=
+            entryFunding - _currentFunding(side, tail);
 
         if (tail != 0) {
             _applyMakerPositionCashflow(
@@ -1663,6 +1647,19 @@ contract OrderBookCore is IOrderBookCore {
 
             r := or(r, iszero(iszero(shr(1, x))))
         }
+    }
+
+    function _currentFunding(Side side, uint96 lots)
+        internal
+        view
+        returns (int256)
+    {
+        int256 signedLots =
+            side == Side.Bid ? int256(uint256(lots)) : -int256(uint256(lots));
+        return _divFundingCeil(
+            signedLots * int256(fundingIndexX18),
+            FUNDING_SCALE
+        );
     }
 
     function _divFundingCeil(int256 numerator, int256 denominator)
