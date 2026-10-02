@@ -790,7 +790,15 @@ contract OrderBookCore is IOrderBookCore {
         if (claimReduction < removedLots) revert InvalidShareAmount();
         q.claimLots = claimAfter;
 
-        if (claimReduction == removedLots && q.shares != 0) {
+        // _settle() above materializes every maker fill that is currently
+        // observable from the quote's monotonic claim. Any additional claim
+        // reduction caused by the share burn is therefore cancellation
+        // rounding dust, not execution, and must never create maker position.
+        //
+        // A sub-lot historical fill can still be hidden by ceil redemption.
+        // Preserve its funding basis on the surviving shares so a later
+        // observable settlement remains correctly attributed.
+        if (q.shares != 0) {
             int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
             int256 priorCheckpoint =
                 quoteFundingCheckpointX96[maker][side][tick];
@@ -807,27 +815,6 @@ contract OrderBookCore is IOrderBookCore {
                 quoteFundingCheckpointX96[maker][side][tick] =
                     currentFundingEntry - inheritedEntryPerShare;
             }
-        }
-
-        uint96 burnAttributedFill = claimReduction - removedLots;
-        if (burnAttributedFill != 0) {
-            int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
-            _settleFundingForQuote(
-                maker,
-                side,
-                tick,
-                sharesToBurn,
-                burnAttributedFill,
-                currentFundingEntry
-            );
-            _applyMakerFill(maker, side, tick, burnAttributedFill, q.generation);
-            emit MakerSettled(
-                maker,
-                side,
-                tick,
-                burnAttributedFill,
-                q.generation
-            );
         }
 
         _shrinkRisk(maker, side, removedLots);
