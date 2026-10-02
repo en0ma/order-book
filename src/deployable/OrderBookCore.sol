@@ -849,10 +849,6 @@ contract OrderBookCore is IOrderBookCore {
             );
         }
 
-        if (p.totalShares == 0) {
-            _settleMakerRoundingTail(maker, side, tick, q.generation);
-        }
-
         // Pure cancellation must transfer the burned shares' pending
         // funding basis onto survivors. If this burn actually crystallized
         // historical fill, _settleFundingForQuote already consumed the burned
@@ -877,6 +873,14 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         _adjustRisk(maker, side, removedLots, false);
+
+        // Apply residual real execution only after cancellation has reduced
+        // the quote envelope, so the tail can clamp the final settled position
+        // back inside min/max rather than being shrunk out of the envelope.
+        if (p.totalShares == 0) {
+            _settleMakerRoundingTail(maker, side, tick, q.generation);
+        }
+
         _refreshReservedMargin(maker);
 
         if (q.shares == 0) {
