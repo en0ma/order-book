@@ -371,9 +371,7 @@ contract OrderBookCore is IOrderBookCore {
         riskCeilingTick =
             OrderBookMath.upperTick(currentMarkTick(), executionBandTicks);
 
-        if (riskCeilingTick > _accountMeta[account].riskCeilingTick) {
-            _accountMeta[account].riskCeilingTick = riskCeilingTick;
-        }
+        _raiseRiskCeiling(account, riskCeilingTick);
 
         _refreshReservedMargin(account);
     }
@@ -951,8 +949,12 @@ contract OrderBookCore is IOrderBookCore {
             }
         }
 
-        if (riskCeiling > _accountMeta[maker].riskCeilingTick) {
-            _accountMeta[maker].riskCeilingTick = riskCeiling;
+        _raiseRiskCeiling(maker, riskCeiling);
+    }
+
+    function _raiseRiskCeiling(address account, uint16 ceiling) internal {
+        if (ceiling > _accountMeta[account].riskCeilingTick) {
+            _accountMeta[account].riskCeilingTick = ceiling;
         }
     }
 
