@@ -229,15 +229,7 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function depositCollateral(uint256 amount) external {
-        if (portfolioController != address(0)) revert Unauthorized();
-        if (amount == 0) revert ZeroAmount();
-        if (!unitScaleLocked) unitScaleLocked = true;
-
-        IERC20Minimal token = collateralToken;
-        uint256 beforeBalance = token.balanceOf(address(this));
-        if (!token.transferFrom(msg.sender, address(this), amount)) revert TokenTransferFailed();
-        uint256 received = token.balanceOf(address(this)) - beforeBalance;
-        if (received != amount) revert UnsupportedTokenBehavior();
+        _pullCollateralExact(amount);
 
         collateralBalance[msg.sender] += amount;
         totalLocalCollateral += amount;
@@ -245,18 +237,29 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function fundInsurance(uint256 amount) external {
+        _pullCollateralExact(amount);
+
+        insuranceReserves += amount;
+        emit InsuranceFunded(msg.sender, amount);
+    }
+
+    function _pullCollateralExact(uint256 amount) internal {
         if (portfolioController != address(0)) revert Unauthorized();
         if (amount == 0) revert ZeroAmount();
         if (!unitScaleLocked) unitScaleLocked = true;
 
         IERC20Minimal token = collateralToken;
         uint256 beforeBalance = token.balanceOf(address(this));
-        if (!token.transferFrom(msg.sender, address(this), amount)) revert TokenTransferFailed();
-        uint256 received = token.balanceOf(address(this)) - beforeBalance;
-        if (received != amount) revert UnsupportedTokenBehavior();
+        if (!token.transferFrom(msg.sender, address(this), amount)) {
+            revert TokenTransferFailed();
+        }
+        if (token.balanceOf(address(this)) - beforeBalance != amount) {
+            revert UnsupportedTokenBehavior();
+        }
+    }
 
-        insuranceReserves += amount;
-        emit InsuranceFunded(msg.sender, amount);
+    function _transferCollateralOut(address recipient, uint256 amount) internal {
+        if (!collateralToken.transfer(recipient, amount)) revert TokenTransferFailed();
     }
 
     function protocolFeesAccrued() public view returns (uint256) {
@@ -294,7 +297,7 @@ contract OrderBookCore is IOrderBookCore {
         uint256 localDebit = amount < localBefore ? amount : localBefore;
         totalLocalCollateral -= localDebit;
 
-        if (!collateralToken.transfer(msg.sender, amount)) revert TokenTransferFailed();
+        _transferCollateralOut(msg.sender, amount);
 
         emit CollateralDebited(msg.sender, amount);
     }
@@ -520,7 +523,7 @@ contract OrderBookCore is IOrderBookCore {
 
         _feeAccountingPacked =
             (packed & ~uint256(type(uint128).max)) | (accrued - paid);
-        if (!collateralToken.transfer(liquidator, paid)) revert TokenTransferFailed();
+        _transferCollateralOut(liquidator, paid);
 
         emit LiquidationRewardPaid(liquidator, paid);
     }
