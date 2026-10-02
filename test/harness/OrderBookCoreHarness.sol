@@ -49,6 +49,20 @@ contract OrderBookCoreHarness is OrderBookCore {
         fundingCheckpoint = _accountMeta[account].fundingCheckpointX18;
     }
 
+    function makerResidualTest(
+        Side side,
+        uint16 tick,
+        uint32 generation
+    ) external view returns (uint96 lots, int256 fundingEntry) {
+        lots = generationMakerFillBudget[side][tick][generation];
+        fundingEntry =
+            generationMakerFundingEntryBudget[side][tick][generation];
+    }
+
+    function makerFundingRoundingDustTest() external view returns (int256) {
+        return makerFundingRoundingDust;
+    }
+
     function fundingIndexTest() external view returns (int128) {
         return fundingIndexX18;
     }

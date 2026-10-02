@@ -96,6 +96,12 @@ contract OrderBookCore is IOrderBookCore {
     // Executed taker lots not yet attributed to makers in each generation.
     mapping(Side => mapping(uint16 => mapping(uint32 => uint96)))
         internal generationMakerFillBudget;
+    // Canonical execution-time funding entry still owned by unattributed maker lots.
+    mapping(Side => mapping(uint16 => mapping(uint32 => int256)))
+        internal generationMakerFundingEntryBudget;
+    // Non-withdrawable system account for funding dust created by integer
+    // attribution of generation-local maker execution.
+    int256 internal makerFundingRoundingDust;
     mapping(Side => mapping(uint16 => uint128)) internal currentMakerRebateReserve;
     mapping(address => mapping(Side => mapping(uint16 => int256)))
         internal quoteFundingCheckpointX96;
@@ -694,7 +700,16 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         _recordFundingEntry(makerSide, tick, p.totalShares, fill);
-        generationMakerFillBudget[makerSide][tick][p.generation] += fill;
+        uint32 generation = p.generation;
+        generationMakerFillBudget[makerSide][tick][generation] += fill;
+        int256 signedFill = makerSide == Side.Bid
+            ? int256(uint256(fill))
+            : -int256(uint256(fill));
+        generationMakerFundingEntryBudget[makerSide][tick][generation] +=
+            _divFundingCeil(
+                signedFill * int256(fundingIndexX18),
+                FUNDING_SCALE
+            );
         p.remainingLots -= fill;
 
         if (p.remainingLots != 0) return (fill, reservedMakerRebate);
@@ -838,7 +853,7 @@ contract OrderBookCore is IOrderBookCore {
         if (burnAttributedFill != 0) {
             int256 currentFundingEntry =
                 fundingEntryPerShareX96[side][tick];
-            _settleFundingForQuote(
+            int256 entryFunding = _settleFundingForQuote(
                 maker,
                 side,
                 tick,
@@ -851,7 +866,8 @@ contract OrderBookCore is IOrderBookCore {
                 side,
                 tick,
                 burnAttributedFill,
-                q.generation
+                q.generation,
+                entryFunding
             );
             emit MakerSettled(
                 maker,
@@ -1035,10 +1051,12 @@ contract OrderBookCore is IOrderBookCore {
             int256 finalFundingEntry =
                 closedFundingEntryPerShareX96[side][tick][oldGeneration];
 
-            _settleFundingForQuote(
+            int256 entryFunding = _settleFundingForQuote(
                 maker, side, tick, q.shares, filledLots, finalFundingEntry
             );
-            _applyMakerFill(maker, side, tick, filledLots, oldGeneration);
+            _applyMakerFill(
+                maker, side, tick, filledLots, oldGeneration, entryFunding
+            );
             if (outstanding == q.shares) {
                 filledLots +=
                     _settleMakerRoundingTail(maker, side, tick, oldGeneration);
@@ -1088,12 +1106,14 @@ contract OrderBookCore is IOrderBookCore {
 
         int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
 
-        _settleFundingForQuote(
+        int256 entryFunding = _settleFundingForQuote(
             maker, side, tick, q.shares, filledLots, currentFundingEntry
         );
         quoteFundingCheckpointX96[maker][side][tick] = currentFundingEntry;
 
-        _applyMakerFill(maker, side, tick, filledLots, q.generation);
+        _applyMakerFill(
+            maker, side, tick, filledLots, q.generation, entryFunding
+        );
         _refreshReservedMargin(maker);
 
         emit MakerSettled(maker, side, tick, filledLots, q.generation);
@@ -1141,7 +1161,7 @@ contract OrderBookCore is IOrderBookCore {
         uint128 shares,
         uint96 filledLots,
         int256 finalFundingEntryPerShareX96
-    ) internal {
+    ) internal returns (int256 entryFunding) {
         _settleExistingPositionFunding(maker);
 
         int256 deltaPerShare =
@@ -1161,7 +1181,7 @@ contract OrderBookCore is IOrderBookCore {
             FUNDING_SCALE
         );
 
-        int256 entryFunding =
+        entryFunding =
             signedLots == 0 ? int256(0) : (signedLots > 0 ? weightedEntry : -weightedEntry);
 
         int256 cashflowDelta = entryFunding - currentFunding;
@@ -1278,11 +1298,13 @@ contract OrderBookCore is IOrderBookCore {
         Side side,
         uint16 tick,
         uint96 filledLots,
-        uint32 generation
+        uint32 generation,
+        int256 entryFunding
     ) internal {
         if (filledLots == 0) return;
 
         generationMakerFillBudget[side][tick][generation] -= filledLots;
+        generationMakerFundingEntryBudget[side][tick][generation] -= entryFunding;
 
         uint256 notional = notionalValue(filledLots, tick);
         uint256 requestedMakerRebate =
@@ -1332,12 +1354,29 @@ contract OrderBookCore is IOrderBookCore {
         uint32 generation
     ) internal returns (uint96 tail) {
         tail = generationMakerFillBudget[side][tick][generation];
-        if (tail == 0) return 0;
+        int256 entryFunding =
+            generationMakerFundingEntryBudget[side][tick][generation];
+        if (tail == 0 && entryFunding == 0) return 0;
+
         generationMakerFillBudget[side][tick][generation] = 0;
-        _applyMakerPositionCashflow(
-            maker, side, tail, notionalValue(tail, tick), 0, true
-        );
-        emit MakerSettled(maker, side, tick, tail, generation);
+        generationMakerFundingEntryBudget[side][tick][generation] = 0;
+
+        _settleExistingPositionFunding(maker);
+
+        int256 signedTail =
+            side == Side.Bid ? int256(uint256(tail)) : -int256(uint256(tail));
+        makerFundingRoundingDust += entryFunding
+            - _divFundingCeil(
+                signedTail * int256(fundingIndexX18),
+                FUNDING_SCALE
+            );
+
+        if (tail != 0) {
+            _applyMakerPositionCashflow(
+                maker, side, tail, notionalValue(tail, tick), 0, true
+            );
+            emit MakerSettled(maker, side, tick, tail, generation);
+        }
     }
 
     function _applyMakerPositionCashflow(
