@@ -143,10 +143,10 @@ A recurring fee-enabled taker fill has a dedicated gas regression asserting less
 
 ### Portfolio admission boundary
 
-Portfolio-mode cores are opt-in and may only be enabled before any local user collateral exists. The initial integration is deliberately limited to zero-fee cores: direct risk-increasing `take` / `addLiquidity` paths and direct advanced-order reservation are disabled, and risk growth must pass through `PortfolioAdmissionCoordinator`. The portfolio policy counts the shared vault balance once and adds each market's mark-to-market value, preventing duplicate collateral counting across markets.
+Portfolio-mode cores are opt-in and may only be enabled before any local user collateral exists. Direct risk-increasing `take` / `addLiquidity` paths and direct advanced-order reservation are disabled, and risk growth must pass through `PortfolioAdmissionCoordinator`. Fee-bearing portfolio cores are supported: taker fees and maker-rebate reserves remain lazy core accounting claims, so the matching hot path does not add shared-vault writes. The portfolio policy counts the shared vault balance once and adds each market's mark-to-market value, preventing duplicate collateral counting across markets.
 
 The coordinator locks enough vault collateral so that the account's post-action portfolio equity remains above its aggregate requirement. Risk-reducing actions may leave excess collateral locked until `syncAccount` is called; this is conservative.
 
 Once a vault controller is configured, direct vault withdrawals are disabled. Portfolio withdrawals must go through `PortfolioAdmissionCoordinator.withdraw`, which recomputes current settled cash equity and post-withdraw portfolio margin atomically. Realized trading/funding gains may therefore be withdrawn beyond the user's original deposit, while unrealized mark-to-market gains cannot. The vault records any withdrawal beyond gross deposits as a signed collateral claim offset by market cashflow, preserving pooled custody conservation.
 
-Fee-bearing portfolio mode and shared insurance / protocol-fee settlement remain separate follow-up work.
+Protocol fees may be allocated to insurance using the existing owner-controlled accounting path. After a portfolio is fully closed and order-free, `PortfolioAdmissionCoordinator.coverBadDebt` can consume those insurance reserves against negative aggregate equity; coverage becomes user market cashflow rather than local collateral, preserving shared-custody semantics.
