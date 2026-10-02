@@ -814,7 +814,8 @@ contract OrderBookCore is IOrderBookCore {
                 side,
                 tick,
                 burnAttributedFill,
-                q.generation, false);
+                q.generation
+            );
             emit MakerSettled(
                 maker,
                 side,
@@ -828,7 +829,7 @@ contract OrderBookCore is IOrderBookCore {
             uint96 tail =
                 generationMakerFillBudget[side][tick][q.generation];
             if (tail != 0) {
-                _applyMakerFill(maker, side, tick, tail, q.generation, true);
+                _applyMakerRoundingTail(maker, side, tick, tail, q.generation);
                 emit MakerSettled(maker, side, tick, tail, q.generation);
             }
         }
@@ -991,13 +992,14 @@ contract OrderBookCore is IOrderBookCore {
             _settleFundingForQuote(
                 maker, side, tick, q.shares, filledLots, finalFundingEntry
             );
-            _applyMakerFill(maker, side, tick, filledLots, oldGeneration, false);
+            _applyMakerFill(maker, side, tick, filledLots, oldGeneration);
             if (outstanding == q.shares) {
                 uint96 tail =
                     generationMakerFillBudget[side][tick][oldGeneration];
                 if (tail != 0) {
-                    _applyMakerFill(
-                        maker, side, tick, tail, oldGeneration, true);
+                    _applyMakerRoundingTail(
+                        maker, side, tick, tail, oldGeneration
+                    );
                     filledLots += tail;
                 }
             }
@@ -1050,7 +1052,7 @@ contract OrderBookCore is IOrderBookCore {
         );
         quoteFundingCheckpointX96[maker][side][tick] = currentFundingEntry;
 
-        _applyMakerFill(maker, side, tick, filledLots, q.generation, false);
+        _applyMakerFill(maker, side, tick, filledLots, q.generation);
         _refreshReservedMargin(maker);
 
         emit MakerSettled(maker, side, tick, filledLots, q.generation);
@@ -1225,8 +1227,7 @@ contract OrderBookCore is IOrderBookCore {
         Side side,
         uint16 tick,
         uint96 filledLots,
-        uint32 generation,
-        bool roundingTail
+        uint32 generation
     ) internal {
         if (filledLots == 0) return;
 
@@ -1235,63 +1236,84 @@ contract OrderBookCore is IOrderBookCore {
         AccountRisk storage a = accountRisk[maker];
         int80 amount = _positionAmount(filledLots);
         int256 notional = int256(notionalValue(filledLots, tick));
-        uint256 makerRebate;
 
-        if (!roundingTail) {
-            uint256 requestedMakerRebate =
-                uint256(notional) * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
-            TickPool storage p = pools[side][tick];
-            uint256 localReserve;
-            bool currentGeneration = generation == p.generation;
+        uint256 requestedMakerRebate =
+            uint256(notional) * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
+        TickPool storage p = pools[side][tick];
+        uint256 localReserve;
+        bool currentGeneration = generation == p.generation;
+        if (currentGeneration) {
+            localReserve = currentMakerRebateReserve[side][tick];
+        } else {
+            localReserve =
+                uint128(closedGenerationAccounting[side][tick][generation] >> 128);
+        }
+
+        uint256 packedFees = _feeAccountingPacked;
+        uint256 availableMakerRebate = packedFees >> 128;
+        uint256 makerRebate = requestedMakerRebate;
+        if (makerRebate > localReserve) makerRebate = localReserve;
+        if (makerRebate > availableMakerRebate) makerRebate = availableMakerRebate;
+
+        if (makerRebate != 0) {
+            _feeAccountingPacked =
+                (packedFees & uint256(type(uint128).max))
+                    | ((availableMakerRebate - makerRebate) << 128);
+
             if (currentGeneration) {
-                localReserve = currentMakerRebateReserve[side][tick];
+                currentMakerRebateReserve[side][tick] =
+                    uint128(localReserve - makerRebate);
             } else {
-                localReserve =
-                    uint128(closedGenerationAccounting[side][tick][generation] >> 128);
-            }
-
-            uint256 packedFees = _feeAccountingPacked;
-            uint256 availableMakerRebate = packedFees >> 128;
-            makerRebate = requestedMakerRebate;
-            if (makerRebate > localReserve) makerRebate = localReserve;
-            if (makerRebate > availableMakerRebate) makerRebate = availableMakerRebate;
-
-            if (makerRebate != 0) {
-                _feeAccountingPacked =
-                    (packedFees & uint256(type(uint128).max))
-                        | ((availableMakerRebate - makerRebate) << 128);
-
-                if (currentGeneration) {
-                    currentMakerRebateReserve[side][tick] =
-                        uint128(localReserve - makerRebate);
-                } else {
-                    uint256 closedAccounting =
-                        closedGenerationAccounting[side][tick][generation];
-                    closedGenerationAccounting[side][tick][generation] =
-                        ((localReserve - makerRebate) << 128)
-                            | uint256(uint128(closedAccounting));
-                }
+                uint256 closedAccounting =
+                    closedGenerationAccounting[side][tick][generation];
+                closedGenerationAccounting[side][tick][generation] =
+                    ((localReserve - makerRebate) << 128)
+                        | uint256(uint128(closedAccounting));
             }
         }
 
         if (side == Side.Bid) {
             a.settledPosition += amount;
             a.minPosition += amount;
-            if (roundingTail && a.maxPosition < a.settledPosition) {
-                a.maxPosition = a.settledPosition;
-            }
             tradeCashflow[maker] += int256(makerRebate) - notional;
         } else {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
-            if (roundingTail && a.minPosition > a.settledPosition) {
-                a.minPosition = a.settledPosition;
-            }
             tradeCashflow[maker] += notional + int256(makerRebate);
         }
     }
 
-            function _reclaimMakerRebateDust(uint256 amount) internal {
+    function _applyMakerRoundingTail(
+        address maker,
+        Side side,
+        uint16 tick,
+        uint96 filledLots,
+        uint32 generation
+    ) internal {
+        generationMakerFillBudget[side][tick][generation] -= filledLots;
+
+        AccountRisk storage a = accountRisk[maker];
+        int80 amount = _positionAmount(filledLots);
+        int256 notional = int256(notionalValue(filledLots, tick));
+
+        if (side == Side.Bid) {
+            a.settledPosition += amount;
+            a.minPosition += amount;
+            if (a.maxPosition < a.settledPosition) {
+                a.maxPosition = a.settledPosition;
+            }
+            tradeCashflow[maker] -= notional;
+        } else {
+            a.settledPosition -= amount;
+            a.maxPosition -= amount;
+            if (a.minPosition > a.settledPosition) {
+                a.minPosition = a.settledPosition;
+            }
+            tradeCashflow[maker] += notional;
+        }
+    }
+
+    function _reclaimMakerRebateDust(uint256 amount) internal {
         uint256 packedFees = _feeAccountingPacked;
         uint256 protocol = uint256(uint128(packedFees));
         uint256 reserve = packedFees >> 128;
@@ -1415,12 +1437,8 @@ contract OrderBookCore is IOrderBookCore {
 
     function _bestExecutableTick(Side side) internal view returns (bool ok, uint16 tick) {
         uint16 mark = currentMarkTick();
-        uint256 lowerRaw =
-            uint256(mark) > uint256(executionBandTicks)
-                ? uint256(mark) - uint256(executionBandTicks)
-                : 0;
-
-        uint16 lower = uint16(lowerRaw);
+        uint16 lower =
+            mark > executionBandTicks ? mark - executionBandTicks : 0;
         uint16 upper = OrderBookMath.upperTick(mark, executionBandTicks);
 
         (ok, tick) = _bestTick(side);
@@ -1462,19 +1480,16 @@ contract OrderBookCore is IOrderBookCore {
         uint256 words = _occupiedWords[side];
         if (words == 0) return (false, 0);
 
-        uint8 wordIndex;
-        uint8 bitIndex;
+        uint8 wordIndex =
+            side == Side.Ask ? _lsb(words) : _msb(words);
+        uint256 word = _tickWords[side][wordIndex];
+        uint8 bitIndex =
+            side == Side.Ask ? _lsb(word) : _msb(word);
 
-        if (side == Side.Ask) {
-            wordIndex = _lsb(words);
-            bitIndex = _lsb(_tickWords[side][wordIndex]);
-        } else {
-            wordIndex = _msb(words);
-            bitIndex = _msb(_tickWords[side][wordIndex]);
-        }
-
-        tick = (uint16(wordIndex) << 8) | uint16(bitIndex);
-        ok = true;
+        return (
+            true,
+            (uint16(wordIndex) << 8) | uint16(bitIndex)
+        );
     }
 
     function _nextTick(Side side, uint16 current)
@@ -1484,57 +1499,40 @@ contract OrderBookCore is IOrderBookCore {
     {
         uint8 wi = uint8(current >> 8);
         uint8 bi = uint8(current);
+        uint256 word = _tickWords[side][wi];
 
         if (side == Side.Ask) {
-            if (bi != type(uint8).max) {
-                uint256 sameWord =
-                    _tickWords[side][wi]
-                        & (type(uint256).max << (uint256(bi) + 1));
-
-                if (sameWord != 0) {
-                    return (true, (uint16(wi) << 8) | uint16(_lsb(sameWord)));
-                }
+            uint256 sameWord =
+                word & (type(uint256).max << (uint256(bi) + 1));
+            if (sameWord != 0) {
+                return (true, (uint16(wi) << 8) | uint16(_lsb(sameWord)));
             }
-
-            if (wi == type(uint8).max) return (false, 0);
 
             uint256 higherWords =
                 _occupiedWords[side]
                     & (type(uint256).max << (uint256(wi) + 1));
-
             if (higherWords == 0) return (false, 0);
 
-            uint8 higherWordIndex = _lsb(higherWords);
-
+            wi = _lsb(higherWords);
             return (
                 true,
-                (uint16(higherWordIndex) << 8)
-                    | uint16(_lsb(_tickWords[side][higherWordIndex]))
+                (uint16(wi) << 8) | uint16(_lsb(_tickWords[side][wi]))
             );
         }
 
-        if (bi != 0) {
-            uint256 sameWord =
-                _tickWords[side][wi] & ((uint256(1) << bi) - 1);
-
-            if (sameWord != 0) {
-                return (true, (uint16(wi) << 8) | uint16(_msb(sameWord)));
-            }
+        uint256 sameWord = word & ((uint256(1) << bi) - 1);
+        if (sameWord != 0) {
+            return (true, (uint16(wi) << 8) | uint16(_msb(sameWord)));
         }
-
-        if (wi == 0) return (false, 0);
 
         uint256 lowerWords =
             _occupiedWords[side] & ((uint256(1) << wi) - 1);
-
         if (lowerWords == 0) return (false, 0);
 
-        uint8 lowerWordIndex = _msb(lowerWords);
-
+        wi = _msb(lowerWords);
         return (
             true,
-            (uint16(lowerWordIndex) << 8)
-                | uint16(_msb(_tickWords[side][lowerWordIndex]))
+            (uint16(wi) << 8) | uint16(_msb(_tickWords[side][wi]))
         );
     }
 
@@ -1544,41 +1542,59 @@ contract OrderBookCore is IOrderBookCore {
         }
     }
 
-        function _msb(uint256 x) internal pure returns (uint8 r) {
+    function _msb(uint256 x) internal pure returns (uint8 r) {
         if (x == 0) revert InsufficientLiquidity();
 
-        if (x >> 128 != 0) {
-            x >>= 128;
-            r += 128;
+        assembly {
+            let f := shl(7, iszero(iszero(shr(128, x))))
+            x := shr(f, x)
+            r := f
+
+            f := shl(6, iszero(iszero(shr(64, x))))
+            x := shr(f, x)
+            r := or(r, f)
+
+            f := shl(5, iszero(iszero(shr(32, x))))
+            x := shr(f, x)
+            r := or(r, f)
+
+            f := shl(4, iszero(iszero(shr(16, x))))
+            x := shr(f, x)
+            r := or(r, f)
+
+            f := shl(3, iszero(iszero(shr(8, x))))
+            x := shr(f, x)
+            r := or(r, f)
+
+            f := shl(2, iszero(iszero(shr(4, x))))
+            x := shr(f, x)
+            r := or(r, f)
+
+            f := shl(1, iszero(iszero(shr(2, x))))
+            x := shr(f, x)
+            r := or(r, f)
+
+            r := or(r, iszero(iszero(shr(1, x))))
         }
-        if (x >> 64 != 0) {
-            x >>= 64;
-            r += 64;
-        }
-        if (x >> 32 != 0) {
-            x >>= 32;
-            r += 32;
-        }
-        if (x >> 16 != 0) {
-            x >>= 16;
-            r += 16;
-        }
-        if (x >> 8 != 0) {
-            x >>= 8;
-            r += 8;
-        }
-        if (x >> 4 != 0) {
-            x >>= 4;
-            r += 4;
-        }
-        if (x >> 2 != 0) {
-            x >>= 2;
-            r += 2;
-        }
-        if (x >> 1 != 0) r += 1;
     }
 
-        function _divFundingCeil(int256 numerator, int256 denominator)
+    function _divFundingEntry(Side side, int256 numerator)
+        internal
+        pure
+        returns (int256 quotient)
+    {
+        int256 denominator = int256(ACCUMULATOR_SCALE);
+        quotient = numerator / denominator;
+        int256 remainder = numerator % denominator;
+        if (remainder == 0) return quotient;
+
+        if (side == Side.Bid) {
+            if (numerator < 0) --quotient;
+        } else if (numerator > 0) {
+            ++quotient;
+        }
+    }
+    function _divFundingCeil(int256 numerator, int256 denominator)
         internal
         pure
         returns (int256 quotient)
