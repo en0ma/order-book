@@ -59,6 +59,10 @@ contract OrderBookCoreHarness is OrderBookCore {
             generationMakerFundingEntryBudget[side][tick][generation];
     }
 
+    function makerFundingRoundingDustTest() external view returns (int256) {
+        return makerFundingRoundingDust;
+    }
+
     function fundingIndexTest() external view returns (int128) {
         return fundingIndexX18;
     }
