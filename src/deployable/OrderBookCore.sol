@@ -834,9 +834,11 @@ contract OrderBookCore is IOrderBookCore {
             }
         }
 
-        // Any latent sub-lot funding basis not materialized above belongs to
-        // the surviving shares. Cancellation dust itself never creates fill.
-        if (q.shares != 0) {
+        // Pure cancellation must transfer the burned shares' pending
+        // funding basis onto survivors. If this burn actually crystallized
+        // historical fill, _settleFundingForQuote already consumed the burned
+        // slice's basis, so inheriting it again would double count funding.
+        if (burnAttributedFill == 0 && q.shares != 0) {
             int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
             int256 priorCheckpoint =
                 quoteFundingCheckpointX96[maker][side][tick];
