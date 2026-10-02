@@ -206,10 +206,10 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _requirePortfolioControllerIfEnabled() internal view {
-        if (
-            portfolioController != address(0)
-                && msg.sender != portfolioController
-        ) revert Unauthorized();
+        address controller = portfolioController;
+        if (controller != address(0) && msg.sender != controller) {
+            revert Unauthorized();
+        }
     }
 
     function configureAdvancedModule(address module) external onlyOwner {
@@ -518,7 +518,7 @@ contract OrderBookCore is IOrderBookCore {
         returns (uint256 covered)
     {
         address controller = portfolioController;
-        if (controller != address(0) && msg.sender != controller) revert Unauthorized();
+        if (controller != address(0)) _requirePortfolioControllerIfEnabled();
         if (requested == 0) return 0;
         if (_accountMeta[account].activeQuoteCount != 0) revert Unauthorized();
 
