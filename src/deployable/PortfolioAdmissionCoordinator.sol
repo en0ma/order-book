@@ -107,9 +107,9 @@ contract PortfolioAdmissionCoordinator {
         if (amount == 0) revert InsufficientPortfolioCollateral();
 
         int256 cashEquity = settledCashEquity(msg.sender);
-        if (
-            cashEquity <= 0 || amount > uint256(cashEquity)
-        ) revert InsufficientPortfolioCollateral();
+        if (cashEquity < int256(amount)) {
+            revert InsufficientPortfolioCollateral();
+        }
 
         vault.controllerWithdraw(msg.sender, msg.sender, amount);
         syncAccount(msg.sender);
@@ -153,10 +153,7 @@ contract PortfolioAdmissionCoordinator {
 
         int256 equity = policy.portfolioEquity(account);
         uint256 requirement = policy.portfolioRequirement(account);
-        if (requirement > uint256(type(int256).max)) {
-            revert InsufficientPortfolioCollateral();
-        }
-        if (equity < int256(requirement)) {
+        if (requirement > uint256(type(int256).max) || equity < int256(requirement)) {
             revert InsufficientPortfolioCollateral();
         }
 
