@@ -435,8 +435,7 @@ contract OrderBookCore is IOrderBookCore {
                 || pools[side][tick].generation != generation || shares > lock.shares
         ) revert InvalidShareAmount();
 
-        lock.shares -= shares;
-        if (lock.shares == 0) delete moduleLocks[account][side][tick];
+        _decreaseModuleLock(account, side, tick, shares);
 
         removedLots = _removeSharesFor(account, side, tick, shares);
     }
@@ -455,6 +454,16 @@ contract OrderBookCore is IOrderBookCore {
         if (lock.generation != generation) return;
         if (shares > lock.shares) revert InvalidShareAmount();
 
+        _decreaseModuleLock(account, side, tick, shares);
+    }
+
+    function _decreaseModuleLock(
+        address account,
+        Side side,
+        uint16 tick,
+        uint128 shares
+    ) internal {
+        ModuleLock storage lock = moduleLocks[account][side][tick];
         lock.shares -= shares;
         if (lock.shares == 0) delete moduleLocks[account][side][tick];
     }
@@ -864,9 +873,7 @@ contract OrderBookCore is IOrderBookCore {
         _refreshReservedMargin(maker);
 
         if (q.shares == 0) {
-            delete quotes[maker][side][tick];
-            delete quoteFundingCheckpointX96[maker][side][tick];
-            _accountMeta[maker].activeQuoteCount -= 1;
+            _clearQuote(maker, side, tick);
         }
 
         if (p.totalShares == 0) {
@@ -887,6 +894,12 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         emit LiquidityRemoved(maker, side, tick, removedLots, sharesToBurn, p.generation);
+    }
+
+    function _clearQuote(address maker, Side side, uint16 tick) internal {
+        delete quotes[maker][side][tick];
+        delete quoteFundingCheckpointX96[maker][side][tick];
+        _accountMeta[maker].activeQuoteCount -= 1;
     }
 
     function _preparePoolRiskCeiling(
@@ -1028,9 +1041,7 @@ contract OrderBookCore is IOrderBookCore {
                 }
             }
 
-            delete quotes[maker][side][tick];
-            delete quoteFundingCheckpointX96[maker][side][tick];
-            _accountMeta[maker].activeQuoteCount -= 1;
+            _clearQuote(maker, side, tick);
 
             emit MakerSettled(maker, side, tick, filledLots, oldGeneration);
             return filledLots;
@@ -1581,22 +1592,6 @@ contract OrderBookCore is IOrderBookCore {
         }
     }
 
-    function _divFundingEntry(Side side, int256 numerator)
-        internal
-        pure
-        returns (int256 quotient)
-    {
-        int256 denominator = int256(ACCUMULATOR_SCALE);
-        quotient = numerator / denominator;
-        int256 remainder = numerator % denominator;
-        if (remainder == 0) return quotient;
-
-        if (side == Side.Bid) {
-            if (numerator < 0) --quotient;
-        } else if (numerator > 0) {
-            ++quotient;
-        }
-    }
     function _divFundingCeil(int256 numerator, int256 denominator)
         internal
         pure
