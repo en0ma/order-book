@@ -170,8 +170,13 @@ contract MakerAttributionPropertyTest is TestBase {
 
         assertEq(
             aliceFunding + bobFunding + carolFunding,
+            int256(0),
+            "funding rounding residual leaked into maker claims"
+        );
+        assertEq(
+            core.makerFundingRoundingDustTest(),
             int256(1),
-            "canonical maker funding residual not conserved"
+            "system funding rounding dust not conserved"
         );
         assertEq(
             aliceTrading + bobTrading + carolTrading,
