@@ -850,12 +850,7 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         if (p.totalShares == 0) {
-            uint96 tail =
-                generationMakerFillBudget[side][tick][q.generation];
-            if (tail != 0) {
-                _applyMakerRoundingTail(maker, side, tick, tail, q.generation);
-                emit MakerSettled(maker, side, tick, tail, q.generation);
-            }
+            _settleMakerRoundingTail(maker, side, tick, q.generation);
         }
 
         // Pure cancellation must transfer the burned shares' pending
@@ -1022,14 +1017,8 @@ contract OrderBookCore is IOrderBookCore {
             );
             _applyMakerFill(maker, side, tick, filledLots, oldGeneration);
             if (outstanding == q.shares) {
-                uint96 tail =
-                    generationMakerFillBudget[side][tick][oldGeneration];
-                if (tail != 0) {
-                    _applyMakerRoundingTail(
-                        maker, side, tick, tail, oldGeneration
-                    );
-                    filledLots += tail;
-                }
+                filledLots +=
+                    _settleMakerRoundingTail(maker, side, tick, oldGeneration);
             }
             _refreshReservedMargin(maker);
 
@@ -1307,6 +1296,18 @@ contract OrderBookCore is IOrderBookCore {
             a.maxPosition -= amount;
             tradeCashflow[maker] += notional + int256(makerRebate);
         }
+    }
+
+    function _settleMakerRoundingTail(
+        address maker,
+        Side side,
+        uint16 tick,
+        uint32 generation
+    ) internal returns (uint96 tail) {
+        tail = generationMakerFillBudget[side][tick][generation];
+        if (tail == 0) return 0;
+        _applyMakerRoundingTail(maker, side, tick, tail, generation);
+        emit MakerSettled(maker, side, tick, tail, generation);
     }
 
     function _applyMakerRoundingTail(
