@@ -92,6 +92,13 @@ contract PortfolioStateMachineTest is TestBase {
         _run(seed, 20);
     }
 
+    function testRegressionRiskEnvelopeSeed208822() public {
+        _run(
+            208822202701668497567494828388103976599470400930301049956431,
+            20
+        );
+    }
+
     function testPortfolioLongSequenceCorpus() public {
         for (uint256 seed = 1; seed <= 8; ++seed) {
             _run(uint256(keccak256(abi.encode(seed))), 40);
