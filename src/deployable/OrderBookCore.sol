@@ -703,7 +703,7 @@ contract OrderBookCore is IOrderBookCore {
         uint32 generation = p.generation;
         generationMakerFillBudget[makerSide][tick][generation] += fill;
         generationMakerFundingEntryBudget[makerSide][tick][generation] +=
-            _fundingAtIndex(makerSide, fill, fundingIndexX18);
+            _currentFunding(makerSide, fill);
         p.remainingLots -= fill;
 
         if (p.remainingLots != 0) return (fill, reservedMakerRebate);
@@ -1167,14 +1167,11 @@ contract OrderBookCore is IOrderBookCore {
             int256(ACCUMULATOR_SCALE)
         );
 
-        int256 signedLots =
-            side == Side.Bid ? int256(uint256(filledLots)) : -int256(uint256(filledLots));
+        int256 currentFunding = _currentFunding(side, filledLots);
 
-        int256 currentFunding =
-            _fundingAtIndex(side, filledLots, fundingIndexX18);
-
-        entryFunding =
-            signedLots == 0 ? int256(0) : (signedLots > 0 ? weightedEntry : -weightedEntry);
+        entryFunding = filledLots == 0
+            ? int256(0)
+            : (side == Side.Bid ? weightedEntry : -weightedEntry);
 
         int256 cashflowDelta = entryFunding - currentFunding;
 
@@ -1356,7 +1353,7 @@ contract OrderBookCore is IOrderBookCore {
         _settleExistingPositionFunding(maker);
 
         makerFundingRoundingDust +=
-            entryFunding - _fundingAtIndex(side, tail, fundingIndexX18);
+            entryFunding - _currentFunding(side, tail);
 
         if (tail != 0) {
             _applyMakerPositionCashflow(
@@ -1652,15 +1649,15 @@ contract OrderBookCore is IOrderBookCore {
         }
     }
 
-    function _fundingAtIndex(
-        Side side,
-        uint96 lots,
-        int128 indexX18
-    ) internal pure returns (int256) {
+    function _currentFunding(Side side, uint96 lots)
+        internal
+        view
+        returns (int256)
+    {
         int256 signedLots =
             side == Side.Bid ? int256(uint256(lots)) : -int256(uint256(lots));
         return _divFundingCeil(
-            signedLots * int256(indexX18),
+            signedLots * int256(fundingIndexX18),
             FUNDING_SCALE
         );
     }
