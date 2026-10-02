@@ -167,20 +167,32 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     modifier onlyOwner() {
-        if (msg.sender != owner) revert Unauthorized();
+        _requireOwner();
         _;
     }
 
     modifier onlyModule() {
-        if (msg.sender != advancedModule || msg.sender == address(0)) revert Unauthorized();
+        _requireModule();
         _;
     }
 
     modifier onlyRiskModule() {
+        _requireRiskModule();
+        _;
+    }
+
+    function _requireOwner() internal view {
+        if (msg.sender != owner) revert Unauthorized();
+    }
+
+    function _requireModule() internal view {
+        if (msg.sender != advancedModule || msg.sender == address(0)) revert Unauthorized();
+    }
+
+    function _requireRiskModule() internal view {
         if (msg.sender != advancedModule && msg.sender != portfolioController) {
             revert Unauthorized();
         }
-        _;
     }
 
     function configureAdvancedModule(address module) external onlyOwner {
