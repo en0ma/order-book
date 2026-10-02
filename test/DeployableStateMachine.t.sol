@@ -57,6 +57,10 @@ contract DeployableStateMachineTest is TestBase {
         _runSequence(seed, 12);
     }
 
+    function testRegressionAdversarialShortSequenceRiskTailEnvelope() public {
+        _runSequence(1429134643453657744, 12);
+    }
+
     function testAdversarialLongSequenceCorpus() public {
         // Keep this deterministic corpus below Forge's single-test gas ceiling.
         // The fuzz test above already runs 5,000 independently seeded sequences.
