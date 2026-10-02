@@ -359,7 +359,7 @@ contract OrderBookCore is IOrderBookCore {
         ) revert Unauthorized();
         if (lots == 0) revert ZeroAmount();
 
-        _expandRisk(account, side, lots);
+        _adjustRisk(account, side, lots, true);
 
         riskCeilingTick =
             OrderBookMath.upperTick(currentMarkTick(), executionBandTicks);
@@ -377,7 +377,7 @@ contract OrderBookCore is IOrderBookCore {
         onlyRiskModule
     {
         if (lots == 0) return;
-        _shrinkRisk(account, side, lots);
+        _adjustRisk(account, side, lots, false);
         _refreshReservedMargin(account);
     }
 
@@ -729,7 +729,7 @@ contract OrderBookCore is IOrderBookCore {
         _creditMakerQuote(maker, side, tick, p.generation, mintedShares, lots);
 
         if (!preReserved) {
-            _expandRisk(maker, side, lots);
+            _adjustRisk(maker, side, lots, true);
             _refreshReservedMargin(maker);
         }
 
@@ -881,7 +881,7 @@ contract OrderBookCore is IOrderBookCore {
             }
         }
 
-        _shrinkRisk(maker, side, removedLots);
+        _adjustRisk(maker, side, removedLots, false);
         _refreshReservedMargin(maker);
 
         if (q.shares == 0) {
@@ -1352,25 +1352,21 @@ contract OrderBookCore is IOrderBookCore {
             ((reserve - amount) << 128) | nextProtocol;
     }
 
-    function _expandRisk(address account, Side side, uint96 lots) internal {
+    function _adjustRisk(
+        address account,
+        Side side,
+        uint96 lots,
+        bool expand
+    ) internal {
         AccountRisk storage a = accountRisk[account];
         int80 amount = _positionAmount(lots);
 
         if (side == Side.Bid) {
-            a.maxPosition += amount;
+            if (expand) a.maxPosition += amount;
+            else a.maxPosition -= amount;
         } else {
-            a.minPosition -= amount;
-        }
-    }
-
-    function _shrinkRisk(address account, Side side, uint96 lots) internal {
-        AccountRisk storage a = accountRisk[account];
-        int80 amount = _positionAmount(lots);
-
-        if (side == Side.Bid) {
-            a.maxPosition -= amount;
-        } else {
-            a.minPosition += amount;
+            if (expand) a.minPosition -= amount;
+            else a.minPosition += amount;
         }
     }
 
