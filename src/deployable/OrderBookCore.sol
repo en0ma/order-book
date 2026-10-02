@@ -285,7 +285,7 @@ contract OrderBookCore is IOrderBookCore {
         if (!collateralToken.transfer(recipient, amount)) revert TokenTransferFailed();
     }
 
-    function protocolFeesAccrued() public view returns (uint256) {
+    function protocolFeesAccrued() external view returns (uint256) {
         return uint256(uint128(_feeAccountingPacked));
     }
 
