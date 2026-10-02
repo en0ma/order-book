@@ -216,7 +216,7 @@ contract OrderBookCore is IOrderBookCore {
     function configurePortfolioController(address controller) external onlyOwner {
         if (controller == address(0)) revert Unauthorized();
         if (portfolioController != address(0)) revert ModuleAlreadyConfigured();
-        if (totalLocalCollateral != 0 || feeSchedulePacked != 0 || insuranceReserves != 0) {
+        if (totalLocalCollateral != 0 || insuranceReserves != 0) {
             revert InvalidRiskConfig();
         }
 
@@ -508,29 +508,36 @@ contract OrderBookCore is IOrderBookCore {
     function moduleCoverBadDebt(address account, uint256 requested)
         external
         override
-        onlyModule
+        onlyRiskModule
         returns (uint256 covered)
     {
-        _requireStandalone();
+        address controller = portfolioController;
+        if (controller != address(0) && msg.sender != controller) revert Unauthorized();
         if (requested == 0) return 0;
         if (_accountMeta[account].activeQuoteCount != 0) revert Unauthorized();
 
         int80 position = accountRisk[account].settledPosition;
         if (position != 0) revert ReduceOnlyViolation();
 
-        int256 equity = accountEquity(account);
-        if (equity >= 0) return 0;
+        if (controller == address(0)) {
+            int256 equity = accountEquity(account);
+            if (equity >= 0) return 0;
 
-        uint256 debt = uint256(-equity);
-        covered = requested < debt ? requested : debt;
+            uint256 debt = uint256(-equity);
+            if (requested > debt) requested = debt;
+        }
 
         uint256 reserves = insuranceReserves;
-        if (covered > reserves) covered = reserves;
+        covered = requested < reserves ? requested : reserves;
         if (covered == 0) return 0;
 
         insuranceReserves = reserves - covered;
-        collateralBalance[account] += covered;
-        totalLocalCollateral += covered;
+        if (controller == address(0)) {
+            collateralBalance[account] += covered;
+            totalLocalCollateral += covered;
+        } else {
+            tradeCashflow[account] += int256(covered);
+        }
 
         emit BadDebtCovered(account, covered);
     }
@@ -1021,7 +1028,9 @@ contract OrderBookCore is IOrderBookCore {
             uint128 outstanding =
                 uint128(closedGenerationAccounting[side][tick][oldGeneration]);
 
-            filledLots = q.claimLots;
+            filledLots = _backedMakerFill(
+                side, tick, oldGeneration, q.claimLots
+            );
 
             int256 finalFundingEntry =
                 closedFundingEntryPerShareX96[side][tick][oldGeneration];
@@ -1071,8 +1080,11 @@ contract OrderBookCore is IOrderBookCore {
         // cancellation dust into synthetic maker fills.
         if (currentClaim >= q.claimLots) return 0;
 
-        filledLots = q.claimLots - currentClaim;
-        q.claimLots = currentClaim;
+        filledLots = _backedMakerFill(
+            side, tick, q.generation, q.claimLots - currentClaim
+        );
+        if (filledLots == 0) return 0;
+        q.claimLots -= filledLots;
 
         int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
 
@@ -1085,6 +1097,16 @@ contract OrderBookCore is IOrderBookCore {
         _refreshReservedMargin(maker);
 
         emit MakerSettled(maker, side, tick, filledLots, q.generation);
+    }
+
+    function _backedMakerFill(
+        Side side,
+        uint16 tick,
+        uint32 generation,
+        uint96 requested
+    ) internal view returns (uint96) {
+        uint96 available = generationMakerFillBudget[side][tick][generation];
+        return requested < available ? requested : available;
     }
 
     function _recordFundingEntry(
@@ -1332,16 +1354,12 @@ contract OrderBookCore is IOrderBookCore {
         if (side == Side.Bid) {
             a.settledPosition += amount;
             a.minPosition += amount;
-            if (widen && a.maxPosition < a.settledPosition) {
-                a.maxPosition = a.settledPosition;
-            }
+            if (widen) a.maxPosition += amount;
             tradeCashflow[maker] += int256(makerRebate) - int256(notional);
         } else {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
-            if (widen && a.minPosition > a.settledPosition) {
-                a.minPosition = a.settledPosition;
-            }
+            if (widen) a.minPosition -= amount;
             tradeCashflow[maker] += int256(notional + makerRebate);
         }
     }

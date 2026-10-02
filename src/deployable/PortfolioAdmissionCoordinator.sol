@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {PortfolioMarginPolicy} from "./PortfolioMarginPolicy.sol";
 import {PortfolioCollateralVault} from "./PortfolioCollateralVault.sol";
+import {ILiquidationGateway} from "./ILiquidationGateway.sol";
 
 /// @title PortfolioAdmissionCoordinator
 /// @notice Sole risk-increasing execution gateway for portfolio-mode markets.
@@ -112,6 +113,31 @@ contract PortfolioAdmissionCoordinator {
 
         vault.controllerWithdraw(msg.sender, msg.sender, amount);
         syncAccount(msg.sender);
+    }
+
+    function coverBadDebt(address account)
+        external
+        returns (uint256 totalCovered)
+    {
+        int256 equity = policy.portfolioEquity(account);
+        if (equity >= 0) return 0;
+
+        uint256 length = markets.length;
+        for (uint256 i; i < length; ++i) {
+            MarketConfig storage market = markets[i];
+            (int80 position,,) = market.core.accountRisk(account);
+            if (
+                position != 0 || market.core.activeQuoteCount(account) != 0
+                    || ILiquidationGateway(market.gateway).activeAdvancedOrders(account) != 0
+            ) revert InsufficientPortfolioCollateral();
+        }
+
+        uint256 debt = uint256(-equity);
+        for (uint256 i; i < length && debt != 0; ++i) {
+            uint256 covered = markets[i].core.moduleCoverBadDebt(account, debt);
+            totalCovered += covered;
+            debt -= covered;
+        }
     }
 
     function syncAccount(address account)

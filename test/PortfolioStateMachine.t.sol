@@ -99,6 +99,13 @@ contract PortfolioStateMachineTest is TestBase {
         );
     }
 
+    function testRegressionLazyMakerFillCannotExceedExecutionBudget() public {
+        _run(
+            393655173390265569729409061418421674936377248775263535776551997607808829820,
+            20
+        );
+    }
+
     function testPortfolioLongSequenceCorpus() public {
         for (uint256 seed = 1; seed <= 8; ++seed) {
             _run(uint256(keccak256(abi.encode(seed))), 40);
