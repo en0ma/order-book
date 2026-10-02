@@ -61,7 +61,7 @@ contract OrderBookCore is IOrderBookCore {
     error PositionOverflow();
 
     address internal immutable owner;
-    address internal fundingUpdater;
+    address public fundingUpdater;
     address internal advancedModule;
     address public override portfolioController;
 
