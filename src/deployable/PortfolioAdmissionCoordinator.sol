@@ -189,6 +189,44 @@ contract PortfolioAdmissionCoordinator {
         syncAccount(msg.sender);
     }
 
+    function removeLiquidity(
+        uint256 marketIndex,
+        IOrderBookCore.Side side,
+        uint16 tick,
+        uint32 generation,
+        uint128 shares
+    ) external returns (uint96 removedLots) {
+        MarketConfig storage market = _market(marketIndex);
+        (uint128 quoteShares,, uint32 quoteGeneration) =
+            market.core.quotes(msg.sender, side, tick);
+        if (
+            shares == 0 || shares > quoteShares
+                || generation != quoteGeneration
+        ) revert InvalidPortfolioAdmissionConfig();
+
+        market.core.moduleSettle(msg.sender, side, tick);
+
+        (uint128 liveShares,,) = market.core.quotes(msg.sender, side, tick);
+        if (liveShares == 0) {
+            market.core.moduleUnlockShares(
+                msg.sender,
+                side,
+                tick,
+                generation,
+                quoteShares
+            );
+        } else {
+            removedLots = market.core.moduleRemoveLockedShares(
+                msg.sender,
+                side,
+                tick,
+                generation,
+                shares
+            );
+        }
+        syncAccount(msg.sender);
+    }
+
     function gatewayReserveExposure(
         uint256 marketIndex,
         address account,

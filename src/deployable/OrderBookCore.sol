@@ -11,9 +11,9 @@ import {OrderBookMath} from "./OrderBookMath.sol";
 /// @dev Advanced order state lives in a separate module set once after deployment.
 contract OrderBookCore is IOrderBookCore {
     using OrderBookMath for Side;
-    uint256 public constant INITIAL_SHARE_SCALE = 1_000_000;
-    uint256 public constant ACCUMULATOR_SCALE = 1 << 96;
-    int256 public constant FUNDING_SCALE = 1e18;
+    uint256 internal constant INITIAL_SHARE_SCALE = 1_000_000;
+    uint256 internal constant ACCUMULATOR_SCALE = 1 << 96;
+    int256 internal constant FUNDING_SCALE = 1e18;
 
     struct TickPool {
         uint128 totalShares;
@@ -69,8 +69,8 @@ contract OrderBookCore is IOrderBookCore {
     IMarkOracle public immutable markOracle;
     uint16 internal immutable executionBandTicks;
     uint16 internal immutable initialMarginBps;
-    uint128 public collateralUnitsPerLotTick;
-    bool public unitScaleLocked;
+    uint128 internal collateralUnitsPerLotTick;
+    bool internal unitScaleLocked;
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
@@ -93,6 +93,9 @@ contract OrderBookCore is IOrderBookCore {
         internal closedFundingEntryPerShareX96;
     mapping(Side => mapping(uint16 => mapping(uint32 => uint256)))
         internal closedGenerationAccounting;
+    // Executed taker lots not yet attributed to makers in each generation.
+    mapping(Side => mapping(uint16 => mapping(uint32 => uint96)))
+        internal generationMakerFillBudget;
     mapping(Side => mapping(uint16 => uint128)) internal currentMakerRebateReserve;
     mapping(address => mapping(Side => mapping(uint16 => int256)))
         internal quoteFundingCheckpointX96;
@@ -164,20 +167,43 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     modifier onlyOwner() {
-        if (msg.sender != owner) revert Unauthorized();
+        _requireOwner();
         _;
     }
 
     modifier onlyModule() {
-        if (msg.sender != advancedModule || msg.sender == address(0)) revert Unauthorized();
+        _requireModule();
         _;
     }
 
     modifier onlyRiskModule() {
+        _requireRiskModule();
+        _;
+    }
+
+    function _requireOwner() internal view {
+        if (msg.sender != owner) revert Unauthorized();
+    }
+
+    function _requireModule() internal view {
+        if (msg.sender != advancedModule || msg.sender == address(0)) revert Unauthorized();
+    }
+
+    function _requireRiskModule() internal view {
         if (msg.sender != advancedModule && msg.sender != portfolioController) {
             revert Unauthorized();
         }
-        _;
+    }
+
+    function _requireStandalone() internal view {
+        if (portfolioController != address(0)) revert Unauthorized();
+    }
+
+    function _requirePortfolioControllerIfEnabled() internal view {
+        if (
+            portfolioController != address(0)
+                && msg.sender != portfolioController
+        ) revert Unauthorized();
     }
 
     function configureAdvancedModule(address module) external onlyOwner {
@@ -226,15 +252,7 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function depositCollateral(uint256 amount) external {
-        if (portfolioController != address(0)) revert Unauthorized();
-        if (amount == 0) revert ZeroAmount();
-        if (!unitScaleLocked) unitScaleLocked = true;
-
-        IERC20Minimal token = collateralToken;
-        uint256 beforeBalance = token.balanceOf(address(this));
-        if (!token.transferFrom(msg.sender, address(this), amount)) revert TokenTransferFailed();
-        uint256 received = token.balanceOf(address(this)) - beforeBalance;
-        if (received != amount) revert UnsupportedTokenBehavior();
+        _pullCollateralExact(amount);
 
         collateralBalance[msg.sender] += amount;
         totalLocalCollateral += amount;
@@ -242,21 +260,32 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function fundInsurance(uint256 amount) external {
-        if (portfolioController != address(0)) revert Unauthorized();
-        if (amount == 0) revert ZeroAmount();
-        if (!unitScaleLocked) unitScaleLocked = true;
-
-        IERC20Minimal token = collateralToken;
-        uint256 beforeBalance = token.balanceOf(address(this));
-        if (!token.transferFrom(msg.sender, address(this), amount)) revert TokenTransferFailed();
-        uint256 received = token.balanceOf(address(this)) - beforeBalance;
-        if (received != amount) revert UnsupportedTokenBehavior();
+        _pullCollateralExact(amount);
 
         insuranceReserves += amount;
         emit InsuranceFunded(msg.sender, amount);
     }
 
-    function protocolFeesAccrued() public view returns (uint256) {
+    function _pullCollateralExact(uint256 amount) internal {
+        _requireStandalone();
+        if (amount == 0) revert ZeroAmount();
+        if (!unitScaleLocked) unitScaleLocked = true;
+
+        IERC20Minimal token = collateralToken;
+        uint256 beforeBalance = token.balanceOf(address(this));
+        if (!token.transferFrom(msg.sender, address(this), amount)) {
+            revert TokenTransferFailed();
+        }
+        if (token.balanceOf(address(this)) - beforeBalance != amount) {
+            revert UnsupportedTokenBehavior();
+        }
+    }
+
+    function _transferCollateralOut(address recipient, uint256 amount) internal {
+        if (!collateralToken.transfer(recipient, amount)) revert TokenTransferFailed();
+    }
+
+    function protocolFeesAccrued() external view returns (uint256) {
         return uint256(uint128(_feeAccountingPacked));
     }
 
@@ -266,13 +295,13 @@ contract OrderBookCore is IOrderBookCore {
         if (amount == 0 || amount > accrued) revert InsufficientCollateral();
 
         _feeAccountingPacked =
-            (packed & ~uint256(type(uint128).max)) | (accrued - amount);
+            ((packed >> 128) << 128) | (accrued - amount);
         insuranceReserves += amount;
         emit ProtocolFeesAllocatedToInsurance(amount);
     }
 
     function withdrawCollateral(uint256 amount) external {
-        if (portfolioController != address(0)) revert Unauthorized();
+        _requireStandalone();
         if (amount == 0) revert ZeroAmount();
         if (_accountMeta[msg.sender].activeQuoteCount != 0) revert InsufficientCollateral();
 
@@ -291,7 +320,7 @@ contract OrderBookCore is IOrderBookCore {
         uint256 localDebit = amount < localBefore ? amount : localBefore;
         totalLocalCollateral -= localDebit;
 
-        if (!collateralToken.transfer(msg.sender, amount)) revert TokenTransferFailed();
+        _transferCollateralOut(msg.sender, amount);
 
         emit CollateralDebited(msg.sender, amount);
     }
@@ -300,7 +329,7 @@ contract OrderBookCore is IOrderBookCore {
         external
         returns (uint128 mintedShares)
     {
-        if (portfolioController != address(0)) revert Unauthorized();
+        _requireStandalone();
         mintedShares = _addLiquidityFor(msg.sender, side, tick, lots, false, 0, true);
     }
 
@@ -317,15 +346,14 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function settle(Side side, uint16 tick) external returns (uint96 filledLots) {
-        filledLots = _settle(msg.sender, side, tick);
-        _settleExistingPositionFunding(msg.sender);
+        filledLots = _settleAndFunding(msg.sender, side, tick);
     }
 
     function take(Side side, uint16 limitTick, uint96 lots, FillPolicy policy)
         external
         returns (uint96 filledLots)
     {
-        if (portfolioController != address(0)) revert Unauthorized();
+        _requireStandalone();
         filledLots = _takeFor(msg.sender, side, limitTick, lots, policy, false, false);
     }
 
@@ -335,20 +363,15 @@ contract OrderBookCore is IOrderBookCore {
         onlyRiskModule
         returns (uint16 riskCeilingTick)
     {
-        if (
-            portfolioController != address(0)
-                && msg.sender != portfolioController
-        ) revert Unauthorized();
+        _requirePortfolioControllerIfEnabled();
         if (lots == 0) revert ZeroAmount();
 
-        _expandRisk(account, side, lots);
+        _adjustRisk(account, side, lots, true);
 
         riskCeilingTick =
             OrderBookMath.upperTick(currentMarkTick(), executionBandTicks);
 
-        if (riskCeilingTick > _accountMeta[account].riskCeilingTick) {
-            _accountMeta[account].riskCeilingTick = riskCeilingTick;
-        }
+        _raiseRiskCeiling(account, riskCeilingTick);
 
         _refreshReservedMargin(account);
     }
@@ -359,7 +382,7 @@ contract OrderBookCore is IOrderBookCore {
         onlyRiskModule
     {
         if (lots == 0) return;
-        _shrinkRisk(account, side, lots);
+        _adjustRisk(account, side, lots, false);
         _refreshReservedMargin(account);
     }
 
@@ -372,10 +395,7 @@ contract OrderBookCore is IOrderBookCore {
         bool reduceOnly,
         bool preReserved
     ) external override onlyRiskModule returns (uint96 filledLots) {
-        if (
-            portfolioController != address(0) && !reduceOnly
-                && msg.sender != portfolioController
-        ) revert Unauthorized();
+        if (!reduceOnly) _requirePortfolioControllerIfEnabled();
         if (reduceOnly && _accountMeta[account].activeQuoteCount != 0) {
             revert ReduceOnlyViolation();
         }
@@ -390,10 +410,7 @@ contract OrderBookCore is IOrderBookCore {
         uint96 lots,
         uint16 reservedRiskCeiling
     ) external override onlyRiskModule returns (uint128 mintedShares) {
-        if (
-            portfolioController != address(0)
-                && msg.sender != portfolioController
-        ) revert Unauthorized();
+        _requirePortfolioControllerIfEnabled();
         mintedShares =
             _addLiquidityFor(account, side, tick, lots, true, reservedRiskCeiling, true);
 
@@ -409,11 +426,10 @@ contract OrderBookCore is IOrderBookCore {
     function moduleSettle(address account, Side side, uint16 tick)
         external
         override
-        onlyModule
+        onlyRiskModule
         returns (uint96 filledLots)
     {
-        filledLots = _settle(account, side, tick);
-        _settleExistingPositionFunding(account);
+        filledLots = _settleAndFunding(account, side, tick);
     }
 
     function moduleRemoveLockedShares(
@@ -422,15 +438,14 @@ contract OrderBookCore is IOrderBookCore {
         uint16 tick,
         uint32 generation,
         uint128 shares
-    ) external override onlyModule returns (uint96 removedLots) {
+    ) external override onlyRiskModule returns (uint96 removedLots) {
         ModuleLock storage lock = moduleLocks[account][side][tick];
         if (
             shares == 0 || lock.generation != generation
                 || pools[side][tick].generation != generation || shares > lock.shares
         ) revert InvalidShareAmount();
 
-        lock.shares -= shares;
-        if (lock.shares == 0) delete moduleLocks[account][side][tick];
+        _decreaseModuleLock(account, side, tick, shares);
 
         removedLots = _removeSharesFor(account, side, tick, shares);
     }
@@ -441,7 +456,7 @@ contract OrderBookCore is IOrderBookCore {
         uint16 tick,
         uint32 generation,
         uint128 shares
-    ) external override onlyModule {
+    ) external override onlyRiskModule {
         ModuleLock storage lock = moduleLocks[account][side][tick];
 
         // The referenced generation can already be fully consumed and replaced.
@@ -449,6 +464,24 @@ contract OrderBookCore is IOrderBookCore {
         if (lock.generation != generation) return;
         if (shares > lock.shares) revert InvalidShareAmount();
 
+        _decreaseModuleLock(account, side, tick, shares);
+    }
+
+    function _settleAndFunding(address account, Side side, uint16 tick)
+        internal
+        returns (uint96 filledLots)
+    {
+        filledLots = _settle(account, side, tick);
+        _settleExistingPositionFunding(account);
+    }
+
+    function _decreaseModuleLock(
+        address account,
+        Side side,
+        uint16 tick,
+        uint128 shares
+    ) internal {
+        ModuleLock storage lock = moduleLocks[account][side][tick];
         lock.shares -= shares;
         if (lock.shares == 0) delete moduleLocks[account][side][tick];
     }
@@ -478,7 +511,7 @@ contract OrderBookCore is IOrderBookCore {
         onlyModule
         returns (uint256 covered)
     {
-        if (portfolioController != address(0)) revert Unauthorized();
+        _requireStandalone();
         if (requested == 0) return 0;
         if (_accountMeta[account].activeQuoteCount != 0) revert Unauthorized();
 
@@ -516,8 +549,8 @@ contract OrderBookCore is IOrderBookCore {
         if (paid == 0) return 0;
 
         _feeAccountingPacked =
-            (packed & ~uint256(type(uint128).max)) | (accrued - paid);
-        if (!collateralToken.transfer(liquidator, paid)) revert TokenTransferFailed();
+            ((packed >> 128) << 128) | (accrued - paid);
+        _transferCollateralOut(liquidator, paid);
 
         emit LiquidationRewardPaid(liquidator, paid);
     }
@@ -654,6 +687,7 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         _recordFundingEntry(makerSide, tick, p.totalShares, fill);
+        generationMakerFillBudget[makerSide][tick][p.generation] += fill;
         p.remainingLots -= fill;
 
         if (p.remainingLots != 0) return (fill, reservedMakerRebate);
@@ -701,7 +735,7 @@ contract OrderBookCore is IOrderBookCore {
         _creditMakerQuote(maker, side, tick, p.generation, mintedShares, lots);
 
         if (!preReserved) {
-            _expandRisk(maker, side, lots);
+            _adjustRisk(maker, side, lots, true);
             _refreshReservedMargin(maker);
         }
 
@@ -752,7 +786,10 @@ contract OrderBookCore is IOrderBookCore {
         uint96 claimReduction = claimBefore - claimAfter;
         if (claimReduction < removedLots) {
             uint256 otherShares = uint256(p.totalShares) - uint256(q.shares);
-            if (otherShares != 0) {
+            if (otherShares == 0) {
+                removedLots = claimReduction;
+                p.remainingLots = remainingBefore - removedLots;
+            } else {
                 uint256 safeLeft =
                     uint256(claimBefore) * uint256(p.totalShares);
                 uint256 safeRight =
@@ -780,7 +817,49 @@ contract OrderBookCore is IOrderBookCore {
         if (claimReduction < removedLots) revert InvalidShareAmount();
         q.claimLots = claimAfter;
 
-        if (claimReduction == removedLots && q.shares != 0) {
+        // _settle() above materializes every maker fill visible before
+        // this cancellation. A share burn may expose an additional historical
+        // fill through ceil/floor rounding, but it may consume only execution
+        // budget created by actual taker fills in this generation.
+        uint96 availableFill =
+            generationMakerFillBudget[side][tick][q.generation];
+        uint96 burnAttributedFill = claimReduction - removedLots;
+        if (burnAttributedFill > availableFill) {
+            burnAttributedFill = availableFill;
+        }
+
+        if (burnAttributedFill != 0) {
+            int256 currentFundingEntry =
+                fundingEntryPerShareX96[side][tick];
+            _settleFundingForQuote(
+                maker,
+                side,
+                tick,
+                sharesToBurn,
+                burnAttributedFill,
+                currentFundingEntry
+            );
+            _applyMakerFill(
+                maker,
+                side,
+                tick,
+                burnAttributedFill,
+                q.generation
+            );
+            emit MakerSettled(
+                maker,
+                side,
+                tick,
+                burnAttributedFill,
+                q.generation
+            );
+        }
+
+        // Pure cancellation must transfer the burned shares' pending
+        // funding basis onto survivors. If this burn actually crystallized
+        // historical fill, _settleFundingForQuote already consumed the burned
+        // slice's basis, so inheriting it again would double count funding.
+        if (burnAttributedFill == 0 && q.shares != 0) {
             int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
             int256 priorCheckpoint =
                 quoteFundingCheckpointX96[maker][side][tick];
@@ -799,38 +878,23 @@ contract OrderBookCore is IOrderBookCore {
             }
         }
 
-        uint96 burnAttributedFill = claimReduction - removedLots;
-        if (burnAttributedFill != 0) {
-            int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
-            _settleFundingForQuote(
-                maker,
-                side,
-                tick,
-                sharesToBurn,
-                burnAttributedFill,
-                currentFundingEntry
-            );
-            _applyMakerFill(maker, side, tick, burnAttributedFill, q.generation);
-            emit MakerSettled(
-                maker,
-                side,
-                tick,
-                burnAttributedFill,
-                q.generation
-            );
+        _adjustRisk(maker, side, removedLots, false);
+
+        // Apply residual real execution only after cancellation has reduced
+        // the quote envelope, so the tail can clamp the final settled position
+        // back inside min/max rather than being shrunk out of the envelope.
+        if (p.totalShares == 0) {
+            _settleMakerRoundingTail(maker, side, tick, q.generation);
         }
 
-        _shrinkRisk(maker, side, removedLots);
         _refreshReservedMargin(maker);
 
         if (q.shares == 0) {
-            delete quotes[maker][side][tick];
-            delete quoteFundingCheckpointX96[maker][side][tick];
-            _accountMeta[maker].activeQuoteCount -= 1;
+            _clearQuote(maker, side, tick);
         }
 
         if (p.totalShares == 0) {
-            if (p.remainingLots != 0) revert InvalidShareAmount();
+            p.remainingLots = 0;
 
             uint128 rebateDust = currentMakerRebateReserve[side][tick];
             if (rebateDust != 0) {
@@ -847,6 +911,12 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         emit LiquidityRemoved(maker, side, tick, removedLots, sharesToBurn, p.generation);
+    }
+
+    function _clearQuote(address maker, Side side, uint16 tick) internal {
+        delete quotes[maker][side][tick];
+        delete quoteFundingCheckpointX96[maker][side][tick];
+        _accountMeta[maker].activeQuoteCount -= 1;
     }
 
     function _preparePoolRiskCeiling(
@@ -879,8 +949,12 @@ contract OrderBookCore is IOrderBookCore {
             }
         }
 
-        if (riskCeiling > _accountMeta[maker].riskCeilingTick) {
-            _accountMeta[maker].riskCeilingTick = riskCeiling;
+        _raiseRiskCeiling(maker, riskCeiling);
+    }
+
+    function _raiseRiskCeiling(address account, uint16 ceiling) internal {
+        if (ceiling > _accountMeta[account].riskCeilingTick) {
+            _accountMeta[account].riskCeilingTick = ceiling;
         }
     }
 
@@ -943,8 +1017,11 @@ contract OrderBookCore is IOrderBookCore {
         TickPool storage p = pools[side][tick];
 
         if (q.generation != p.generation) {
-            filledLots = q.claimLots;
             uint32 oldGeneration = q.generation;
+            uint128 outstanding =
+                uint128(closedGenerationAccounting[side][tick][oldGeneration]);
+
+            filledLots = q.claimLots;
 
             int256 finalFundingEntry =
                 closedFundingEntryPerShareX96[side][tick][oldGeneration];
@@ -953,11 +1030,15 @@ contract OrderBookCore is IOrderBookCore {
                 maker, side, tick, q.shares, filledLots, finalFundingEntry
             );
             _applyMakerFill(maker, side, tick, filledLots, oldGeneration);
+            if (outstanding == q.shares) {
+                filledLots +=
+                    _settleMakerRoundingTail(maker, side, tick, oldGeneration);
+            }
             _refreshReservedMargin(maker);
 
             uint256 closedAccounting =
                 closedGenerationAccounting[side][tick][oldGeneration];
-            uint128 outstanding = uint128(closedAccounting);
+            outstanding = uint128(closedAccounting);
 
             if (outstanding >= q.shares) {
                 outstanding -= q.shares;
@@ -975,9 +1056,7 @@ contract OrderBookCore is IOrderBookCore {
                 }
             }
 
-            delete quotes[maker][side][tick];
-            delete quoteFundingCheckpointX96[maker][side][tick];
-            _accountMeta[maker].activeQuoteCount -= 1;
+            _clearQuote(maker, side, tick);
 
             emit MakerSettled(maker, side, tick, filledLots, oldGeneration);
             return filledLots;
@@ -1181,12 +1260,11 @@ contract OrderBookCore is IOrderBookCore {
     ) internal {
         if (filledLots == 0) return;
 
-        AccountRisk storage a = accountRisk[maker];
-        int80 amount = _positionAmount(filledLots);
-        int256 notional = int256(notionalValue(filledLots, tick));
+        generationMakerFillBudget[side][tick][generation] -= filledLots;
 
+        uint256 notional = notionalValue(filledLots, tick);
         uint256 requestedMakerRebate =
-            uint256(notional) * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
+            notional * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
         TickPool storage p = pools[side][tick];
         uint256 localReserve;
         bool currentGeneration = generation == p.generation;
@@ -1220,14 +1298,51 @@ contract OrderBookCore is IOrderBookCore {
             }
         }
 
+        _applyMakerPositionCashflow(
+            maker, side, filledLots, notional, makerRebate, false
+        );
+    }
+
+    function _settleMakerRoundingTail(
+        address maker,
+        Side side,
+        uint16 tick,
+        uint32 generation
+    ) internal returns (uint96 tail) {
+        tail = generationMakerFillBudget[side][tick][generation];
+        if (tail == 0) return 0;
+        generationMakerFillBudget[side][tick][generation] = 0;
+        _applyMakerPositionCashflow(
+            maker, side, tail, notionalValue(tail, tick), 0, true
+        );
+        emit MakerSettled(maker, side, tick, tail, generation);
+    }
+
+    function _applyMakerPositionCashflow(
+        address maker,
+        Side side,
+        uint96 filledLots,
+        uint256 notional,
+        uint256 makerRebate,
+        bool widen
+    ) internal {
+        AccountRisk storage a = accountRisk[maker];
+        int80 amount = _positionAmount(filledLots);
+
         if (side == Side.Bid) {
             a.settledPosition += amount;
             a.minPosition += amount;
-            tradeCashflow[maker] += int256(makerRebate) - notional;
+            if (widen && a.maxPosition < a.settledPosition) {
+                a.maxPosition = a.settledPosition;
+            }
+            tradeCashflow[maker] += int256(makerRebate) - int256(notional);
         } else {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
-            tradeCashflow[maker] += notional + int256(makerRebate);
+            if (widen && a.minPosition > a.settledPosition) {
+                a.minPosition = a.settledPosition;
+            }
+            tradeCashflow[maker] += int256(notional + makerRebate);
         }
     }
 
@@ -1244,25 +1359,21 @@ contract OrderBookCore is IOrderBookCore {
             ((reserve - amount) << 128) | nextProtocol;
     }
 
-    function _expandRisk(address account, Side side, uint96 lots) internal {
+    function _adjustRisk(
+        address account,
+        Side side,
+        uint96 lots,
+        bool expand
+    ) internal {
         AccountRisk storage a = accountRisk[account];
         int80 amount = _positionAmount(lots);
 
         if (side == Side.Bid) {
-            a.maxPosition += amount;
+            if (expand) a.maxPosition += amount;
+            else a.maxPosition -= amount;
         } else {
-            a.minPosition -= amount;
-        }
-    }
-
-    function _shrinkRisk(address account, Side side, uint96 lots) internal {
-        AccountRisk storage a = accountRisk[account];
-        int80 amount = _positionAmount(lots);
-
-        if (side == Side.Bid) {
-            a.maxPosition -= amount;
-        } else {
-            a.minPosition += amount;
+            if (expand) a.minPosition -= amount;
+            else a.minPosition += amount;
         }
     }
 
@@ -1355,12 +1466,8 @@ contract OrderBookCore is IOrderBookCore {
 
     function _bestExecutableTick(Side side) internal view returns (bool ok, uint16 tick) {
         uint16 mark = currentMarkTick();
-        uint256 lowerRaw =
-            uint256(mark) > uint256(executionBandTicks)
-                ? uint256(mark) - uint256(executionBandTicks)
-                : 0;
-
-        uint16 lower = uint16(lowerRaw);
+        uint16 lower =
+            mark > executionBandTicks ? mark - executionBandTicks : 0;
         uint16 upper = OrderBookMath.upperTick(mark, executionBandTicks);
 
         (ok, tick) = _bestTick(side);
@@ -1402,19 +1509,8 @@ contract OrderBookCore is IOrderBookCore {
         uint256 words = _occupiedWords[side];
         if (words == 0) return (false, 0);
 
-        uint8 wordIndex;
-        uint8 bitIndex;
-
-        if (side == Side.Ask) {
-            wordIndex = _lsb(words);
-            bitIndex = _lsb(_tickWords[side][wordIndex]);
-        } else {
-            wordIndex = _msb(words);
-            bitIndex = _msb(_tickWords[side][wordIndex]);
-        }
-
-        tick = (uint16(wordIndex) << 8) | uint16(bitIndex);
-        ok = true;
+        uint8 wordIndex = _edgeBit(side, words);
+        return (true, _tickFromWord(side, wordIndex, _tickWords[side][wordIndex]));
     }
 
     function _nextTick(Side side, uint16 current)
@@ -1424,144 +1520,94 @@ contract OrderBookCore is IOrderBookCore {
     {
         uint8 wi = uint8(current >> 8);
         uint8 bi = uint8(current);
+        uint256 word = _tickWords[side][wi];
 
         if (side == Side.Ask) {
-            if (bi != type(uint8).max) {
-                uint256 sameWord =
-                    _tickWords[side][wi]
-                        & (type(uint256).max << (uint256(bi) + 1));
-
-                if (sameWord != 0) {
-                    return (true, (uint16(wi) << 8) | uint16(_lsb(sameWord)));
-                }
+            uint256 sameWord =
+                word & (type(uint256).max << (uint256(bi) + 1));
+            if (sameWord != 0) {
+                return (true, _tickFromWord(side, wi, sameWord));
             }
-
-            if (wi == type(uint8).max) return (false, 0);
 
             uint256 higherWords =
                 _occupiedWords[side]
                     & (type(uint256).max << (uint256(wi) + 1));
-
             if (higherWords == 0) return (false, 0);
 
-            uint8 higherWordIndex = _lsb(higherWords);
-
-            return (
-                true,
-                (uint16(higherWordIndex) << 8)
-                    | uint16(_lsb(_tickWords[side][higherWordIndex]))
-            );
+            wi = _edgeBit(side, higherWords);
+            return (true, _tickFromWord(side, wi, _tickWords[side][wi]));
         }
 
-        if (bi != 0) {
-            uint256 sameWord =
-                _tickWords[side][wi] & ((uint256(1) << bi) - 1);
-
-            if (sameWord != 0) {
-                return (true, (uint16(wi) << 8) | uint16(_msb(sameWord)));
-            }
+        uint256 sameWord = word & ((uint256(1) << bi) - 1);
+        if (sameWord != 0) {
+            return (true, (uint16(wi) << 8) | uint16(_edgeBit(side, sameWord)));
         }
-
-        if (wi == 0) return (false, 0);
 
         uint256 lowerWords =
             _occupiedWords[side] & ((uint256(1) << wi) - 1);
-
         if (lowerWords == 0) return (false, 0);
 
-        uint8 lowerWordIndex = _msb(lowerWords);
-
+        wi = _edgeBit(side, lowerWords);
         return (
             true,
-            (uint16(lowerWordIndex) << 8)
-                | uint16(_msb(_tickWords[side][lowerWordIndex]))
+            (uint16(wi) << 8) | uint16(_edgeBit(side, _tickWords[side][wi]))
         );
     }
 
-    function _lsb(uint256 x) internal pure returns (uint8 r) {
-        if (x == 0) revert InsufficientLiquidity();
+    function _tickFromWord(Side side, uint8 wordIndex, uint256 word)
+        internal
+        pure
+        returns (uint16)
+    {
+        return (uint16(wordIndex) << 8) | uint16(_edgeBit(side, word));
+    }
 
-        if (x & type(uint128).max == 0) {
-            x >>= 128;
-            r += 128;
+    function _edgeBit(Side side, uint256 x) internal pure returns (uint8) {
+        return side == Side.Ask ? _lsb(x) : _msb(x);
+    }
+
+    function _lsb(uint256 x) internal pure returns (uint8 r) {
+        unchecked {
+            r = _msb(x & (~x + 1));
         }
-        if (x & type(uint64).max == 0) {
-            x >>= 64;
-            r += 64;
-        }
-        if (x & type(uint32).max == 0) {
-            x >>= 32;
-            r += 32;
-        }
-        if (x & type(uint16).max == 0) {
-            x >>= 16;
-            r += 16;
-        }
-        if (x & type(uint8).max == 0) {
-            x >>= 8;
-            r += 8;
-        }
-        if (x & 0x0f == 0) {
-            x >>= 4;
-            r += 4;
-        }
-        if (x & 0x03 == 0) {
-            x >>= 2;
-            r += 2;
-        }
-        if (x & 0x01 == 0) r += 1;
     }
 
     function _msb(uint256 x) internal pure returns (uint8 r) {
         if (x == 0) revert InsufficientLiquidity();
 
-        if (x >> 128 != 0) {
-            x >>= 128;
-            r += 128;
+        assembly {
+            let f := shl(7, iszero(iszero(shr(128, x))))
+            x := shr(f, x)
+            r := f
+
+            f := shl(6, iszero(iszero(shr(64, x))))
+            x := shr(f, x)
+            r := or(r, f)
+
+            f := shl(5, iszero(iszero(shr(32, x))))
+            x := shr(f, x)
+            r := or(r, f)
+
+            f := shl(4, iszero(iszero(shr(16, x))))
+            x := shr(f, x)
+            r := or(r, f)
+
+            f := shl(3, iszero(iszero(shr(8, x))))
+            x := shr(f, x)
+            r := or(r, f)
+
+            f := shl(2, iszero(iszero(shr(4, x))))
+            x := shr(f, x)
+            r := or(r, f)
+
+            f := shl(1, iszero(iszero(shr(2, x))))
+            x := shr(f, x)
+            r := or(r, f)
+
+            r := or(r, iszero(iszero(shr(1, x))))
         }
-        if (x >> 64 != 0) {
-            x >>= 64;
-            r += 64;
-        }
-        if (x >> 32 != 0) {
-            x >>= 32;
-            r += 32;
-        }
-        if (x >> 16 != 0) {
-            x >>= 16;
-            r += 16;
-        }
-        if (x >> 8 != 0) {
-            x >>= 8;
-            r += 8;
-        }
-        if (x >> 4 != 0) {
-            x >>= 4;
-            r += 4;
-        }
-        if (x >> 2 != 0) {
-            x >>= 2;
-            r += 2;
-        }
-        if (x >> 1 != 0) r += 1;
     }
 
-    function _divFundingEntry(Side side, int256 numerator)
-        internal
-        pure
-        returns (int256 quotient)
-    {
-        int256 denominator = int256(ACCUMULATOR_SCALE);
-        quotient = numerator / denominator;
-        int256 remainder = numerator % denominator;
-        if (remainder == 0) return quotient;
-
-        if (side == Side.Bid) {
-            if (numerator < 0) --quotient;
-        } else if (numerator > 0) {
-            ++quotient;
-        }
-    }
     function _divFundingCeil(int256 numerator, int256 denominator)
         internal
         pure
