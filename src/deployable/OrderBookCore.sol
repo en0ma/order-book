@@ -791,15 +791,17 @@ contract OrderBookCore is IOrderBookCore {
         // this cancellation. A share burn may expose an additional historical
         // fill through ceil/floor rounding, but it may consume only execution
         // budget created by actual taker fills in this generation.
+        uint256 availableFill =
+            generationMakerFillBudget[side][tick][q.generation];
         uint96 burnAttributedFill = claimReduction - removedLots;
-        if (burnAttributedFill != 0) {
-            uint256 availableFill =
-                generationMakerFillBudget[side][tick][q.generation];
-            if (uint256(burnAttributedFill) > availableFill) {
-                burnAttributedFill = uint96(availableFill);
-            }
+        if (p.totalShares == 0 && availableFill != 0) {
+            if (availableFill > type(uint96).max) revert Overflow();
+            burnAttributedFill = uint96(availableFill);
+        } else if (uint256(burnAttributedFill) > availableFill) {
+            burnAttributedFill = uint96(availableFill);
+        }
 
-            if (burnAttributedFill != 0) {
+        if (burnAttributedFill != 0) {
                 int256 currentFundingEntry =
                     fundingEntryPerShareX96[side][tick];
                 _settleFundingForQuote(
@@ -974,8 +976,18 @@ contract OrderBookCore is IOrderBookCore {
         TickPool storage p = pools[side][tick];
 
         if (q.generation != p.generation) {
-            filledLots = q.claimLots;
             uint32 oldGeneration = q.generation;
+            uint256 closedAccounting =
+                closedGenerationAccounting[side][tick][oldGeneration];
+            uint128 outstanding = uint128(closedAccounting);
+
+            filledLots = q.claimLots;
+            if (outstanding == q.shares) {
+                uint256 budget =
+                    generationMakerFillBudget[side][tick][oldGeneration];
+                if (budget > type(uint96).max) revert Overflow();
+                filledLots = uint96(budget);
+            }
 
             int256 finalFundingEntry =
                 closedFundingEntryPerShareX96[side][tick][oldGeneration];
@@ -985,10 +997,6 @@ contract OrderBookCore is IOrderBookCore {
             );
             _applyMakerFill(maker, side, tick, filledLots, oldGeneration);
             _refreshReservedMargin(maker);
-
-            uint256 closedAccounting =
-                closedGenerationAccounting[side][tick][oldGeneration];
-            uint128 outstanding = uint128(closedAccounting);
 
             if (outstanding >= q.shares) {
                 outstanding -= q.shares;
