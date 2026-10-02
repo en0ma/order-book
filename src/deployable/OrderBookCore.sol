@@ -99,6 +99,9 @@ contract OrderBookCore is IOrderBookCore {
     // Canonical execution-time funding entry still owned by unattributed maker lots.
     mapping(Side => mapping(uint16 => mapping(uint32 => int256)))
         internal generationMakerFundingEntryBudget;
+    // Non-withdrawable system account for funding dust created by integer
+    // attribution of generation-local maker execution.
+    int256 internal makerFundingRoundingDust;
     mapping(Side => mapping(uint16 => uint128)) internal currentMakerRebateReserve;
     mapping(address => mapping(Side => mapping(uint16 => int256)))
         internal quoteFundingCheckpointX96;
@@ -1362,15 +1365,11 @@ contract OrderBookCore is IOrderBookCore {
 
         int256 signedTail =
             side == Side.Bid ? int256(uint256(tail)) : -int256(uint256(tail));
-        int256 cashflowDelta = entryFunding
+        makerFundingRoundingDust += entryFunding
             - _divFundingCeil(
                 signedTail * int256(fundingIndexX18),
                 FUNDING_SCALE
             );
-        if (cashflowDelta != 0) {
-            fundingCashflow[maker] += cashflowDelta;
-            emit FundingSettled(maker, cashflowDelta);
-        }
 
         if (tail != 0) {
             _applyMakerPositionCashflow(
