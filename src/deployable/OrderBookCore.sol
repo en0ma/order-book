@@ -61,16 +61,16 @@ contract OrderBookCore is IOrderBookCore {
     error PositionOverflow();
 
     address internal immutable owner;
-    address public fundingUpdater;
-    address public advancedModule;
+    address internal fundingUpdater;
+    address internal advancedModule;
     address public override portfolioController;
 
     IERC20Minimal internal immutable collateralToken;
     IMarkOracle public immutable markOracle;
     uint16 internal immutable executionBandTicks;
     uint16 internal immutable initialMarginBps;
-    uint128 public collateralUnitsPerLotTick;
-    bool public unitScaleLocked;
+    uint128 internal collateralUnitsPerLotTick;
+    bool internal unitScaleLocked;
 
     mapping(Side => mapping(uint16 => TickPool)) public pools;
     mapping(address => mapping(Side => mapping(uint16 => MakerQuote))) public quotes;
@@ -94,7 +94,7 @@ contract OrderBookCore is IOrderBookCore {
     mapping(Side => mapping(uint16 => mapping(uint32 => uint256)))
         internal closedGenerationAccounting;
     // Executed taker lots not yet attributed to makers in each generation.
-    mapping(Side => mapping(uint16 => mapping(uint32 => uint128)))
+    mapping(Side => mapping(uint16 => mapping(uint32 => uint256)))
         internal generationMakerFillBudget;
     mapping(Side => mapping(uint16 => uint128)) internal currentMakerRebateReserve;
     mapping(address => mapping(Side => mapping(uint16 => int256)))
@@ -657,8 +657,7 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         _recordFundingEntry(makerSide, tick, p.totalShares, fill);
-        generationMakerFillBudget[makerSide][tick][p.generation] +=
-            uint128(fill);
+        generationMakerFillBudget[makerSide][tick][p.generation] += fill;
         p.remainingLots -= fill;
 
         if (p.remainingLots != 0) return (fill, reservedMakerRebate);
@@ -794,9 +793,9 @@ contract OrderBookCore is IOrderBookCore {
         // budget created by actual taker fills in this generation.
         uint96 burnAttributedFill = claimReduction - removedLots;
         if (burnAttributedFill != 0) {
-            uint128 availableFill =
+            uint256 availableFill =
                 generationMakerFillBudget[side][tick][q.generation];
-            if (burnAttributedFill > availableFill) {
+            if (uint256(burnAttributedFill) > availableFill) {
                 burnAttributedFill = uint96(availableFill);
             }
 
@@ -1214,10 +1213,7 @@ contract OrderBookCore is IOrderBookCore {
     ) internal {
         if (filledLots == 0) return;
 
-        uint128 budget = generationMakerFillBudget[side][tick][generation];
-        if (filledLots > budget) revert InvalidRiskConfig();
-        generationMakerFillBudget[side][tick][generation] =
-            budget - uint128(filledLots);
+        generationMakerFillBudget[side][tick][generation] -= filledLots;
 
         AccountRisk storage a = accountRisk[maker];
         int80 amount = _positionAmount(filledLots);
