@@ -809,31 +809,30 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         if (burnAttributedFill != 0) {
-                int256 currentFundingEntry =
-                    fundingEntryPerShareX96[side][tick];
-                _settleFundingForQuote(
-                    maker,
-                    side,
-                    tick,
-                    sharesToBurn,
-                    burnAttributedFill,
-                    currentFundingEntry
-                );
-                _applyMakerFill(
-                    maker,
-                    side,
-                    tick,
-                    burnAttributedFill,
-                    q.generation
-                );
-                emit MakerSettled(
-                    maker,
-                    side,
-                    tick,
-                    burnAttributedFill,
-                    q.generation
-                );
-            }
+            int256 currentFundingEntry =
+                fundingEntryPerShareX96[side][tick];
+            _settleFundingForQuote(
+                maker,
+                side,
+                tick,
+                sharesToBurn,
+                burnAttributedFill,
+                currentFundingEntry
+            );
+            _applyMakerFill(
+                maker,
+                side,
+                tick,
+                burnAttributedFill,
+                q.generation
+            );
+            emit MakerSettled(
+                maker,
+                side,
+                tick,
+                burnAttributedFill,
+                q.generation
+            );
         }
 
         // Pure cancellation must transfer the burned shares' pending
