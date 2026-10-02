@@ -1124,9 +1124,9 @@ contract OrderBookCore is IOrderBookCore {
         uint16 tick,
         uint32 generation,
         uint96 requested
-    ) internal view returns (uint96) {
-        uint96 available = generationMakerFillBudget[side][tick][generation];
-        return requested < available ? requested : available;
+    ) internal view returns (uint96 available) {
+        available = generationMakerFillBudget[side][tick][generation];
+        if (requested < available) available = requested;
     }
 
     function _recordFundingEntry(
