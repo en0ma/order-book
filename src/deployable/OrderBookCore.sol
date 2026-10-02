@@ -62,7 +62,7 @@ contract OrderBookCore is IOrderBookCore {
 
     address internal immutable owner;
     address public fundingUpdater;
-    address internal advancedModule;
+    address public advancedModule;
     address public override portfolioController;
 
     IERC20Minimal internal immutable collateralToken;
