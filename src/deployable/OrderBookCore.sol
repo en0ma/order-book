@@ -93,6 +93,9 @@ contract OrderBookCore is IOrderBookCore {
         internal closedFundingEntryPerShareX96;
     mapping(Side => mapping(uint16 => mapping(uint32 => uint256)))
         internal closedGenerationAccounting;
+    // low 128 bits = executed taker lots, high 128 bits = maker-attributed lots.
+    mapping(Side => mapping(uint16 => mapping(uint32 => uint256)))
+        internal generationFillAccounting;
     mapping(Side => mapping(uint16 => uint128)) internal currentMakerRebateReserve;
     mapping(address => mapping(Side => mapping(uint16 => int256)))
         internal quoteFundingCheckpointX96;
@@ -661,6 +664,7 @@ contract OrderBookCore is IOrderBookCore {
         }
 
         _recordFundingEntry(makerSide, tick, p.totalShares, fill);
+        _recordExecutedFill(makerSide, tick, p.generation, fill);
         p.remainingLots -= fill;
 
         if (p.remainingLots != 0) return (fill, reservedMakerRebate);
@@ -790,14 +794,48 @@ contract OrderBookCore is IOrderBookCore {
         if (claimReduction < removedLots) revert InvalidShareAmount();
         q.claimLots = claimAfter;
 
-        // _settle() above materializes every maker fill that is currently
-        // observable from the quote's monotonic claim. Any additional claim
-        // reduction caused by the share burn is therefore cancellation
-        // rounding dust, not execution, and must never create maker position.
-        //
-        // A sub-lot historical fill can still be hidden by ceil redemption.
-        // Preserve its funding basis on the surviving shares so a later
-        // observable settlement remains correctly attributed.
+        // _settle() above materializes every maker fill visible before
+        // this cancellation. A share burn may expose an additional historical
+        // fill through ceil/floor rounding, but it may consume only execution
+        // budget created by actual taker fills in this generation.
+        uint96 burnAttributedFill = claimReduction - removedLots;
+        if (burnAttributedFill != 0) {
+            uint128 availableFill =
+                _remainingMakerFillBudget(side, tick, q.generation);
+            if (burnAttributedFill > availableFill) {
+                burnAttributedFill = uint96(availableFill);
+            }
+
+            if (burnAttributedFill != 0) {
+                int256 currentFundingEntry =
+                    fundingEntryPerShareX96[side][tick];
+                _settleFundingForQuote(
+                    maker,
+                    side,
+                    tick,
+                    sharesToBurn,
+                    burnAttributedFill,
+                    currentFundingEntry
+                );
+                _applyMakerFill(
+                    maker,
+                    side,
+                    tick,
+                    burnAttributedFill,
+                    q.generation
+                );
+                emit MakerSettled(
+                    maker,
+                    side,
+                    tick,
+                    burnAttributedFill,
+                    q.generation
+                );
+            }
+        }
+
+        // Any latent sub-lot funding basis not materialized above belongs to
+        // the surviving shares. Cancellation dust itself never creates fill.
         if (q.shares != 0) {
             int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
             int256 priorCheckpoint =
@@ -837,6 +875,7 @@ contract OrderBookCore is IOrderBookCore {
 
             _setOccupied(side, tick, false);
             delete poolRiskCeilingTick[side][tick];
+            delete generationFillAccounting[side][tick][p.generation];
 
             unchecked {
                 ++p.generation;
@@ -966,6 +1005,7 @@ contract OrderBookCore is IOrderBookCore {
                     }
                     delete closedGenerationAccounting[side][tick][oldGeneration];
                     delete closedFundingEntryPerShareX96[side][tick][oldGeneration];
+                    delete generationFillAccounting[side][tick][oldGeneration];
                 } else {
                     closedGenerationAccounting[side][tick][oldGeneration] =
                         (uint256(rebateReserve) << 128) | uint256(outstanding);
@@ -1178,6 +1218,8 @@ contract OrderBookCore is IOrderBookCore {
     ) internal {
         if (filledLots == 0) return;
 
+        _recordMakerAttribution(side, tick, generation, filledLots);
+
         AccountRisk storage a = accountRisk[maker];
         int80 amount = _positionAmount(filledLots);
         int256 notional = int256(notionalValue(filledLots, tick));
@@ -1226,6 +1268,55 @@ contract OrderBookCore is IOrderBookCore {
             a.maxPosition -= amount;
             tradeCashflow[maker] += notional + int256(makerRebate);
         }
+    }
+
+    function _recordExecutedFill(
+        Side side,
+        uint16 tick,
+        uint32 generation,
+        uint96 filledLots
+    ) internal {
+        if (filledLots == 0) return;
+
+        uint256 packed = generationFillAccounting[side][tick][generation];
+        uint256 executed = uint256(uint128(packed));
+        uint256 attributed = packed >> 128;
+        uint256 nextExecuted = executed + uint256(filledLots);
+        if (nextExecuted > type(uint128).max) revert Overflow();
+
+        generationFillAccounting[side][tick][generation] =
+            (attributed << 128) | nextExecuted;
+    }
+
+    function _recordMakerAttribution(
+        Side side,
+        uint16 tick,
+        uint32 generation,
+        uint96 filledLots
+    ) internal {
+        uint256 packed = generationFillAccounting[side][tick][generation];
+        uint256 executed = uint256(uint128(packed));
+        uint256 attributed = packed >> 128;
+        uint256 nextAttributed = attributed + uint256(filledLots);
+
+        if (nextAttributed > executed || nextAttributed > type(uint128).max) {
+            revert InvalidRiskConfig();
+        }
+
+        generationFillAccounting[side][tick][generation] =
+            (nextAttributed << 128) | executed;
+    }
+
+    function _remainingMakerFillBudget(
+        Side side,
+        uint16 tick,
+        uint32 generation
+    ) internal view returns (uint128 remaining) {
+        uint256 packed = generationFillAccounting[side][tick][generation];
+        uint128 executed = uint128(packed);
+        uint128 attributed = uint128(packed >> 128);
+        if (attributed > executed) revert InvalidRiskConfig();
+        remaining = executed - attributed;
     }
 
     function _reclaimMakerRebateDust(uint256 amount) internal {
