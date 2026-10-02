@@ -1028,7 +1028,9 @@ contract OrderBookCore is IOrderBookCore {
             uint128 outstanding =
                 uint128(closedGenerationAccounting[side][tick][oldGeneration]);
 
-            filledLots = q.claimLots;
+            filledLots = _backedMakerFill(
+                side, tick, oldGeneration, q.claimLots
+            );
 
             int256 finalFundingEntry =
                 closedFundingEntryPerShareX96[side][tick][oldGeneration];
@@ -1078,8 +1080,11 @@ contract OrderBookCore is IOrderBookCore {
         // cancellation dust into synthetic maker fills.
         if (currentClaim >= q.claimLots) return 0;
 
-        filledLots = q.claimLots - currentClaim;
-        q.claimLots = currentClaim;
+        filledLots = _backedMakerFill(
+            side, tick, q.generation, q.claimLots - currentClaim
+        );
+        if (filledLots == 0) return 0;
+        q.claimLots -= filledLots;
 
         int256 currentFundingEntry = fundingEntryPerShareX96[side][tick];
 
@@ -1092,6 +1097,16 @@ contract OrderBookCore is IOrderBookCore {
         _refreshReservedMargin(maker);
 
         emit MakerSettled(maker, side, tick, filledLots, q.generation);
+    }
+
+    function _backedMakerFill(
+        Side side,
+        uint16 tick,
+        uint32 generation,
+        uint96 requested
+    ) internal view returns (uint96) {
+        uint96 available = generationMakerFillBudget[side][tick][generation];
+        return requested < available ? requested : available;
     }
 
     function _recordFundingEntry(
