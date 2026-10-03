@@ -8,7 +8,7 @@ import {
   encodePackedQuoteUpdates,
   validateManifest,
   type DeploymentManifest,
-} from "../src/index.ts";
+} from "../dist/index.js";
 
 const A = "0x1111111111111111111111111111111111111111";
 const B = "0x2222222222222222222222222222222222222222";
@@ -218,6 +218,22 @@ test("rejects malformed or inconsistent manifests", () => {
   const duplicate = standaloneManifest();
   duplicate.markets.push({ ...duplicate.markets[0] });
   assert.throws(() => validateManifest(duplicate), /unique/);
+
+  const numericScale = standaloneManifest();
+  (numericScale.markets[0].scales as { collateralUnitsPerLotTick: unknown })
+    .collateralUnitsPerLotTick = 1000;
+  assert.throws(
+    () => validateManifest(numericScale),
+    /collateralUnitsPerLotTick must be a uint string/,
+  );
+
+  const invalidFees = standaloneManifest();
+  invalidFees.markets[0].parameters.takerFeeBps = 2;
+  invalidFees.markets[0].parameters.makerRebateBps = 3;
+  assert.throws(
+    () => validateManifest(invalidFees),
+    /makerRebateBps cannot exceed takerFeeBps/,
+  );
 });
 
 test("plans packed quote refresh against configured MM module", () => {
