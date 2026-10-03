@@ -159,10 +159,7 @@ contract MarketMakerRecoveryTest is TestBase {
                 (shares, generation) = abi.decode(log.data, (uint128, uint32));
                 present = true;
             } else if (log.topics[0] == REMOVED_SIG) {
-                (uint128 removedShares, uint32 removedGeneration) =
-                    abi.decode(log.data, (uint128, uint32));
-                removedShares;
-                removedGeneration;
+                (shares, generation) = abi.decode(log.data, (uint128, uint32));
                 shares = 0;
                 generation = 0;
                 present = false;
