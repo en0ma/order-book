@@ -197,6 +197,16 @@ contract IntegrationLensTest is TestBase {
         assertTrue(account.portfolioController == address(0), "unexpected portfolio mode");
     }
 
+    function testLensRejectsOversizedDepthScanRange() public {
+        (bool ok,) = address(lens).call(
+            abi.encodeCall(
+                lens.depthInRange,
+                (IOrderBookCore.Side.Bid, 0, 256, 1)
+            )
+        );
+        assertTrue(!ok, "oversized depth scan accepted");
+    }
+
     function testLensRejectsOversizedBatch() public {
         IntegrationLens.TickKey[] memory keys =
             new IntegrationLens.TickKey[](lens.MAX_BATCH() + 1);
