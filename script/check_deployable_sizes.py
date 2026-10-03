@@ -14,6 +14,7 @@ TARGETS = [
     ("PortfolioCollateralVault", Path("out/PortfolioCollateralVault.sol/PortfolioCollateralVault.json"), 4_000),
     ("PortfolioAdmissionCoordinator", Path("out/PortfolioAdmissionCoordinator.sol/PortfolioAdmissionCoordinator.json"), 7_000),
     ("SegmentTreeExtremaOracle", Path("out/SegmentTreeExtremaOracle.sol/SegmentTreeExtremaOracle.json"), 4_000),
+    ("IntegrationLens", Path("out/IntegrationLens.sol/IntegrationLens.json"), 8_000),
 ]
 
 failed = False

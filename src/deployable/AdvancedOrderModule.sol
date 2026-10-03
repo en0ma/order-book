@@ -277,6 +277,38 @@ contract AdvancedOrderModule {
         return activeAdvancedCount[account];
     }
 
+    function trailingOrderState(uint64 orderId)
+        external
+        view
+        returns (TrailingOrder memory order)
+    {
+        return trailingOrders[orderId];
+    }
+
+    function restingOrderState(uint64 orderId)
+        external
+        view
+        returns (RestingLink memory link)
+    {
+        return restingLinks[orderId];
+    }
+
+    function otoState(uint64 orderId)
+        external
+        view
+        returns (
+            uint64 parentOrderId,
+            uint64 firstChildOrderId,
+            uint64 secondChildOrderId,
+            uint96 childMaxLots
+        )
+    {
+        parentOrderId = otoParent[orderId];
+        firstChildOrderId = otoChildOne[orderId];
+        secondChildOrderId = otoChildTwo[orderId];
+        childMaxLots = otoChildMaxLots[orderId];
+    }
+
     function liquidationCleanupAdvanced(
         address account,
         uint64[] calldata conditionalIds,

@@ -257,6 +257,16 @@ contract OrderBookCore is IOrderBookCore {
         return _accountMeta[account].activeQuoteCount;
     }
 
+    function integrationMakerFillState(
+        Side side,
+        uint16 tick,
+        uint32 generation
+    ) external view returns (uint96 fillBudget, uint128 closedOutstandingShares) {
+        fillBudget = generationMakerFillBudget[side][tick][generation];
+        closedOutstandingShares =
+            uint128(closedGenerationAccounting[side][tick][generation]);
+    }
+
     function depositCollateral(uint256 amount) external {
         _pullCollateralExact(amount);
 

@@ -89,10 +89,11 @@ The deployable path is split into:
 - `PortfolioAdmissionCoordinator`: sole risk-increasing gateway for portfolio-mode markets. It executes a market action and atomically synchronizes the shared vault lock against aggregate portfolio equity/requirement; insufficient collateral reverts the whole action.
 - `OrderBookMath`: shared pure side/tick/share/risk arithmetic used by the deployable contracts.
 - `SegmentTreeExtremaOracle`: bounded on-chain range high/low observations for trailing triggers.
+- `IntegrationLens`: bounded, view-only market/account/maker/advanced-order/MM reads for DEX UIs, APIs, indexers and keepers. Callers supply keys/IDs; the protocol still owns no global enumerable order registry.
 
 CI measures deployable runtime sizes under the `size` Foundry profile (`optimizer_runs = 1`) and enforces project budgets below EIP-170. The exact current measurements are emitted by every CI run rather than duplicated here.
 
-CI enforces stricter project budgets than EIP-170: 22,000 bytes for the core, 19,500 bytes for the advanced module, 5,000 bytes each for the market-maker, liquidation, and portfolio-margin modules, 6,000 bytes for the portfolio-liquidation module, 4,000 bytes for the portfolio-collateral vault, 7,000 bytes for the portfolio-admission coordinator, and 4,000 bytes for the extrema oracle. New order-type or execution-policy logic should normally be added to specialized modules rather than expanding the matching core.
+CI enforces stricter project budgets than EIP-170: 22,000 bytes for the core, 19,500 bytes for the advanced module, 5,000 bytes each for the market-maker, liquidation, and portfolio-margin modules, 6,000 bytes for the portfolio-liquidation module, 4,000 bytes for the portfolio-collateral vault, 7,000 bytes for the portfolio-admission coordinator, 4,000 bytes for the extrema oracle, and 8,000 bytes for the integration lens. New order-type or execution-policy logic should normally be added to specialized modules rather than expanding the matching core.
 
 
 The advanced-order module is constructor-bound to the same oracle contract used by the core. Trailing-history verification therefore cannot silently use a different price source from execution.
