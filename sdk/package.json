@@ -1,0 +1,9 @@
+{
+  "name": "@en0ma/order-book-sdk",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  }
+}
