@@ -164,6 +164,7 @@ contract AdvancedOrderModule {
     event RestingOrderCancelled(uint64 indexed parentOrderId, uint96 removedLots);
     event ConditionalExpirySet(uint64 indexed orderId, uint64 expiry);
     event ConditionalOrderExpired(uint64 indexed orderId);
+    event TriggeredPostOnlyOrderPlaced(uint64 indexed orderId);
 
     event TrailingOrderPlaced(
         uint64 indexed orderId,
@@ -454,6 +455,7 @@ contract AdvancedOrderModule {
             true
         );
         conditionalOrders[orderId].flags |= FLAG_POST_ONLY;
+        emit TriggeredPostOnlyOrderPlaced(orderId);
     }
 
     function _placeConditional(
