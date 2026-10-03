@@ -2700,6 +2700,83 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(filled, 60, "module trailing fill");
         assertEq(int256(_corePosition(ALICE)), 0, "module trailing did not close");
     }
+    function testConditionalGTDRejectsExecutionAndPermissionlesslyExpires() public {
+        vm.prank(ALICE);
+        uint64 orderId = module.placeConditionalOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            100,
+            25,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        module.setConditionalExpiry(orderId, uint64(block.timestamp + 60));
+
+        vm.warp(block.timestamp + 60);
+        (bool ok,) = address(module).call(
+            abi.encodeCall(module.executeConditionalOrder, (orderId))
+        );
+        assertTrue(!ok, "expired conditional executed");
+
+        vm.prank(BOB);
+        module.expireConditionalOrder(orderId);
+        assertEq(module.activeAdvancedOrders(ALICE), 0, "expired conditional remained active");
+        assertEq(uint256(module.conditionalExpiry(orderId)), 0, "conditional expiry not cleared");
+    }
+
+    function testTriggeredLimitGTDExpiresRestingRemainder() public {
+        vm.prank(ALICE);
+        uint64 orderId = module.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            99,
+            30
+        );
+        vm.prank(ALICE);
+        module.setConditionalExpiry(orderId, uint64(block.timestamp + 60));
+
+        module.executeConditionalOrder(orderId);
+        (, uint96 beforeExpiry,) = core.pools(IOrderBookCore.Side.Bid, 99);
+        assertEq(beforeExpiry, 30, "triggered limit did not rest");
+
+        vm.warp(block.timestamp + 60);
+        vm.prank(CAROL);
+        module.expireConditionalOrder(orderId);
+
+        (, uint96 afterExpiry,) = core.pools(IOrderBookCore.Side.Bid, 99);
+        assertEq(afterExpiry, 0, "expired triggered limit left resting liquidity");
+        assertEq(module.activeAdvancedOrders(ALICE), 0, "expired resting order remained active");
+    }
+
+    function testTrailingGTDRejectsExecutionAndPermissionlesslyExpires() public {
+        vm.prank(ALICE);
+        uint64 orderId = module.placeTrailingOrder(
+            IOrderBookCore.Side.Ask,
+            10,
+            90,
+            20,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+        vm.prank(ALICE);
+        module.setTrailingExpiry(orderId, uint64(block.timestamp + 30));
+
+        vm.warp(block.timestamp + 30);
+        (bool ok,) = address(module).call(
+            abi.encodeCall(module.executeTrailingOrder, (orderId))
+        );
+        assertTrue(!ok, "expired trailing order executed");
+
+        vm.prank(BOB);
+        module.expireTrailingOrder(orderId);
+        assertEq(module.activeAdvancedOrders(ALICE), 0, "expired trailing remained active");
+        assertEq(uint256(module.trailingExpiry(orderId)), 0, "trailing expiry not cleared");
+    }
+
     function _packUpdates(MarketMakerModule.QuoteUpdate[] memory updates)
         internal
         pure
