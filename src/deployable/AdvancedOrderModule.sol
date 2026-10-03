@@ -101,6 +101,8 @@ contract AdvancedOrderModule {
     error RestingOrderNotFound();
     error UnsettledAdvancedOrders();
     error MinimumFillNotMet();
+    error InvalidExpiry();
+    error OrderExpired();
     error MarketMakerModuleAlreadyConfigured();
     error LiquidationModuleAlreadyConfigured();
     error PortfolioControllerAlreadyConfigured();
@@ -114,6 +116,8 @@ contract AdvancedOrderModule {
     uint8 public portfolioMarketIndex;
 
     mapping(address => uint32) internal activeAdvancedCount;
+    mapping(uint64 => uint64) public conditionalExpiry;
+    mapping(uint64 => uint64) public trailingExpiry;
 
     uint64 internal nextConditionalOrderId = 1;
     uint64 internal nextTrailingOrderId = 1;
@@ -157,6 +161,8 @@ contract AdvancedOrderModule {
         uint96 remainingLots
     );
     event RestingOrderCancelled(uint64 indexed parentOrderId, uint96 removedLots);
+    event ConditionalExpirySet(uint64 indexed orderId, uint64 expiry);
+    event ConditionalOrderExpired(uint64 indexed orderId);
 
     event TrailingOrderPlaced(
         uint64 indexed orderId,
@@ -169,6 +175,8 @@ contract AdvancedOrderModule {
         bool reduceOnly
     );
     event TrailingOrderCancelled(uint64 indexed orderId);
+    event TrailingExpirySet(uint64 indexed orderId, uint64 expiry);
+    event TrailingOrderExpired(uint64 indexed orderId);
     event TrailingOrderExecuted(
         uint64 indexed orderId,
         uint96 filledLots,
@@ -483,6 +491,31 @@ contract AdvancedOrderModule {
         );
     }
 
+    function setConditionalExpiry(uint64 orderId, uint64 expiry) external {
+        ConditionalOrder storage order = conditionalOrders[orderId];
+        if (order.owner == address(0)) revert OrderNotFound();
+        if (order.owner != msg.sender) revert Unauthorized();
+        if (!_active(order) && !restingLinks[orderId].active) revert OrderInactive();
+        if (expiry <= block.timestamp) revert InvalidExpiry();
+        conditionalExpiry[orderId] = expiry;
+        emit ConditionalExpirySet(orderId, expiry);
+    }
+
+    function expireConditionalOrder(uint64 orderId) external {
+        ConditionalOrder storage order = conditionalOrders[orderId];
+        if (order.owner == address(0)) revert OrderNotFound();
+        uint64 expiry = conditionalExpiry[orderId];
+        if (expiry == 0 || block.timestamp < expiry) revert InvalidExpiry();
+
+        if (restingLinks[orderId].active) {
+            _cancelRestingOrder(orderId);
+        } else {
+            _cancelConditional(orderId, true);
+        }
+        delete conditionalExpiry[orderId];
+        emit ConditionalOrderExpired(orderId);
+    }
+
     function cancelConditionalOrder(uint64 orderId) external {
         ConditionalOrder storage order = conditionalOrders[orderId];
         if (order.owner == address(0)) revert OrderNotFound();
@@ -544,6 +577,8 @@ contract AdvancedOrderModule {
         ConditionalOrder storage stored = conditionalOrders[orderId];
         if (stored.owner == address(0)) revert OrderNotFound();
         if (!_active(stored)) revert OrderInactive();
+        uint64 expiry = conditionalExpiry[orderId];
+        if (expiry != 0 && block.timestamp >= expiry) revert OrderExpired();
 
         ConditionalOrder memory order = stored;
         uint16 mark = core.currentMarkTick();
@@ -811,6 +846,26 @@ contract AdvancedOrderModule {
         );
     }
 
+    function setTrailingExpiry(uint64 orderId, uint64 expiry) external {
+        TrailingOrder storage order = trailingOrders[orderId];
+        if (order.owner == address(0)) revert OrderNotFound();
+        if (order.owner != msg.sender) revert Unauthorized();
+        if ((order.flags & FLAG_ACTIVE) == 0) revert OrderInactive();
+        if (expiry <= block.timestamp) revert InvalidExpiry();
+        trailingExpiry[orderId] = expiry;
+        emit TrailingExpirySet(orderId, expiry);
+    }
+
+    function expireTrailingOrder(uint64 orderId) external {
+        TrailingOrder storage order = trailingOrders[orderId];
+        if (order.owner == address(0)) revert OrderNotFound();
+        uint64 expiry = trailingExpiry[orderId];
+        if (expiry == 0 || block.timestamp < expiry) revert InvalidExpiry();
+        _cancelTrailing(orderId, true);
+        delete trailingExpiry[orderId];
+        emit TrailingOrderExpired(orderId);
+    }
+
     function cancelTrailingOrder(uint64 orderId) external {
         TrailingOrder storage order = trailingOrders[orderId];
         if (order.owner == address(0)) revert OrderNotFound();
@@ -823,6 +878,8 @@ contract AdvancedOrderModule {
         TrailingOrder storage stored = trailingOrders[orderId];
         if (stored.owner == address(0)) revert OrderNotFound();
         if ((stored.flags & FLAG_ACTIVE) == 0) revert OrderInactive();
+        uint64 expiry = trailingExpiry[orderId];
+        if (expiry != 0 && block.timestamp >= expiry) revert OrderExpired();
 
         TrailingOrder memory order = stored;
         uint16 current = core.currentMarkTick();

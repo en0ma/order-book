@@ -1,12 +1,12 @@
 # Architecture
 
-This repository is an experimental fully-on-chain order-book kernel optimized around one constraint:
+This repository implements a production-bound fully on-chain derivatives order book optimized around one defining constraint:
 
 Taker execution should scale with the number of price levels crossed, not the number of makers filled.
 
 ## Matching rule
 
-The prototype uses best-price priority across ticks and pro-rata allocation among all makers at exactly the same tick.
+The deployable order book uses best-price priority across ticks and pro-rata allocation among all makers at exactly the same tick.
 
 It deliberately does not implement per-order FIFO inside a tick. FIFO would require per-maker queue traversal or another time-bucket structure and would put maker-count-dependent work back onto the hot matching path.
 
@@ -108,40 +108,34 @@ Funding attribution has its own fixed-point accumulator and does not alter execu
 
 ## Current scope
 
-Implemented:
-- fully on-chain liquidity state
-- 65,536-tick hierarchical bitmap
-- best-price matching
-- IOC and FOK
-- pro-rata same-price fills
-- O(1) maker add/cancel relative to maker count
-- lazy maker settlement
-- generation rollover
-- exposure-envelope accounting
-- collateral reservation
-- oracle execution bands
-- per-pool risk ceilings
-- ERC-20 collateral custody
-- pluggable mark-oracle adapter
+Implemented in the deployable architecture:
+- fully on-chain liquidity, matching, custody, funding, fees/rebates and insurance accounting
+- 65,536-tick hierarchical bitmap with best-price matching
+- pro-rata same-price fills with maker-count-independent taker execution
+- lazy exact maker attribution, generation rollover and explicit rounding residual accounting
+- IOC/FOK, reduce-only and minimum-fill aggressive execution
+- conditional stop/take-profit execution and triggered limits
+- OCO, OTO/bracket composition with lazy maker-fill resize
 - extrema-oracle trailing stops
-- lazy funding-entry accumulators
-- active-quote withdrawal safety
-- fuzz/property tests
-- gas ceilings
-- Ethereum mainnet fork with real WETH custody
+- GTD expiry with permissionless advanced-order cleanup
+- exposure-envelope margin, oracle execution bands and per-pool risk ceilings
+- shared-collateral portfolio admission, conservative cross-market margin and portfolio liquidation
+- ERC-20 custody, realized-PnL withdrawals, fee/insurance settlement and terminal bad-debt coverage
+- fuzz/property/state-machine tests, gas ceilings, strict bytecode budgets and Ethereum mainnet-fork custody tests
 
-Not yet implemented:
-- fees
-- settlement-driven bracket resize for later maker fills
-- maker-side per-order minimum-first-fill / all-or-none pools
-- portfolio margin / cross-market netting
-- permissionless oracle adapters and stale-price validation
-- production-grade token decimal normalization
-- audited funding precision bounds
-- liquidation incentives / insurance accounting
+Production hardening still required before deployment:
+- independent security audits and remediation
+- deployment/configuration validation and operational runbooks
+- emergency/guardian controls with narrowly defined authority
+- production token decimal/price-scale normalization
+- oracle liveness/failure-mode hardening for deployment-specific adapters
+- broader adversarial invariant, fork and long-horizon economic testing
 
-The next milestone should focus on richer order composition and further storage/gas optimization without changing the maker-count-independent matching property.
-
+Advanced-order roadmap:
+- post-only maker admission
+- iceberg/display-quantity orders with deterministic replenishment
+- scheduled/TWAP-style execution
+- additional composition primitives that remain outside the maker-count-independent matching hot path
 
 
 ## Account state packing
@@ -300,7 +294,7 @@ Trailing orders participate in withdrawal safety and liquidation cleanup. liquid
 
 ## Deployable core/module split
 
-The feature-complete ProRataOrderBook contract is retained as a research/reference implementation, but it is not deployable on Ethereum mainnet because its runtime bytecode exceeds EIP-170.
+The feature-complete ProRataOrderBook contract is retained as a reference implementation, but it is not deployable on Ethereum mainnet because its runtime bytecode exceeds EIP-170.
 
 Measured runtime sizes demonstrated the problem:
 - reference monolith, default optimizer profile: about 53.2 KB;

@@ -1,6 +1,6 @@
 # Fully On-Chain Pro-Rata Order Book
 
-Experimental Solidity/Foundry implementation of a gas-oriented fully-on-chain order-book kernel.
+Production-oriented Solidity/Foundry implementation of a gas-efficient fully on-chain derivatives order book.
 
 The design keeps authoritative liquidity and matching entirely on-chain, but replaces FIFO within a price level with pro-rata allocation. That lets one taker fill an arbitrary number of makers at the same tick by updating aggregate tick state rather than every maker.
 
@@ -56,7 +56,7 @@ ETH_RPC=<mainnet-rpc> forge test --match-contract MainnetForkTest -vvv
 
 See docs/ARCHITECTURE.md for the design, accounting model, liquidation flow, and current limitations.
 
-This is a research prototype, not audited production code.
+The deployable architecture is production-bound, but production deployment still requires completed independent security audits and deployment-specific operational review.
 
 
 ## Current bracket semantics
@@ -74,7 +74,7 @@ At execution, the contract derives the high/low since activation from the oracle
 
 ## Deployable architecture
 
-The original `ProRataOrderBook` remains a research/reference monolith. It exceeds Ethereum's EIP-170 runtime bytecode limit and is not the production deployment shape.
+The original `ProRataOrderBook` remains a reference monolith. It exceeds Ethereum's EIP-170 runtime bytecode limit and is not the production deployment shape.
 
 The deployable path is split into:
 
@@ -89,7 +89,7 @@ The deployable path is split into:
 - `OrderBookMath`: shared pure side/tick/share/risk arithmetic used by the deployable contracts.
 - `SegmentTreeExtremaOracle`: bounded on-chain range high/low observations for trailing triggers.
 
-Under the `size` Foundry profile (`optimizer_runs = 1`), the current measured runtime sizes are approximately 21,511 bytes for the core, 18,617 bytes for the advanced module, 4,434 bytes for the market-maker module, 4,001 bytes for the liquidation module, and 2,152 bytes for the extrema oracle.
+CI measures deployable runtime sizes under the `size` Foundry profile (`optimizer_runs = 1`) and enforces project budgets below EIP-170. The exact current measurements are emitted by every CI run rather than duplicated here.
 
 CI enforces stricter project budgets than EIP-170: 22,000 bytes for the core, 19,500 bytes for the advanced module, 5,000 bytes each for the market-maker, liquidation, and portfolio-margin modules, 6,000 bytes for the portfolio-liquidation module, 4,000 bytes for the portfolio-collateral vault, 7,000 bytes for the portfolio-admission coordinator, and 4,000 bytes for the extrema oracle. New order-type or execution-policy logic should normally be added to specialized modules rather than expanding the matching core.
 
