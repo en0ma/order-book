@@ -15,6 +15,8 @@ interface Vm {
     function warp(uint256 newTimestamp) external;
     function recordLogs() external;
     function getRecordedLogs() external returns (Log[] memory logs);
+    function snapshotState() external returns (uint256 snapshotId);
+    function revertToState(uint256 snapshotId) external returns (bool success);
 }
 
 abstract contract TestBase {
