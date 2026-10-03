@@ -36,10 +36,6 @@ interface IOrderBookCore {
         external
         view
         returns (uint128 shares, uint96 claimLots, uint32 generation);
-    function previewMakerFill(address account, Side side, uint16 tick)
-        external
-        view
-        returns (uint96 filledLots);
     function moduleReserveExposure(address account, Side side, uint96 lots)
         external
         returns (uint16 riskCeilingTick);
