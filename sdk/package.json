@@ -4,6 +4,22 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "test": "node --experimental-strip-types --test test/*.test.ts"
-  }
+    "build": "node build.mjs",
+    "prepare": "npm run build",
+    "test": "npm run build && node --experimental-strip-types --test test/*.test.ts"
+  },
+  "main": "./dist/index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "index.d.ts",
+    "README.md"
+  ]
 }
