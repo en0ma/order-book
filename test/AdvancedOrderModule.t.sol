@@ -10,7 +10,7 @@ import {LiquidationModule} from "../src/deployable/LiquidationModule.sol";
 import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
 import {SegmentTreeExtremaOracle} from "../src/SegmentTreeExtremaOracle.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
-import {TestBase} from "./TestBase.sol";
+import {TestBase, Vm} from "./TestBase.sol";
 
 contract AdvancedOrderModuleTest is TestBase {
     OrderBookCoreHarness internal core;
