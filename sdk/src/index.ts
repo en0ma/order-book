@@ -190,6 +190,95 @@ export class OrderBookSDK {
     };
   }
 
+  removeLiquidity(
+    marketId: string,
+    side: Side,
+    tick: number,
+    generation: number,
+    shares: bigint,
+  ): TransactionPlan {
+    const market = this.market(marketId);
+    if (market.portfolioMarketIndex !== undefined) {
+      const coordinator = this.requirePortfolioCoordinator();
+      return {
+        target: coordinator,
+        functionName: "removeLiquidity",
+        args: [BigInt(market.portfolioMarketIndex), side, tick, generation, shares],
+      };
+    }
+    return {
+      target: market.core,
+      functionName: "removeShares",
+      args: [side, tick, shares],
+    };
+  }
+
+  deposit(marketId: string, amount: bigint): TransactionPlan {
+    const market = this.market(marketId);
+    if (market.portfolioMarketIndex !== undefined) {
+      if (!this.manifest.portfolio) {
+        throw new ManifestError("portfolio market requires portfolio config");
+      }
+      return {
+        target: this.manifest.portfolio.vault,
+        functionName: "deposit",
+        args: [amount],
+      };
+    }
+    return {
+      target: market.core,
+      functionName: "depositCollateral",
+      args: [amount],
+    };
+  }
+
+  withdraw(marketId: string, amount: bigint): TransactionPlan {
+    const market = this.market(marketId);
+    if (market.portfolioMarketIndex !== undefined) {
+      return {
+        target: this.requirePortfolioCoordinator(),
+        functionName: "withdraw",
+        args: [amount],
+      };
+    }
+    return {
+      target: market.core,
+      functionName: "withdrawCollateral",
+      args: [amount],
+    };
+  }
+
+  takeReduceOnly(
+    marketId: string,
+    side: Side,
+    limitTick: number,
+    lots: bigint,
+    policy: FillPolicy = 0,
+  ): TransactionPlan {
+    const market = this.market(marketId);
+    return {
+      target: market.advanced,
+      functionName: "takeReduceOnly",
+      args: [side, limitTick, lots, policy],
+    };
+  }
+
+  takeMinFill(
+    marketId: string,
+    side: Side,
+    limitTick: number,
+    lots: bigint,
+    minFillLots: bigint,
+    reduceOnly = false,
+  ): TransactionPlan {
+    const market = this.market(marketId);
+    return {
+      target: market.advanced,
+      functionName: "takeMinFill",
+      args: [side, limitTick, lots, minFillLots, reduceOnly],
+    };
+  }
+
   placeConditional(
     marketId: string,
     side: Side,
@@ -240,6 +329,49 @@ export class OrderBookSDK {
     };
   }
 
+  placeTrailing(
+    marketId: string,
+    side: Side,
+    trailTicks: number,
+    limitTick: number,
+    lots: bigint,
+    policy: FillPolicy = 0,
+    reduceOnly = false,
+  ): TransactionPlan {
+    const market = this.market(marketId);
+    return {
+      target: market.advanced,
+      functionName: "placeTrailingOrder",
+      args: [side, trailTicks, limitTick, lots, policy, reduceOnly],
+    };
+  }
+
+  linkOCO(
+    marketId: string,
+    firstOrderId: bigint,
+    secondOrderId: bigint,
+  ): TransactionPlan {
+    const market = this.market(marketId);
+    return {
+      target: market.advanced,
+      functionName: "linkOCO",
+      args: [firstOrderId, secondOrderId],
+    };
+  }
+
+  linkOTO(
+    marketId: string,
+    parentOrderId: bigint,
+    childOrderId: bigint,
+  ): TransactionPlan {
+    const market = this.market(marketId);
+    return {
+      target: market.advanced,
+      functionName: "linkOTO",
+      args: [parentOrderId, childOrderId],
+    };
+  }
+
   setConditionalExpiry(
     marketId: string,
     orderId: bigint,
@@ -258,6 +390,28 @@ export class OrderBookSDK {
     return {
       target: market.advanced,
       functionName: "cancelConditionalOrder",
+      args: [orderId],
+    };
+  }
+
+  setTrailingExpiry(
+    marketId: string,
+    orderId: bigint,
+    expiry: bigint,
+  ): TransactionPlan {
+    const market = this.market(marketId);
+    return {
+      target: market.advanced,
+      functionName: "setTrailingExpiry",
+      args: [orderId, expiry],
+    };
+  }
+
+  cancelTrailing(marketId: string, orderId: bigint): TransactionPlan {
+    const market = this.market(marketId);
+    return {
+      target: market.advanced,
+      functionName: "cancelTrailingOrder",
       args: [orderId],
     };
   }
