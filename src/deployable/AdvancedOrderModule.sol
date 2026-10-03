@@ -110,7 +110,7 @@ contract AdvancedOrderModule {
 
     IOrderBookCore public immutable core;
     IExtremaOracle internal immutable extremaOracle;
-    address internal immutable owner;
+    address internal owner;
     address public marketMakerModule;
     address public liquidationModule;
     IPortfolioAdmissionGateway public portfolioController;
@@ -132,6 +132,7 @@ contract AdvancedOrderModule {
     mapping(uint64 => uint64) internal otoParent;
     mapping(uint64 => uint96) internal otoChildMaxLots;
 
+    event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
     event ConditionalOrderPlaced(
         uint64 indexed orderId,
         address indexed owner,
@@ -195,6 +196,13 @@ contract AdvancedOrderModule {
         core = coreRef;
         extremaOracle = IExtremaOracle(extremaOracle_);
         owner = msg.sender;
+    }
+
+    function transferOwnership(address nextOwner) external {
+        if (msg.sender != owner || nextOwner == address(0)) revert Unauthorized();
+        address previousOwner = owner;
+        owner = nextOwner;
+        emit OwnershipTransferred(previousOwner, nextOwner);
     }
 
     modifier onlyMarketMakerModule() {
