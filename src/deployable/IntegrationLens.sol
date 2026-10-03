@@ -2,7 +2,6 @@
 pragma solidity ^0.8.24;
 
 import {IOrderBookCore} from "./IOrderBookCore.sol";
-import {OrderBookMath} from "./OrderBookMath.sol";
 
 interface IAdvancedOrderIntegration {
     struct TrailingOrder {
@@ -90,7 +89,6 @@ contract IntegrationLens {
         uint16 tick;
         uint128 shares;
         uint96 claimLots;
-        uint96 currentRedeemableLots;
         uint96 pendingFillLots;
         uint32 generation;
         uint32 poolGeneration;
@@ -206,24 +204,11 @@ contract IntegrationLens {
                 uint32 poolGeneration
             ) = core.pools(key.side, key.tick);
 
-            uint96 currentRedeemableLots;
-            if (shares != 0 && generation == poolGeneration) {
-                currentRedeemableLots = OrderBookMath.redeemableLotsCeil(
-                    shares,
-                    remainingLots,
-                    totalShares
-                );
-                if (currentRedeemableLots > claimLots) {
-                    currentRedeemableLots = claimLots;
-                }
-            }
-
             states[i] = QuoteState({
                 side: key.side,
                 tick: key.tick,
                 shares: shares,
                 claimLots: claimLots,
-                currentRedeemableLots: currentRedeemableLots,
                 pendingFillLots: core.previewMakerFill(account, key.side, key.tick),
                 generation: generation,
                 poolGeneration: poolGeneration
