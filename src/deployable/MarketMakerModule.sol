@@ -56,6 +56,21 @@ contract MarketMakerModule {
     error QuotesNotStrictlySorted();
     error Unauthorized();
 
+    event ManagedQuoteUpdated(
+        address indexed maker,
+        IOrderBookCore.Side indexed side,
+        uint16 indexed tick,
+        uint128 shares,
+        uint32 generation
+    );
+    event ManagedQuoteRemoved(
+        address indexed maker,
+        IOrderBookCore.Side indexed side,
+        uint16 indexed tick,
+        uint128 shares,
+        uint32 generation
+    );
+
     IOrderBookCore public immutable core;
     IAdvancedQuoteGateway public immutable gateway;
 
@@ -83,7 +98,13 @@ contract MarketMakerModule {
         uint16 tick
     ) external {
         if (msg.sender != address(gateway)) revert Unauthorized();
-        delete managedQuotes[maker][side][tick];
+        ManagedQuote memory managed = managedQuotes[maker][side][tick];
+        if (managed.shares != 0) {
+            delete managedQuotes[maker][side][tick];
+            emit ManagedQuoteRemoved(
+                maker, side, tick, managed.shares, managed.generation
+            );
+        }
     }
 
     /// @notice Atomically replace/cancel module-managed maker quotes.
@@ -225,6 +246,10 @@ contract MarketMakerModule {
         } else {
             managed.shares += shares;
         }
+
+        emit ManagedQuoteUpdated(
+            maker, side, tick, managed.shares, managed.generation
+        );
     }
 
     function _encode(IOrderBookCore.Side side, uint16 tick, uint96 lots)
@@ -268,6 +293,9 @@ contract MarketMakerModule {
                 managed.shares
             );
             delete managedQuotes[maker][side][tick];
+            emit ManagedQuoteRemoved(
+                maker, side, tick, managed.shares, managed.generation
+            );
             return targetLots;
         }
 
@@ -287,6 +315,9 @@ contract MarketMakerModule {
             managed.shares
         );
         delete managedQuotes[maker][side][tick];
+        emit ManagedQuoteRemoved(
+            maker, side, tick, managed.shares, managed.generation
+        );
         return targetLots;
     }
 
