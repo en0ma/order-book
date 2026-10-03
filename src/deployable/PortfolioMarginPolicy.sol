@@ -35,9 +35,11 @@ contract PortfolioMarginPolicy {
     error Unauthorized();
     error SharedCollateralAlreadyConfigured();
 
-    address public immutable owner;
+    address public owner;
     IPortfolioCollateralSource public sharedCollateralVault;
     MarketConfig[] public markets;
+
+    event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
 
     constructor(MarketInput[] memory configs) {
         owner = msg.sender;
@@ -70,6 +72,13 @@ contract PortfolioMarginPolicy {
                 })
             );
         }
+    }
+
+    function transferOwnership(address nextOwner) external {
+        if (msg.sender != owner || nextOwner == address(0)) revert Unauthorized();
+        address previousOwner = owner;
+        owner = nextOwner;
+        emit OwnershipTransferred(previousOwner, nextOwner);
     }
 
     function configureSharedCollateralVault(address vault) external {
