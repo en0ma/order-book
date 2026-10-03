@@ -78,6 +78,7 @@ interface IMarketMakerIntegration {
 /// @dev Enumeration remains off-chain. Callers supply the accounts, ticks and order IDs they need.
 contract IntegrationLens {
     uint256 public constant MAX_BATCH = 64;
+    uint256 public constant MAX_SCAN_TICKS = 256;
 
     struct TickKey {
         IOrderBookCore.Side side;
@@ -330,7 +331,11 @@ contract IntegrationLens {
         uint16 highTick,
         uint16 maxLevels
     ) external view returns (PoolState[] memory levels) {
-        if (lowTick > highTick || maxLevels == 0 || maxLevels > MAX_BATCH) {
+        uint256 span = uint256(highTick) - uint256(lowTick) + 1;
+        if (
+            lowTick > highTick || maxLevels == 0 || maxLevels > MAX_BATCH
+                || span > MAX_SCAN_TICKS
+        ) {
             revert InvalidRange();
         }
 
