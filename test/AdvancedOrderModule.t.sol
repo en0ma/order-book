@@ -2777,6 +2777,121 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(module.activeAdvancedOrders(ALICE), 0, "failed post-only could not cancel");
     }
 
+    function testConditionalGTDClearsOnNormalCancel() public {
+        vm.prank(ALICE);
+        uint64 orderId = module.placeConditionalOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            100,
+            25,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+        vm.prank(ALICE);
+        module.setConditionalExpiry(orderId, uint64(block.timestamp + 60));
+
+        vm.prank(ALICE);
+        module.cancelConditionalOrder(orderId);
+
+        assertEq(uint256(module.conditionalExpiry(orderId)), 0, "cancel left conditional expiry");
+    }
+
+    function testConditionalGTDClearsOnExecutionAndOCOSiblingCancel() public {
+        vm.prank(ALICE);
+        uint64 first = module.placeConditionalOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            100,
+            10,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+        vm.prank(ALICE);
+        uint64 second = module.placeConditionalOrder(
+            IOrderBookCore.Side.Ask,
+            false,
+            100,
+            100,
+            10,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+
+        vm.prank(ALICE);
+        module.setConditionalExpiry(first, uint64(block.timestamp + 60));
+        vm.prank(ALICE);
+        module.setConditionalExpiry(second, uint64(block.timestamp + 60));
+        vm.prank(ALICE);
+        module.linkOCO(first, second);
+
+        module.executeConditionalOrder(first);
+
+        assertEq(uint256(module.conditionalExpiry(first)), 0, "execution left conditional expiry");
+        assertEq(uint256(module.conditionalExpiry(second)), 0, "OCO cancel left sibling expiry");
+    }
+
+    function testTriggeredLimitGTDRetainsExpiryWhileRestingAndClearsOnCancel() public {
+        vm.prank(ALICE);
+        uint64 orderId = module.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            99,
+            30
+        );
+        uint64 expiry = uint64(block.timestamp + 60);
+        vm.prank(ALICE);
+        module.setConditionalExpiry(orderId, expiry);
+
+        module.executeConditionalOrder(orderId);
+        assertEq(
+            uint256(module.conditionalExpiry(orderId)),
+            uint256(expiry),
+            "resting triggered limit lost expiry"
+        );
+
+        vm.prank(ALICE);
+        module.cancelConditionalOrder(orderId);
+        assertEq(uint256(module.conditionalExpiry(orderId)), 0, "resting cancel left expiry");
+    }
+
+    function testTrailingGTDClearsOnNormalCancelAndExecution() public {
+        vm.prank(ALICE);
+        uint64 cancelled = module.placeTrailingOrder(
+            IOrderBookCore.Side.Ask,
+            10,
+            90,
+            20,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+        vm.prank(ALICE);
+        module.setTrailingExpiry(cancelled, uint64(block.timestamp + 60));
+        vm.prank(ALICE);
+        module.cancelTrailingOrder(cancelled);
+        assertEq(uint256(module.trailingExpiry(cancelled)), 0, "cancel left trailing expiry");
+
+        vm.prank(ALICE);
+        uint64 executed = module.placeTrailingOrder(
+            IOrderBookCore.Side.Ask,
+            10,
+            90,
+            20,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+        vm.prank(ALICE);
+        module.setTrailingExpiry(executed, uint64(block.timestamp + 60));
+
+        oracle.record(120);
+        oracle.record(100);
+        module.executeTrailingOrder(executed);
+
+        assertEq(uint256(module.trailingExpiry(executed)), 0, "execution left trailing expiry");
+    }
+
     function testConditionalGTDRejectsExecutionAndPermissionlesslyExpires() public {
         vm.prank(ALICE);
         uint64 orderId = module.placeConditionalOrder(

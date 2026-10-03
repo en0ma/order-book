@@ -55,6 +55,7 @@ forge snapshot
 ETH_RPC=<mainnet-rpc> forge test --match-contract MainnetForkTest -vvv
 
 See docs/ARCHITECTURE.md for the design, accounting model, liquidation flow, and current limitations.
+See docs/INTEGRATION_OPERATOR_AUDIT.md for the DEX integration, indexer, keeper, market-maker, SDK, and recovery surface audit.
 
 The deployable architecture is production-bound, but production deployment still requires completed independent security audits and deployment-specific operational review.
 
