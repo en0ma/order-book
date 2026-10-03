@@ -659,6 +659,7 @@ contract AdvancedOrderModule {
 
         if (!restingLinks[orderId].active) {
             activeAdvancedCount[order.owner] -= 1;
+            delete conditionalExpiry[orderId];
         }
 
         _unlinkOTOChild(orderId);
@@ -790,6 +791,7 @@ contract AdvancedOrderModule {
             );
             delete restingLinks[parentOrderId];
             activeAdvancedCount[parent.owner] -= 1;
+            delete conditionalExpiry[parentOrderId];
         }
     }
 
@@ -820,6 +822,7 @@ contract AdvancedOrderModule {
 
         delete restingLinks[parentOrderId];
         activeAdvancedCount[parent.owner] -= 1;
+        delete conditionalExpiry[parentOrderId];
 
         // If the entry never filled, its dormant OTO exits have no exposure to
         // protect and must be retired with the parent. Partially filled parents
@@ -934,6 +937,7 @@ contract AdvancedOrderModule {
 
         stored.flags &= ~FLAG_ACTIVE;
         activeAdvancedCount[order.owner] -= 1;
+        delete trailingExpiry[orderId];
 
         filledLots = _take(
             order.owner,
@@ -1056,6 +1060,7 @@ contract AdvancedOrderModule {
             _cancelOTOChildren(orderId);
         }
 
+        delete conditionalExpiry[orderId];
         emit ConditionalOrderCancelled(orderId);
     }
 
@@ -1072,6 +1077,7 @@ contract AdvancedOrderModule {
             _releaseExposure(order.owner, order.side, order.lots);
         }
 
+        delete trailingExpiry[orderId];
         emit TrailingOrderCancelled(orderId);
     }
 
