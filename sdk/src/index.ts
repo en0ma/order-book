@@ -58,8 +58,11 @@ export interface QuoteUpdate {
 export class ManifestError extends Error {}
 
 function assertAddress(value: string, field: string): asserts value is Address {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new ManifestError(`${field} must be a 20-byte hex address`);
+  if (
+    !/^0x[0-9a-fA-F]{40}$/.test(value)
+      || /^0x0{40}$/i.test(value)
+  ) {
+    throw new ManifestError(`${field} must be a non-zero 20-byte hex address`);
   }
 }
 
@@ -72,6 +75,7 @@ function assertUint(value: number, field: string, max?: number): void {
 export function validateManifest(manifest: DeploymentManifest): DeploymentManifest {
   if (manifest.schemaVersion !== 1) throw new ManifestError("unsupported schemaVersion");
   assertUint(manifest.chainId, "chainId");
+  if (manifest.chainId === 0) throw new ManifestError("chainId must be greater than zero");
   assertUint(manifest.deploymentBlock, "deploymentBlock");
   assertAddress(manifest.collateral.token, "collateral.token");
   assertUint(manifest.collateral.decimals, "collateral.decimals", 255);
