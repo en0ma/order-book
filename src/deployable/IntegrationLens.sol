@@ -3,6 +3,14 @@ pragma solidity ^0.8.24;
 
 import {IOrderBookCore} from "./IOrderBookCore.sol";
 
+interface IIntegrationOrderBookCore is IOrderBookCore {
+    function integrationMakerFillState(
+        Side side,
+        uint16 tick,
+        uint32 generation
+    ) external view returns (uint96 fillBudget, uint128 closedOutstandingShares);
+}
+
 interface IAdvancedOrderIntegration {
     struct TrailingOrder {
         address owner;
@@ -132,12 +140,12 @@ contract IntegrationLens {
     error BatchTooLarge();
     error InvalidRange();
 
-    IOrderBookCore public immutable core;
+    IIntegrationOrderBookCore public immutable core;
     IAdvancedOrderIntegration public immutable advanced;
 
     constructor(address core_, address advanced_) {
         if (core_ == address(0) || advanced_ == address(0)) revert InvalidConfig();
-        core = IOrderBookCore(core_);
+        core = IIntegrationOrderBookCore(core_);
         advanced = IAdvancedOrderIntegration(advanced_);
     }
 
@@ -198,14 +206,41 @@ contract IntegrationLens {
                 uint96 claimLots,
                 uint32 generation
             ) = core.quotes(account, key.side, key.tick);
-            (,, uint32 poolGeneration) = core.pools(key.side, key.tick);
+            (
+                uint128 totalShares,
+                uint96 remainingLots,
+                uint32 poolGeneration
+            ) = core.pools(key.side, key.tick);
+            (uint96 fillBudget, uint128 closedOutstandingShares) =
+                core.integrationMakerFillState(key.side, key.tick, generation);
+
+            uint96 pendingFillLots;
+            if (shares != 0) {
+                if (generation != poolGeneration) {
+                    pendingFillLots = closedOutstandingShares == shares
+                        ? fillBudget
+                        : (claimLots < fillBudget ? claimLots : fillBudget);
+                } else {
+                    uint96 currentClaim = uint96(
+                        (
+                            uint256(shares) * uint256(remainingLots)
+                                + uint256(totalShares) - 1
+                        ) / uint256(totalShares)
+                    );
+                    if (currentClaim < claimLots) {
+                        uint96 requested = claimLots - currentClaim;
+                        pendingFillLots =
+                            requested < fillBudget ? requested : fillBudget;
+                    }
+                }
+            }
 
             states[i] = QuoteState({
                 side: key.side,
                 tick: key.tick,
                 shares: shares,
                 claimLots: claimLots,
-                pendingFillLots: core.previewMakerFill(account, key.side, key.tick),
+                pendingFillLots: pendingFillLots,
                 generation: generation,
                 poolGeneration: poolGeneration
             });
