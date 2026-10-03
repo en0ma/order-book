@@ -340,15 +340,14 @@ The requirement to supply order keys is deliberate: it keeps normal order placem
 
 The packed quote refresh API is suitable for latency-sensitive MMs.
 
-The missing ergonomics are recovery and observability.
+Status: canonical managed-quote recovery events and the `managedQuote` recovery getter are implemented. Event replay tests now prove that add/increase/decrease/cancel and generation-rollover transitions reconstruct the same managed state as the canonical getter.
 
-Recommended additions outside the hot path:
+Remaining ergonomics outside the hot path:
 
-- `ManagedQuoteUpdated` / `ManagedQuoteRemoved` events;
-- view access through the lens for supplied maker/side/tick keys;
 - a canonical packed-record encoder in the SDK;
 - a reconciliation helper that compares target quotes against indexed/on-chain managed state;
-- restart procedure: load last finalized state, query lens for target keys, then send one atomic target refresh.
+- restart procedure: load last finalized state, query the canonical recovery getter for target keys, replay finalized quote events after the checkpoint, then send one atomic target refresh;
+- broader replay/reorg tests spanning Core, advanced-order and portfolio events.
 
 MM infrastructure should treat `batchReplaceQuotes*` as target-state convergence, not imperative cancel/add commands.
 
