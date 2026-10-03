@@ -263,18 +263,19 @@ contract OrderBookCore is IOrderBookCore {
         override
         returns (uint96 filledLots)
     {
-        MakerQuote memory q = quotes[account][side][tick];
+        MakerQuote storage q = quotes[account][side][tick];
         if (q.shares == 0) return 0;
 
-        TickPool memory p = pools[side][tick];
-        uint96 available =
-            generationMakerFillBudget[side][tick][q.generation];
-
-        if (q.generation != p.generation) {
-            uint128 outstanding =
-                uint128(closedGenerationAccounting[side][tick][q.generation]);
-            if (outstanding == q.shares) return available;
-            return q.claimLots < available ? q.claimLots : available;
+        TickPool storage p = pools[side][tick];
+        uint32 generation = q.generation;
+        if (generation != p.generation) {
+            if (
+                uint128(closedGenerationAccounting[side][tick][generation])
+                    == q.shares
+            ) {
+                return generationMakerFillBudget[side][tick][generation];
+            }
+            return _backedMakerFill(side, tick, generation, q.claimLots);
         }
 
         uint96 currentClaim =
@@ -284,9 +285,9 @@ contract OrderBookCore is IOrderBookCore {
                 p.totalShares
             );
         if (currentClaim >= q.claimLots) return 0;
-
-        uint96 requested = q.claimLots - currentClaim;
-        return requested < available ? requested : available;
+        return _backedMakerFill(
+            side, tick, generation, q.claimLots - currentClaim
+        );
     }
 
     function depositCollateral(uint256 amount) external {
