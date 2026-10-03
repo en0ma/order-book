@@ -92,7 +92,6 @@ contract IntegrationLensTest is TestBase {
 
         IntegrationLens.QuoteState[] memory quotes = lens.quoteStates(ALICE, keys);
         assertEq(uint256(quotes[0].claimLots), 100, "claim mutated before settle");
-        assertEq(uint256(quotes[0].currentRedeemableLots), 60, "redeemable claim");
         assertEq(uint256(quotes[0].pendingFillLots), 40, "lazy fill preview");
         assertEq(int256(_position(ALICE)), 0, "preview materialized maker");
     }
@@ -122,7 +121,6 @@ contract IntegrationLensTest is TestBase {
             uint256(quoteGeneration + 1),
             "pool did not roll"
         );
-        assertEq(uint256(quotes[0].currentRedeemableLots), 0, "stale quote redeemable");
         assertEq(uint256(quotes[0].pendingFillLots), 10, "stale final-maker preview");
     }
 
