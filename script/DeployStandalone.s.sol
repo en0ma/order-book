@@ -22,6 +22,7 @@ contract DeployStandalone {
         VmDeploy(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     struct Config {
+        address protocolAdmin;
         address collateralToken;
         address oracle;
         uint16 executionBandTicks;
@@ -53,6 +54,7 @@ contract DeployStandalone {
 
     function run() external returns (Deployment memory deployment) {
         Config memory config = Config({
+            protocolAdmin: vm.envAddress("PROTOCOL_ADMIN"),
             collateralToken: vm.envAddress("COLLATERAL_TOKEN"),
             oracle: vm.envAddress("MARK_ORACLE"),
             executionBandTicks: uint16(vm.envUint("EXECUTION_BAND_TICKS")),
@@ -107,6 +109,11 @@ contract DeployStandalone {
         deployment.liquidation.configureLiquidatorReward(
             config.liquidatorRewardBps
         );
+
+        deployment.core.setFundingUpdater(config.protocolAdmin);
+        deployment.core.transferOwnership(config.protocolAdmin);
+        deployment.advanced.transferOwnership(config.protocolAdmin);
+        deployment.liquidation.transferOwnership(config.protocolAdmin);
 
         emit StandaloneStackDeployed(
             address(deployment.core),
