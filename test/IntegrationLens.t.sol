@@ -27,7 +27,7 @@ contract IntegrationLensTest is TestBase {
         core = new OrderBookCore(address(token), address(oracle), 40, 1_000, 0, 0);
         advanced = new AdvancedOrderModule(address(core), address(oracle));
         marketMaker = new MarketMakerModule(address(core), address(advanced));
-        lens = new IntegrationLens(address(core), address(advanced), address(marketMaker));
+        lens = new IntegrationLens(address(core), address(advanced));
 
         core.configureAdvancedModule(address(advanced));
         advanced.configureMarketMakerModule(address(marketMaker));
@@ -159,15 +159,13 @@ contract IntegrationLensTest is TestBase {
         vm.prank(ALICE);
         marketMaker.batchReplaceQuotes(updates);
 
-        IntegrationLens.TickKey[] memory keys = new IntegrationLens.TickKey[](1);
-        keys[0] = IntegrationLens.TickKey(IOrderBookCore.Side.Ask, 110);
-        IntegrationLens.ManagedQuoteState[] memory managed =
-            lens.managedQuoteStates(ALICE, keys);
+        (uint128 managedShares, uint32 managedGeneration) =
+            marketMaker.managedQuote(ALICE, IOrderBookCore.Side.Ask, 110);
 
-        assertTrue(managed[0].shares != 0, "managed shares missing");
+        assertTrue(managedShares != 0, "managed shares missing");
         (, , uint32 generation) =
             core.pools(IOrderBookCore.Side.Ask, 110);
-        assertEq(uint256(managed[0].generation), uint256(generation), "managed generation");
+        assertEq(uint256(managedGeneration), uint256(generation), "managed generation");
     }
 
     function testLensReadsTrailingStateAndAccountSummary() public {
