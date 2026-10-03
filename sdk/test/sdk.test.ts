@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -66,6 +67,12 @@ test("routes standalone take and maker add to core", () => {
   });
 });
 
+test("validates the repository example manifest", () => {
+  const raw = readFileSync(new URL("../../deployments/example.json", import.meta.url), "utf8");
+  const manifest = JSON.parse(raw) as DeploymentManifest;
+  assert.equal(validateManifest(manifest).markets[0].id, "ETH-PERP");
+});
+
 test("routes portfolio risk growth through coordinator", () => {
   const manifest = standaloneManifest();
   manifest.portfolio = { coordinator: G, policy: H, vault: A };
@@ -86,6 +93,46 @@ test("routes portfolio risk growth through coordinator", () => {
   });
 });
 
+test("routes collateral and liquidity lifecycle by deployment mode", () => {
+  const standalone = new OrderBookSDK(standaloneManifest());
+  assert.deepEqual(standalone.deposit("ETH-PERP", 100n), {
+    target: B,
+    functionName: "depositCollateral",
+    args: [100n],
+  });
+  assert.deepEqual(standalone.withdraw("ETH-PERP", 50n), {
+    target: B,
+    functionName: "withdrawCollateral",
+    args: [50n],
+  });
+  assert.deepEqual(standalone.removeLiquidity("ETH-PERP", 1, 105, 9, 3n), {
+    target: B,
+    functionName: "removeShares",
+    args: [1, 105, 3n],
+  });
+
+  const manifest = standaloneManifest();
+  manifest.portfolio = { coordinator: G, policy: H, vault: A };
+  manifest.markets[0].portfolioMarketIndex = 2;
+  const portfolio = new OrderBookSDK(manifest);
+
+  assert.deepEqual(portfolio.deposit("ETH-PERP", 100n), {
+    target: A,
+    functionName: "deposit",
+    args: [100n],
+  });
+  assert.deepEqual(portfolio.withdraw("ETH-PERP", 50n), {
+    target: G,
+    functionName: "withdraw",
+    args: [50n],
+  });
+  assert.deepEqual(portfolio.removeLiquidity("ETH-PERP", 0, 90, 4, 7n), {
+    target: G,
+    functionName: "removeLiquidity",
+    args: [2n, 0, 90, 4, 7n],
+  });
+});
+
 test("advanced orders always target the advanced gateway", () => {
   const manifest = standaloneManifest();
   manifest.portfolio = { coordinator: G, policy: H, vault: A };
@@ -100,6 +147,36 @@ test("advanced orders always target the advanced gateway", () => {
       args: [0, true, 101, 100, 12n, 0, true],
     },
   );
+});
+
+test("plans reduce-only, trailing, and order graph actions", () => {
+  const sdk = new OrderBookSDK(standaloneManifest());
+
+  assert.deepEqual(sdk.takeReduceOnly("ETH-PERP", 1, 95, 6n, 0), {
+    target: C,
+    functionName: "takeReduceOnly",
+    args: [1, 95, 6n, 0],
+  });
+  assert.deepEqual(sdk.takeMinFill("ETH-PERP", 0, 105, 10n, 7n, true), {
+    target: C,
+    functionName: "takeMinFill",
+    args: [0, 105, 10n, 7n, true],
+  });
+  assert.deepEqual(sdk.placeTrailing("ETH-PERP", 1, 8, 95, 4n, 0, true), {
+    target: C,
+    functionName: "placeTrailingOrder",
+    args: [1, 8, 95, 4n, 0, true],
+  });
+  assert.deepEqual(sdk.linkOCO("ETH-PERP", 1n, 2n), {
+    target: C,
+    functionName: "linkOCO",
+    args: [1n, 2n],
+  });
+  assert.deepEqual(sdk.linkOTO("ETH-PERP", 1n, 3n), {
+    target: C,
+    functionName: "linkOTO",
+    args: [1n, 3n],
+  });
 });
 
 test("encodes packed MM records exactly as the Solidity layout", () => {
