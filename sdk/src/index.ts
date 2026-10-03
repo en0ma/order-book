@@ -114,7 +114,10 @@ export function validateManifest(manifest: DeploymentManifest): DeploymentManife
         throw new ManifestError(`${prefix}.portfolioMarketIndex requires portfolio config`);
       }
     }
-    if (!/^[0-9]+$/.test(market.scales.collateralUnitsPerLotTick)) {
+    if (
+      typeof market.scales.collateralUnitsPerLotTick !== "string"
+        || !/^[0-9]+$/.test(market.scales.collateralUnitsPerLotTick)
+    ) {
       throw new ManifestError(`${prefix}.scales.collateralUnitsPerLotTick must be a uint string`);
     }
     assertUint(market.parameters.executionBandTicks, `${prefix}.parameters.executionBandTicks`, 65535);
@@ -128,6 +131,9 @@ export function validateManifest(manifest: DeploymentManifest): DeploymentManife
     }
     assertUint(market.parameters.takerFeeBps, `${prefix}.parameters.takerFeeBps`, 10000);
     assertUint(market.parameters.makerRebateBps, `${prefix}.parameters.makerRebateBps`, 10000);
+    if (market.parameters.makerRebateBps > market.parameters.takerFeeBps) {
+      throw new ManifestError(`${prefix}.parameters.makerRebateBps cannot exceed takerFeeBps`);
+    }
     if (market.parameters.oracleMaxAgeSeconds !== undefined) {
       assertUint(market.parameters.oracleMaxAgeSeconds, `${prefix}.parameters.oracleMaxAgeSeconds`);
     }
