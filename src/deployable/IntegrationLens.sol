@@ -65,14 +65,6 @@ interface IAdvancedOrderIntegration {
         );
 }
 
-interface IMarketMakerIntegration {
-    function managedQuote(
-        address maker,
-        IOrderBookCore.Side side,
-        uint16 tick
-    ) external view returns (uint128 shares, uint32 generation);
-}
-
 /// @title IntegrationLens
 /// @notice Bounded, read-only integration surface for DEX UIs, APIs, indexers and keepers.
 /// @dev Enumeration remains off-chain. Callers supply the accounts, ticks and order IDs they need.
@@ -138,28 +130,17 @@ contract IntegrationLens {
         uint64 expiry;
     }
 
-    struct ManagedQuoteState {
-        IOrderBookCore.Side side;
-        uint16 tick;
-        uint128 shares;
-        uint32 generation;
-    }
-
     error InvalidConfig();
     error BatchTooLarge();
     error InvalidRange();
 
     IOrderBookCore public immutable core;
     IAdvancedOrderIntegration public immutable advanced;
-    IMarketMakerIntegration public immutable marketMaker;
 
-    constructor(address core_, address advanced_, address marketMaker_) {
-        if (core_ == address(0) || advanced_ == address(0) || marketMaker_ == address(0)) {
-            revert InvalidConfig();
-        }
+    constructor(address core_, address advanced_) {
+        if (core_ == address(0) || advanced_ == address(0)) revert InvalidConfig();
         core = IOrderBookCore(core_);
         advanced = IAdvancedOrderIntegration(advanced_);
-        marketMaker = IMarketMakerIntegration(marketMaker_);
     }
 
     function accountState(address account)
@@ -298,27 +279,6 @@ contract IntegrationLens {
                 order: advanced.trailingOrderState(orderId),
                 expiry: advanced.trailingExpiry(orderId)
             });
-        }
-    }
-
-    function managedQuoteStates(address maker, TickKey[] calldata keys)
-        external
-        view
-        returns (ManagedQuoteState[] memory states)
-    {
-        _checkBatch(keys.length);
-        states = new ManagedQuoteState[](keys.length);
-
-        for (uint256 i; i < keys.length; ++i) {
-            TickKey calldata key = keys[i];
-            (uint128 shares, uint32 generation) =
-                marketMaker.managedQuote(maker, key.side, key.tick);
-            states[i] = ManagedQuoteState(
-                key.side,
-                key.tick,
-                shares,
-                generation
-            );
         }
     }
 
