@@ -356,21 +356,25 @@ contract IndexerReplayTest is TestBase {
         for (uint256 i; i < logs.length; ++i) {
             Vm.Log memory log = logs[i];
             if (log.emitter != address(core) || log.topics.length != 4) continue;
-            if (
-                uint8(uint256(log.topics[2])) != uint8(side)
-                    || uint16(uint256(log.topics[3])) != tick
-            ) continue;
+            if (uint16(uint256(log.topics[3])) != tick) continue;
 
-            if (log.topics[0] == LIQUIDITY_ADDED_SIG) {
-                (uint96 added,, uint32 eventGeneration) =
-                    abi.decode(log.data, (uint96, uint128, uint32));
-                lots += added;
-                generation = eventGeneration;
-            } else if (log.topics[0] == LIQUIDITY_REMOVED_SIG) {
-                (uint96 removed,, uint32 eventGeneration) =
-                    abi.decode(log.data, (uint96, uint128, uint32));
-                lots -= removed;
-                generation = eventGeneration;
+            if (
+                log.topics[0] == LIQUIDITY_ADDED_SIG
+                    || log.topics[0] == LIQUIDITY_REMOVED_SIG
+            ) {
+                if (uint8(uint256(log.topics[2])) != uint8(side)) continue;
+
+                if (log.topics[0] == LIQUIDITY_ADDED_SIG) {
+                    (uint96 added,, uint32 eventGeneration) =
+                        abi.decode(log.data, (uint96, uint128, uint32));
+                    lots += added;
+                    generation = eventGeneration;
+                } else {
+                    (uint96 removed,, uint32 eventGeneration) =
+                        abi.decode(log.data, (uint96, uint128, uint32));
+                    lots -= removed;
+                    generation = eventGeneration;
+                }
             } else if (log.topics[0] == TRADE_SIG) {
                 IOrderBookCore.Side takerSide =
                     IOrderBookCore.Side(uint8(uint256(log.topics[2])));
