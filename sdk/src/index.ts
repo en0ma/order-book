@@ -36,7 +36,7 @@ export interface MarketManifest {
   parameters: {
     executionBandTicks: number;
     initialMarginBps: number;
-    maintenanceMarginBps: number;
+    maintenanceMarginBps?: number;
     takerFeeBps: number;
     makerRebateBps: number;
     oracleMaxAgeSeconds?: number;
@@ -115,7 +115,13 @@ export function validateManifest(manifest: DeploymentManifest): DeploymentManife
     }
     assertUint(market.parameters.executionBandTicks, `${prefix}.parameters.executionBandTicks`, 65535);
     assertUint(market.parameters.initialMarginBps, `${prefix}.parameters.initialMarginBps`, 10000);
-    assertUint(market.parameters.maintenanceMarginBps, `${prefix}.parameters.maintenanceMarginBps`, 10000);
+    if (market.parameters.maintenanceMarginBps !== undefined) {
+      assertUint(
+        market.parameters.maintenanceMarginBps,
+        `${prefix}.parameters.maintenanceMarginBps`,
+        10000,
+      );
+    }
     assertUint(market.parameters.takerFeeBps, `${prefix}.parameters.takerFeeBps`, 10000);
     assertUint(market.parameters.makerRebateBps, `${prefix}.parameters.makerRebateBps`, 10000);
     if (market.parameters.oracleMaxAgeSeconds !== undefined) {
