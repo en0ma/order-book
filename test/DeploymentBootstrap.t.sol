@@ -7,6 +7,9 @@ import {SegmentTreeExtremaOracle} from "../src/SegmentTreeExtremaOracle.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
 contract DeploymentBootstrapTest is TestBase {
+    address internal constant ADMIN = address(0xAD11);
+    address internal constant NEXT_ADMIN = address(0xBEEF);
+
     function testStandaloneBootstrapWiresSelfHostedStack() public {
         MockERC20 token = new MockERC20();
         SegmentTreeExtremaOracle oracle =
@@ -14,6 +17,7 @@ contract DeploymentBootstrapTest is TestBase {
         DeployStandalone deployer = new DeployStandalone();
 
         DeployStandalone.Config memory config = DeployStandalone.Config({
+            protocolAdmin: ADMIN,
             collateralToken: address(token),
             oracle: address(oracle),
             executionBandTicks: 40,
@@ -79,5 +83,22 @@ contract DeploymentBootstrapTest is TestBase {
             address(deployed.lens.advanced()) == address(deployed.advanced),
             "lens advanced wiring"
         );
+        assertTrue(
+            deployed.core.fundingUpdater() == ADMIN,
+            "funding updater not handed off"
+        );
+
+        vm.prank(ADMIN);
+        deployed.core.setFundingUpdater(NEXT_ADMIN);
+        assertTrue(
+            deployed.core.fundingUpdater() == NEXT_ADMIN,
+            "core ownership not handed off"
+        );
+
+        vm.prank(ADMIN);
+        deployed.advanced.transferOwnership(NEXT_ADMIN);
+
+        vm.prank(ADMIN);
+        deployed.liquidation.transferOwnership(NEXT_ADMIN);
     }
 }
