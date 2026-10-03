@@ -114,7 +114,7 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
     }
 
     function _step(uint256 r) internal {
-        uint256 op = r % 12;
+        uint256 op = r % 15;
         address owner_ = ((r >> 8) & 1) == 0 ? ALICE : BOB;
 
         if (op == 0) {
@@ -139,8 +139,62 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
             oracle.record(uint16(90 + ((r >> 16) % 21)));
         } else if (op == 10) {
             _syncConditional(r);
+        } else if (op == 11) {
+            _setConditionalExpiry(r);
+        } else if (op == 12) {
+            _setTrailingExpiry(r);
+        } else if (op == 13) {
+            _warpAndExpire(r);
         } else {
             _replenish();
+        }
+    }
+
+    function _setConditionalExpiry(uint256 r) internal {
+        uint64 next = advanced.nextConditionalId();
+        if (next <= 1) return;
+        uint64 id = uint64(1 + ((r >> 20) % (next - 1)));
+        (bool live, address owner_) = advanced.conditionalLive(id);
+        if (!live) return;
+
+        vm.prank(owner_);
+        address(advanced).call(
+            abi.encodeCall(
+                advanced.setConditionalExpiry,
+                (id, uint64(block.timestamp + 1 + ((r >> 48) % 30)))
+            )
+        );
+    }
+
+    function _setTrailingExpiry(uint256 r) internal {
+        uint64 next = advanced.nextTrailingId();
+        if (next <= 1) return;
+        uint64 id = uint64(1 + ((r >> 20) % (next - 1)));
+        (bool live, address owner_) = advanced.trailingLive(id);
+        if (!live) return;
+
+        vm.prank(owner_);
+        address(advanced).call(
+            abi.encodeCall(
+                advanced.setTrailingExpiry,
+                (id, uint64(block.timestamp + 1 + ((r >> 48) % 30)))
+            )
+        );
+    }
+
+    function _warpAndExpire(uint256 r) internal {
+        vm.warp(block.timestamp + 1 + ((r >> 48) % 30));
+
+        uint64 nextConditional = advanced.nextConditionalId();
+        if (nextConditional > 1) {
+            uint64 id = uint64(1 + ((r >> 20) % (nextConditional - 1)));
+            address(advanced).call(abi.encodeCall(advanced.expireConditionalOrder, (id)));
+        }
+
+        uint64 nextTrailing = advanced.nextTrailingId();
+        if (nextTrailing > 1) {
+            uint64 id = uint64(1 + ((r >> 36) % (nextTrailing - 1)));
+            address(advanced).call(abi.encodeCall(advanced.expireTrailingOrder, (id)));
         }
     }
 

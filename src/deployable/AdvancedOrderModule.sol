@@ -57,6 +57,7 @@ contract AdvancedOrderModule {
     uint8 internal constant FLAG_REDUCE_ONLY = 1 << 2;
     uint8 internal constant FLAG_TRIGGERED_LIMIT = 1 << 3;
     uint8 internal constant FLAG_DORMANT = 1 << 4;
+    uint8 internal constant FLAG_POST_ONLY = 1 << 5;
     struct ConditionalOrder {
         address owner;
         uint96 lots;
@@ -163,6 +164,7 @@ contract AdvancedOrderModule {
     event RestingOrderCancelled(uint64 indexed parentOrderId, uint96 removedLots);
     event ConditionalExpirySet(uint64 indexed orderId, uint64 expiry);
     event ConditionalOrderExpired(uint64 indexed orderId);
+    event TriggeredPostOnlyOrderPlaced(uint64 indexed orderId);
 
     event TrailingOrderPlaced(
         uint64 indexed orderId,
@@ -434,6 +436,28 @@ contract AdvancedOrderModule {
         );
     }
 
+    function placeTriggeredPostOnlyOrder(
+        IOrderBookCore.Side side,
+        bool triggerAboveOrEqual,
+        uint16 triggerTick,
+        uint16 limitTick,
+        uint96 lots
+    ) external returns (uint64 orderId) {
+        orderId = _placeConditional(
+            msg.sender,
+            side,
+            triggerAboveOrEqual,
+            triggerTick,
+            limitTick,
+            lots,
+            IOrderBookCore.FillPolicy.IOC,
+            false,
+            true
+        );
+        conditionalOrders[orderId].flags |= FLAG_POST_ONLY;
+        emit TriggeredPostOnlyOrderPlaced(orderId);
+    }
+
     function _placeConditional(
         address account,
         IOrderBookCore.Side side,
@@ -649,15 +673,18 @@ contract AdvancedOrderModule {
         internal
         returns (uint96 filledLots)
     {
-        filledLots = _take(
-            order.owner,
-            order.side,
-            order.limitTick,
-            order.lots,
-            IOrderBookCore.FillPolicy.IOC,
-            false,
-            true
-        );
+        bool postOnly = (order.flags & FLAG_POST_ONLY) != 0;
+        if (!postOnly) {
+            filledLots = _take(
+                order.owner,
+                order.side,
+                order.limitTick,
+                order.lots,
+                IOrderBookCore.FillPolicy.IOC,
+                false,
+                true
+            );
+        }
 
         uint96 restingLots = order.lots - filledLots;
 

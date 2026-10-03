@@ -2,11 +2,19 @@
 pragma solidity ^0.8.24;
 
 interface Vm {
+    struct Log {
+        bytes32[] topics;
+        bytes data;
+        address emitter;
+    }
+
     function prank(address) external;
     function envString(string calldata) external returns (string memory);
     function createSelectFork(string calldata) external returns (uint256);
     function deal(address account, uint256 newBalance) external;
     function warp(uint256 newTimestamp) external;
+    function recordLogs() external;
+    function getRecordedLogs() external returns (Log[] memory logs);
 }
 
 abstract contract TestBase {
