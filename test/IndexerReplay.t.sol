@@ -318,6 +318,131 @@ contract IndexerReplayTest is TestBase {
         assertTrue(restingOnce == restingTwice, "duplicate changed resting state");
     }
 
+    function testCoreReplayRollsBackOrphanedDeltaAndRecoversCanonicalBranch() public {
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 107, 40);
+
+        (, uint96 checkpointLots, uint32 checkpointGeneration) =
+            core.pools(IOrderBookCore.Side.Ask, 107);
+        uint256 checkpoint = vm.snapshotState();
+
+        vm.recordLogs();
+        vm.prank(BOB);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            107,
+            11,
+            IOrderBookCore.FillPolicy.IOC
+        );
+        Vm.Log[] memory orphanedDelta = vm.getRecordedLogs();
+
+        assertTrue(vm.revertToState(checkpoint), "state rollback failed");
+
+        vm.recordLogs();
+        vm.prank(BOB);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            107,
+            7,
+            IOrderBookCore.FillPolicy.IOC
+        );
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 107, 5);
+        Vm.Log[] memory canonicalDelta = vm.getRecordedLogs();
+
+        (uint96 replayLots, uint32 replayGeneration) = _replayPoolFromCheckpoint(
+            canonicalDelta,
+            IOrderBookCore.Side.Ask,
+            107,
+            checkpointLots,
+            checkpointGeneration
+        );
+        (uint96 orphanedLots, uint32 orphanedGeneration) = _replayPoolFromCheckpoint(
+            orphanedDelta,
+            IOrderBookCore.Side.Ask,
+            107,
+            checkpointLots,
+            checkpointGeneration
+        );
+
+        (, uint96 canonicalLots, uint32 canonicalGeneration) =
+            core.pools(IOrderBookCore.Side.Ask, 107);
+
+        assertEq(uint256(replayLots), uint256(canonicalLots), "canonical reorg lots");
+        assertEq(
+            uint256(replayGeneration),
+            uint256(canonicalGeneration),
+            "canonical reorg generation"
+        );
+        assertTrue(
+            orphanedLots != canonicalLots || orphanedGeneration != canonicalGeneration,
+            "orphaned delta unexpectedly canonical"
+        );
+    }
+
+    function testConditionalReplayRestartsFromCheckpointAfterReorg() public {
+        vm.prank(ALICE);
+        uint64 orderId = advanced.placeConditionalOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            100,
+            10,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+        uint64 checkpointExpiry = uint64(block.timestamp + 300);
+        vm.prank(ALICE);
+        advanced.setConditionalExpiry(orderId, checkpointExpiry);
+
+        uint256 checkpoint = vm.snapshotState();
+
+        vm.recordLogs();
+        vm.prank(ALICE);
+        advanced.cancelConditionalOrder(orderId);
+        Vm.Log[] memory orphanedDelta = vm.getRecordedLogs();
+
+        assertTrue(vm.revertToState(checkpoint), "advanced rollback failed");
+
+        uint64 canonicalExpiry = uint64(block.timestamp + 600);
+        vm.recordLogs();
+        vm.prank(ALICE);
+        advanced.setConditionalExpiry(orderId, canonicalExpiry);
+        Vm.Log[] memory canonicalDelta = vm.getRecordedLogs();
+
+        (bool replayActive, uint64 replayExpiry, bool replayResting) =
+            _replayConditionalFromCheckpoint(
+                canonicalDelta,
+                orderId,
+                true,
+                checkpointExpiry,
+                false
+            );
+        (bool orphanedActive, uint64 orphanedExpiry, bool orphanedResting) =
+            _replayConditionalFromCheckpoint(
+                orphanedDelta,
+                orderId,
+                true,
+                checkpointExpiry,
+                false
+            );
+
+        uint64[] memory ids = new uint64[](1);
+        ids[0] = orderId;
+        IntegrationLens.ConditionalState[] memory states =
+            lens.conditionalStates(ids);
+
+        assertTrue(replayActive == ((states[0].flags & 1) != 0), "restart active");
+        assertEq(uint256(replayExpiry), uint256(states[0].expiry), "restart expiry");
+        assertTrue(replayResting == states[0].resting.active, "restart resting");
+        assertEq(uint256(replayExpiry), uint256(canonicalExpiry), "canonical expiry");
+        assertTrue(
+            orphanedActive != replayActive || orphanedExpiry != replayExpiry
+                || orphanedResting != replayResting,
+            "orphaned conditional delta unexpectedly canonical"
+        );
+    }
+
     function testPortfolioLockReplayMatchesCanonicalState() public {
         MockERC20 pToken = new MockERC20();
         MockMarkOracle pOracle = new MockMarkOracle(100);
@@ -481,6 +606,40 @@ contract IndexerReplayTest is TestBase {
         uint64 orderId,
         uint256 deliveries
     ) internal pure returns (bool active, uint64 expiry, bool resting) {
+        return _replayConditionalFromCheckpointRepeated(
+            logs, orderId, false, 0, false, deliveries
+        );
+    }
+
+    function _replayConditionalFromCheckpoint(
+        Vm.Log[] memory logs,
+        uint64 orderId,
+        bool startingActive,
+        uint64 startingExpiry,
+        bool startingResting
+    ) internal pure returns (bool active, uint64 expiry, bool resting) {
+        return _replayConditionalFromCheckpointRepeated(
+            logs,
+            orderId,
+            startingActive,
+            startingExpiry,
+            startingResting,
+            1
+        );
+    }
+
+    function _replayConditionalFromCheckpointRepeated(
+        Vm.Log[] memory logs,
+        uint64 orderId,
+        bool startingActive,
+        uint64 startingExpiry,
+        bool startingResting,
+        uint256 deliveries
+    ) internal pure returns (bool active, uint64 expiry, bool resting) {
+        active = startingActive;
+        expiry = startingExpiry;
+        resting = startingResting;
+
         for (uint256 delivery; delivery < deliveries; ++delivery) {
             for (uint256 i; i < logs.length; ++i) {
                 Vm.Log memory log = logs[i];
