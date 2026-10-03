@@ -426,6 +426,14 @@ Scenarios:
 - oracle stale/fresh transitions;
 - API resync from finalized snapshot plus deltas.
 
+Implemented recovery coverage now includes:
+- aggregate book reconstruction from a canonical checkpoint plus event deltas;
+- duplicate set/delete lifecycle delivery;
+- short-reorg rollback using Foundry state snapshots, with orphaned deltas discarded and canonical-branch deltas replayed from the same checkpoint;
+- advanced-order restart recovery after a reorg, including GTD state.
+
+Remaining recovery work includes multi-market portfolio rollback and keeper-downtime/resubmission scenarios.
+
 Invariant:
 
 > Replaying finalized protocol events from a valid checkpoint must reconstruct the same externally relevant state as canonical on-chain reads.
