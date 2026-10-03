@@ -29,6 +29,14 @@ contract IndexerReplayTest is TestBase {
         keccak256("ConditionalOrderExecuted(uint64,uint96)");
     bytes32 internal constant CONDITIONAL_EXPIRY_SIG =
         keccak256("ConditionalExpirySet(uint64,uint64)");
+    bytes32 internal constant CONDITIONAL_EXPIRED_SIG =
+        keccak256("ConditionalOrderExpired(uint64)");
+    bytes32 internal constant RESTING_LINKED_SIG =
+        keccak256("RestingOrderLinked(uint64,uint128,uint96,uint96)");
+    bytes32 internal constant RESTING_SYNCED_SIG =
+        keccak256("RestingOrderSynced(uint64,uint96,uint96,uint96)");
+    bytes32 internal constant RESTING_CANCELLED_SIG =
+        keccak256("RestingOrderCancelled(uint64,uint96)");
 
     bytes32 internal constant PORTFOLIO_LOCK_SIG =
         keccak256("PortfolioLockSynchronized(address,int256,uint256,uint256)");
@@ -146,6 +154,72 @@ contract IndexerReplayTest is TestBase {
         );
     }
 
+    function testCoreReplayAdvancesGenerationOnPoolExhaustion() public {
+        vm.recordLogs();
+
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 104, 12);
+
+        vm.prank(BOB);
+        core.take(
+            IOrderBookCore.Side.Bid,
+            104,
+            12,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        (uint96 replayLots, uint32 replayGeneration) =
+            _replayPool(logs, IOrderBookCore.Side.Ask, 104);
+        (, uint96 canonicalLots, uint32 canonicalGeneration) =
+            core.pools(IOrderBookCore.Side.Ask, 104);
+
+        assertEq(uint256(replayLots), 0, "exhausted replay lots");
+        assertEq(uint256(canonicalLots), 0, "canonical pool not exhausted");
+        assertEq(
+            uint256(replayGeneration),
+            uint256(canonicalGeneration),
+            "exhaustion generation mismatch"
+        );
+    }
+
+    function testTriggeredLimitReplayPreservesExpiryWhileResting() public {
+        vm.recordLogs();
+
+        vm.prank(ALICE);
+        uint64 orderId = advanced.placeTriggeredLimitOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            99,
+            20
+        );
+        uint64 expiry = uint64(block.timestamp + 300);
+        vm.prank(ALICE);
+        advanced.setConditionalExpiry(orderId, expiry);
+
+        advanced.executeConditionalOrder(orderId);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        (bool replayActive, uint64 replayExpiry, bool replayResting) =
+            _replayConditional(logs, orderId);
+
+        uint64[] memory ids = new uint64[](1);
+        ids[0] = orderId;
+        IntegrationLens.ConditionalState[] memory states =
+            lens.conditionalStates(ids);
+
+        assertTrue(!replayActive, "triggered limit remained trigger-active");
+        assertTrue(replayResting, "resting lifecycle not reconstructed");
+        assertTrue(states[0].resting.active, "canonical resting link missing");
+        assertEq(
+            uint256(replayExpiry),
+            uint256(states[0].expiry),
+            "resting expiry replay mismatch"
+        );
+        assertEq(uint256(replayExpiry), uint256(expiry), "resting expiry cleared");
+    }
+
     function testAdvancedLifecycleReplayMatchesCanonicalTerminalState() public {
         vm.recordLogs();
 
@@ -181,8 +255,8 @@ contract IndexerReplayTest is TestBase {
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        (bool firstActive, uint64 firstExpiry) = _replayConditional(logs, first);
-        (bool secondActive, uint64 secondExpiry) = _replayConditional(logs, second);
+        (bool firstActive, uint64 firstExpiry,) = _replayConditional(logs, first);
+        (bool secondActive, uint64 secondExpiry,) = _replayConditional(logs, second);
 
         uint64[] memory ids = new uint64[](2);
         ids[0] = first;
@@ -230,9 +304,9 @@ contract IndexerReplayTest is TestBase {
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        (bool activeOnce, uint64 expiryOnce) =
+        (bool activeOnce, uint64 expiryOnce, bool restingOnce) =
             _replayConditionalRepeated(logs, orderId, 1);
-        (bool activeTwice, uint64 expiryTwice) =
+        (bool activeTwice, uint64 expiryTwice, bool restingTwice) =
             _replayConditionalRepeated(logs, orderId, 2);
 
         assertTrue(activeOnce == activeTwice, "duplicate changed active state");
@@ -241,6 +315,7 @@ contract IndexerReplayTest is TestBase {
             uint256(expiryTwice),
             "duplicate changed expiry state"
         );
+        assertTrue(restingOnce == restingTwice, "duplicate changed resting state");
     }
 
     function testPortfolioLockReplayMatchesCanonicalState() public {
@@ -384,6 +459,11 @@ contract IndexerReplayTest is TestBase {
                 if (makerSide != side) continue;
                 uint96 filled = abi.decode(log.data, (uint96));
                 lots -= filled;
+                if (lots == 0) {
+                    unchecked {
+                        ++generation;
+                    }
+                }
             }
         }
     }
@@ -391,7 +471,7 @@ contract IndexerReplayTest is TestBase {
     function _replayConditional(Vm.Log[] memory logs, uint64 orderId)
         internal
         pure
-        returns (bool active, uint64 expiry)
+        returns (bool active, uint64 expiry, bool resting)
     {
         return _replayConditionalRepeated(logs, orderId, 1);
     }
@@ -400,7 +480,7 @@ contract IndexerReplayTest is TestBase {
         Vm.Log[] memory logs,
         uint64 orderId,
         uint256 deliveries
-    ) internal pure returns (bool active, uint64 expiry) {
+    ) internal pure returns (bool active, uint64 expiry, bool resting) {
         for (uint256 delivery; delivery < deliveries; ++delivery) {
             for (uint256 i; i < logs.length; ++i) {
                 Vm.Log memory log = logs[i];
@@ -410,14 +490,31 @@ contract IndexerReplayTest is TestBase {
 
                 if (log.topics[0] == CONDITIONAL_PLACED_SIG) {
                     active = true;
+                    resting = false;
                 } else if (log.topics[0] == CONDITIONAL_EXPIRY_SIG) {
                     expiry = abi.decode(log.data, (uint64));
+                } else if (log.topics[0] == RESTING_LINKED_SIG) {
+                    resting = true;
+                } else if (log.topics[0] == RESTING_SYNCED_SIG) {
+                    (,, uint96 remainingLots) =
+                        abi.decode(log.data, (uint96, uint96, uint96));
+                    if (remainingLots == 0) {
+                        resting = false;
+                        expiry = 0;
+                    }
+                } else if (log.topics[0] == RESTING_CANCELLED_SIG) {
+                    resting = false;
+                    expiry = 0;
                 } else if (
                     log.topics[0] == CONDITIONAL_CANCELLED_SIG
-                        || log.topics[0] == CONDITIONAL_EXECUTED_SIG
+                        || log.topics[0] == CONDITIONAL_EXPIRED_SIG
                 ) {
                     active = false;
+                    resting = false;
                     expiry = 0;
+                } else if (log.topics[0] == CONDITIONAL_EXECUTED_SIG) {
+                    active = false;
+                    if (!resting) expiry = 0;
                 }
             }
         }
