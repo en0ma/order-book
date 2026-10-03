@@ -229,6 +229,8 @@ These APIs should be implementable from an `IntegrationLens` plus the indexer.
 
 ## 3. IntegrationLens specification
 
+Status: first bounded on-chain lens implementation is now present in `src/deployable/IntegrationLens.sol`; the sections below remain the target contract as the surface expands.
+
 The lens must be a separate view-only contract so integration convenience does not consume Core bytecode or matching gas.
 
 Recommended first surface:
