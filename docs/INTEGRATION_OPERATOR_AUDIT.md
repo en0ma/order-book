@@ -407,6 +407,8 @@ Rules:
 
 ## 9. Failure and recovery tests
 
+Status: deterministic replay coverage now includes aggregate Core pool state, checkpoint-plus-delta recovery, advanced conditional terminal lifecycle reconstruction, duplicate-delivery idempotence for set/delete lifecycle reducers, portfolio lock reconstruction, and managed-MM quote replay. Reorg rollback and broader multi-market/keeper downtime scenarios remain.
+
 Add an integration-focused state machine separate from economic invariants.
 
 Scenarios:
