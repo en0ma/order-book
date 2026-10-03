@@ -257,6 +257,38 @@ contract OrderBookCore is IOrderBookCore {
         return _accountMeta[account].activeQuoteCount;
     }
 
+    function previewMakerFill(address account, Side side, uint16 tick)
+        external
+        view
+        override
+        returns (uint96 filledLots)
+    {
+        MakerQuote memory q = quotes[account][side][tick];
+        if (q.shares == 0) return 0;
+
+        TickPool memory p = pools[side][tick];
+        uint96 available =
+            generationMakerFillBudget[side][tick][q.generation];
+
+        if (q.generation != p.generation) {
+            uint128 outstanding =
+                uint128(closedGenerationAccounting[side][tick][q.generation]);
+            if (outstanding == q.shares) return available;
+            return q.claimLots < available ? q.claimLots : available;
+        }
+
+        uint96 currentClaim =
+            OrderBookMath.redeemableLotsCeil(
+                q.shares,
+                p.remainingLots,
+                p.totalShares
+            );
+        if (currentClaim >= q.claimLots) return 0;
+
+        uint96 requested = q.claimLots - currentClaim;
+        return requested < available ? requested : available;
+    }
+
     function depositCollateral(uint256 amount) external {
         _pullCollateralExact(amount);
 
