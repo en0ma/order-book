@@ -22,6 +22,15 @@ jobs:
         with:
           version: stable
 
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: SDK tests
+        working-directory: sdk
+        run: npm test
+
       - name: Format sources
         run: forge fmt
 
