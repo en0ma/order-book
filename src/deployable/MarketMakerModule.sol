@@ -68,6 +68,15 @@ contract MarketMakerModule {
         gateway = IAdvancedQuoteGateway(gateway_);
     }
 
+    function managedQuote(address maker, IOrderBookCore.Side side, uint16 tick)
+        external
+        view
+        returns (uint128 shares, uint32 generation)
+    {
+        ManagedQuote memory managed = managedQuotes[maker][side][tick];
+        return (managed.shares, managed.generation);
+    }
+
     function liquidationForgetManagedQuote(
         address maker,
         IOrderBookCore.Side side,
