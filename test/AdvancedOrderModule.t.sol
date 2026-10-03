@@ -2700,6 +2700,56 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(filled, 60, "module trailing fill");
         assertEq(int256(_corePosition(ALICE)), 0, "module trailing did not close");
     }
+    function testTriggeredPostOnlyRestsWithoutTaking() public {
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 40);
+
+        vm.prank(ALICE);
+        uint64 orderId = module.placeTriggeredPostOnlyOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            99,
+            25
+        );
+
+        uint96 filled = module.executeConditionalOrder(orderId);
+        assertEq(filled, 0, "post-only order took liquidity");
+
+        (, uint96 askLots,) = core.pools(IOrderBookCore.Side.Ask, 100);
+        (, uint96 bidLots,) = core.pools(IOrderBookCore.Side.Bid, 99);
+        assertEq(askLots, 40, "opposite liquidity changed");
+        assertEq(bidLots, 25, "post-only liquidity did not rest");
+    }
+
+    function testTriggeredPostOnlyRevertsAtomicallyWhenItWouldCross() public {
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 40);
+
+        vm.prank(ALICE);
+        uint64 orderId = module.placeTriggeredPostOnlyOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            100,
+            25
+        );
+
+        (bool ok,) = address(module).call(
+            abi.encodeCall(module.executeConditionalOrder, (orderId))
+        );
+        assertTrue(!ok, "crossing post-only order executed");
+
+        (, uint96 askLots,) = core.pools(IOrderBookCore.Side.Ask, 100);
+        (, uint96 bidLots,) = core.pools(IOrderBookCore.Side.Bid, 100);
+        assertEq(askLots, 40, "crossing attempt took liquidity");
+        assertEq(bidLots, 0, "crossing attempt rested liquidity");
+
+        vm.prank(ALICE);
+        module.cancelConditionalOrder(orderId);
+        assertEq(module.activeAdvancedOrders(ALICE), 0, "failed post-only could not cancel");
+    }
+
     function testConditionalGTDRejectsExecutionAndPermissionlesslyExpires() public {
         vm.prank(ALICE);
         uint64 orderId = module.placeConditionalOrder(
