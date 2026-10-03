@@ -2700,6 +2700,33 @@ contract AdvancedOrderModuleTest is TestBase {
         assertEq(filled, 60, "module trailing fill");
         assertEq(int256(_corePosition(ALICE)), 0, "module trailing did not close");
     }
+    function testTriggeredPostOnlyPlacementEmitsDistinctSemanticEvent() public {
+        vm.recordLogs();
+        vm.prank(ALICE);
+        uint64 orderId = module.placeTriggeredPostOnlyOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            100,
+            99,
+            25
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 signature = keccak256("TriggeredPostOnlyOrderPlaced(uint64)");
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (
+                logs[i].emitter == address(module) && logs[i].topics.length == 2
+                    && logs[i].topics[0] == signature
+                    && uint64(uint256(logs[i].topics[1])) == orderId
+            ) {
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found, "post-only placement event missing");
+    }
+
     function testTriggeredPostOnlyRestsWithoutTaking() public {
         vm.prank(BOB);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 40);
