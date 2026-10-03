@@ -81,12 +81,17 @@ The missing layer should be built around the kernel rather than inside it.
 
 ### P1: integration ergonomics
 
-1. Add a view-only `IntegrationLens`.
-2. Add explicit market-maker lifecycle/recovery events and views.
-3. Publish a TypeScript SDK with one product-level API over standalone and portfolio deployments.
-4. Publish a reference indexer schema and replay algorithm.
-5. Publish reference keeper loops for triggers, expiries, resting sync and liquidation.
-6. Publish a deployment manifest schema.
+Status:
+- bounded `IntegrationLens`: implemented;
+- explicit MM lifecycle/recovery events and views: implemented;
+- dependency-free TypeScript transaction-planning SDK: implemented;
+- deployment manifest schema v1: implemented;
+- deterministic replay/checkpoint/reorg test model: implemented.
+
+Remaining:
+1. Publish a reference indexer service/schema implementation.
+2. Publish reference keeper loops for triggers, expiries, resting sync and liquidation.
+3. Add API/WebSocket examples on top of the reference indexer.
 
 ### P2: operator quality
 
@@ -391,6 +396,8 @@ Every deployment should publish a machine-readable manifest containing at least:
 - deployment block;
 - ABI/package version.
 
+Status: `deployments/schema/v1.json` now defines the versioned machine-readable manifest and `deployments/example.json` provides a non-production example. The dependency-free TypeScript SDK validates this manifest before producing transaction plans.
+
 The SDK/indexer should initialize from this manifest rather than hard-coded addresses.
 
 ## 8. Event contract
@@ -445,7 +452,7 @@ Invariant:
 3. Add MM lifecycle events/recovery views.
 4. Implement `IntegrationLens`.
 5. Add replay/reorg integration tests.
-6. Publish TypeScript SDK and deployment manifest schema.
+6. Publish TypeScript SDK and deployment manifest schema. **Implemented.**
 7. Publish reference indexer.
 8. Publish reference keeper/liquidator services.
 9. Add WebSocket/API examples on top of the reference indexer.

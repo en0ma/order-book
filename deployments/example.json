@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "chainId": 1,
+  "deploymentBlock": 0,
+  "packageVersion": "0.1.0",
+  "collateral": {
+    "token": "0x1111111111111111111111111111111111111111",
+    "decimals": 6
+  },
+  "portfolio": {
+    "coordinator": "0x2222222222222222222222222222222222222222",
+    "policy": "0x3333333333333333333333333333333333333333",
+    "vault": "0x4444444444444444444444444444444444444444"
+  },
+  "markets": [
+    {
+      "id": "ETH-PERP",
+      "core": "0x5555555555555555555555555555555555555555",
+      "advanced": "0x6666666666666666666666666666666666666666",
+      "marketMaker": "0x7777777777777777777777777777777777777777",
+      "liquidation": "0x8888888888888888888888888888888888888888",
+      "integrationLens": "0x9999999999999999999999999999999999999999",
+      "oracle": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "portfolioMarketIndex": 0,
+      "scales": {
+        "collateralUnitsPerLotTick": "1000"
+      },
+      "parameters": {
+        "executionBandTicks": 40,
+        "initialMarginBps": 1000,
+        "maintenanceMarginBps": 500,
+        "takerFeeBps": 5,
+        "makerRebateBps": 2,
+        "oracleMaxAgeSeconds": 60
+      }
+    }
+  ]
+}
