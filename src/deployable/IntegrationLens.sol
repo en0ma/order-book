@@ -198,11 +198,7 @@ contract IntegrationLens {
                 uint96 claimLots,
                 uint32 generation
             ) = core.quotes(account, key.side, key.tick);
-            (
-                uint128 totalShares,
-                uint96 remainingLots,
-                uint32 poolGeneration
-            ) = core.pools(key.side, key.tick);
+            (,, uint32 poolGeneration) = core.pools(key.side, key.tick);
 
             states[i] = QuoteState({
                 side: key.side,
