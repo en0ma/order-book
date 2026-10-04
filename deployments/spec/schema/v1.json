@@ -24,7 +24,7 @@
         "protocolAdmin": { "$ref": "#/$defs/address" },
         "collateral": {
           "type": "object",
-          "additionalProperties": false,
+          "unevaluatedProperties": false,
           "required": ["token", "decimals"],
           "properties": {
             "token": { "$ref": "#/$defs/address" },
@@ -62,7 +62,7 @@
         { "$ref": "#/$defs/marketBase" },
         {
           "type": "object",
-          "additionalProperties": false,
+          "unevaluatedProperties": false,
           "required": [
             "id",
             "fundingUpdater",
@@ -96,7 +96,7 @@
         { "$ref": "#/$defs/marketBase" },
         {
           "type": "object",
-          "additionalProperties": false,
+          "unevaluatedProperties": false,
           "required": [
             "id",
             "fundingUpdater",
@@ -132,7 +132,7 @@
         { "$ref": "#/$defs/base" },
         {
           "type": "object",
-          "additionalProperties": false,
+          "unevaluatedProperties": false,
           "properties": {
             "schemaVersion": {},
             "mode": { "const": "standalone" },
@@ -152,7 +152,7 @@
         { "$ref": "#/$defs/base" },
         {
           "type": "object",
-          "additionalProperties": false,
+          "unevaluatedProperties": false,
           "properties": {
             "schemaVersion": {},
             "mode": { "const": "portfolio" },
