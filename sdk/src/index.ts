@@ -8,6 +8,7 @@ export interface DeploymentManifest {
   chainId: number;
   deploymentBlock: number;
   packageVersion: string;
+  protocolAdmin: Address;
   collateral: {
     token: Address;
     decimals: number;
@@ -29,6 +30,7 @@ export interface MarketManifest {
   portfolioLiquidation?: Address;
   integrationLens?: Address;
   oracle: Address;
+  fundingUpdater: Address;
   portfolioMarketIndex?: number;
   scales: {
     collateralUnitsPerLotTick: string;
@@ -69,6 +71,28 @@ export interface VerificationMismatch {
 export interface VerificationResult {
   ok: boolean;
   mismatches: VerificationMismatch[];
+}
+
+export interface VerificationReadError {
+  id: string;
+  error: string;
+}
+
+export interface VerificationCodeError {
+  id: string;
+  address: Address;
+}
+
+export interface LiveVerificationResult extends VerificationResult {
+  readErrors: VerificationReadError[];
+  missingCode: VerificationCodeError[];
+  chainIdMismatch?: { expected: number; actual: number };
+}
+
+export interface DeploymentVerificationAdapter {
+  read(plan: ReadPlan): Promise<unknown>;
+  getCode?(address: Address): Promise<string>;
+  chainId?(): Promise<number>;
 }
 
 export interface QuoteUpdate {
@@ -319,6 +343,7 @@ export function buildDeploymentManifest(
       portfolioLiquidation: spec.mode === "portfolio" ? portfolio?.liquidation : undefined,
       integrationLens: deployed.integrationLens,
       oracle: market.oracle,
+      fundingUpdater: market.fundingUpdater,
       portfolioMarketIndex: spec.mode === "portfolio" ? index : undefined,
       scales: { collateralUnitsPerLotTick: market.collateralUnitsPerLotTick },
       parameters: {
@@ -352,6 +377,7 @@ export function buildDeploymentManifest(
     chainId: metadata.chainId,
     deploymentBlock: metadata.deploymentBlock,
     packageVersion: metadata.packageVersion,
+    protocolAdmin: spec.protocolAdmin,
     collateral: { ...spec.collateral },
     portfolio: portfolio
       ? {
@@ -388,6 +414,7 @@ export function validateManifest(manifest: DeploymentManifest): DeploymentManife
   assertAddress(manifest.collateral.token, "collateral.token");
   assertUint(manifest.collateral.decimals, "collateral.decimals", 255);
   if (!manifest.packageVersion) throw new ManifestError("packageVersion is required");
+  assertAddress(manifest.protocolAdmin, "protocolAdmin");
   if (!Array.isArray(manifest.markets) || manifest.markets.length === 0) {
     throw new ManifestError("at least one market is required");
   }
@@ -409,6 +436,7 @@ export function validateManifest(manifest: DeploymentManifest): DeploymentManife
     assertAddress(market.core, `${prefix}.core`);
     assertAddress(market.advanced, `${prefix}.advanced`);
     assertAddress(market.oracle, `${prefix}.oracle`);
+    assertAddress(market.fundingUpdater, `${prefix}.fundingUpdater`);
     if (market.marketMaker) assertAddress(market.marketMaker, `${prefix}.marketMaker`);
     if (market.liquidation) assertAddress(market.liquidation, `${prefix}.liquidation`);
     if (market.portfolioLiquidation) {
@@ -517,6 +545,20 @@ export class OrderBookSDK {
 
       plans.push(
         {
+          id: `${prefix}:core.owner`,
+          target: market.core,
+          functionName: "owner",
+          args: [],
+          expected: this.manifest.protocolAdmin,
+        },
+        {
+          id: `${prefix}:core.fundingUpdater`,
+          target: market.core,
+          functionName: "fundingUpdater",
+          args: [],
+          expected: market.fundingUpdater,
+        },
+        {
           id: `${prefix}:core.markOracle`,
           target: market.core,
           functionName: "markOracle",
@@ -550,6 +592,13 @@ export class OrderBookSDK {
           functionName: "notionalValue",
           args: [1n, 1],
           expected: BigInt(market.scales.collateralUnitsPerLotTick),
+        },
+        {
+          id: `${prefix}:advanced.owner`,
+          target: market.advanced,
+          functionName: "owner",
+          args: [],
+          expected: this.manifest.protocolAdmin,
         },
         {
           id: `${prefix}:advanced.core`,
@@ -658,6 +707,13 @@ export class OrderBookSDK {
       ) {
         plans.push(
           {
+            id: `${prefix}:liquidation.owner`,
+            target: market.liquidation,
+            functionName: "owner",
+            args: [],
+            expected: this.manifest.protocolAdmin,
+          },
+          {
             id: `${prefix}:liquidation.core`,
             target: market.liquidation,
             functionName: "core",
@@ -685,6 +741,20 @@ export class OrderBookSDK {
     if (this.manifest.portfolio) {
       const { coordinator, policy, vault } = this.manifest.portfolio;
       plans.push(
+        {
+          id: "portfolio:policy.owner",
+          target: policy,
+          functionName: "owner",
+          args: [],
+          expected: this.manifest.protocolAdmin,
+        },
+        {
+          id: "portfolio:vault.owner",
+          target: vault,
+          functionName: "owner",
+          args: [],
+          expected: this.manifest.protocolAdmin,
+        },
         {
           id: "portfolio:vault.collateralToken",
           target: vault,
@@ -1087,3 +1157,84 @@ export function verifyDeploymentResults(
 
   return { ok: mismatches.length === 0, mismatches };
 }
+
+function deploymentAddresses(manifest: DeploymentManifest): { id: string; address: Address }[] {
+  const entries: { id: string; address: Address }[] = [];
+  const push = (id: string, address: Address | undefined) => {
+    if (address) entries.push({ id, address });
+  };
+
+  if (manifest.portfolio) {
+    push("portfolio.coordinator", manifest.portfolio.coordinator);
+    push("portfolio.policy", manifest.portfolio.policy);
+    push("portfolio.vault", manifest.portfolio.vault);
+  }
+  for (const market of manifest.markets) {
+    const prefix = `market:${market.id}`;
+    push(`${prefix}.core`, market.core);
+    push(`${prefix}.advanced`, market.advanced);
+    push(`${prefix}.marketMaker`, market.marketMaker);
+    push(`${prefix}.liquidation`, market.liquidation);
+    push(`${prefix}.portfolioLiquidation`, market.portfolioLiquidation);
+    push(`${prefix}.integrationLens`, market.integrationLens);
+    push(`${prefix}.oracle`, market.oracle);
+  }
+  return entries;
+}
+
+export async function executeDeploymentVerification(
+  manifest: DeploymentManifest,
+  adapter: DeploymentVerificationAdapter,
+): Promise<LiveVerificationResult> {
+  const sdk = new OrderBookSDK(manifest);
+  const plans = sdk.deploymentVerificationPlan();
+  const results: Record<string, unknown> = {};
+  const readErrors: VerificationReadError[] = [];
+  const missingCode: VerificationCodeError[] = [];
+  let chainIdMismatch: { expected: number; actual: number } | undefined;
+
+  if (adapter.chainId) {
+    const actual = await adapter.chainId();
+    if (actual !== manifest.chainId) {
+      chainIdMismatch = { expected: manifest.chainId, actual };
+    }
+  }
+
+  if (adapter.getCode) {
+    const seen = new Set<string>();
+    for (const entry of deploymentAddresses(manifest)) {
+      const normalized = entry.address.toLowerCase();
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      const code = await adapter.getCode(entry.address);
+      if (typeof code !== "string" || !/^0x[0-9a-fA-F]*$/.test(code) || code === "0x") {
+        missingCode.push(entry);
+      }
+    }
+  }
+
+  for (const plan of plans) {
+    try {
+      results[plan.id] = await adapter.read(plan);
+    } catch (error) {
+      readErrors.push({
+        id: plan.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const compared = verifyDeploymentResults(plans, results);
+  return {
+    ok:
+      compared.ok
+      && readErrors.length === 0
+      && missingCode.length === 0
+      && chainIdMismatch === undefined,
+    mismatches: compared.mismatches,
+    readErrors,
+    missingCode,
+    chainIdMismatch,
+  };
+}
+
