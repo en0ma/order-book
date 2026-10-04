@@ -419,6 +419,8 @@ export function validateManifest(manifest: DeploymentManifest): DeploymentManife
     throw new ManifestError("at least one market is required");
   }
 
+  push("collateral.token", manifest.collateral.token);
+
   if (manifest.portfolio) {
     assertAddress(manifest.portfolio.coordinator, "portfolio.coordinator");
     assertAddress(manifest.portfolio.policy, "portfolio.policy");
@@ -1194,9 +1196,16 @@ export async function executeDeploymentVerification(
   let chainIdMismatch: { expected: number; actual: number } | undefined;
 
   if (adapter.chainId) {
-    const actual = await adapter.chainId();
-    if (actual !== manifest.chainId) {
-      chainIdMismatch = { expected: manifest.chainId, actual };
+    try {
+      const actual = await adapter.chainId();
+      if (actual !== manifest.chainId) {
+        chainIdMismatch = { expected: manifest.chainId, actual };
+      }
+    } catch (error) {
+      readErrors.push({
+        id: "preflight.chainId",
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -1206,9 +1215,16 @@ export async function executeDeploymentVerification(
       const normalized = entry.address.toLowerCase();
       if (seen.has(normalized)) continue;
       seen.add(normalized);
-      const code = await adapter.getCode(entry.address);
-      if (typeof code !== "string" || !/^0x[0-9a-fA-F]*$/.test(code) || code === "0x") {
-        missingCode.push(entry);
+      try {
+        const code = await adapter.getCode(entry.address);
+        if (typeof code !== "string" || !/^0x[0-9a-fA-F]*$/.test(code) || code === "0x") {
+          missingCode.push(entry);
+        }
+      } catch (error) {
+        readErrors.push({
+          id: `preflight.code:${entry.id}`,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
   }
