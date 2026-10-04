@@ -3,6 +3,7 @@
   "chainId": 1,
   "deploymentBlock": 0,
   "packageVersion": "0.1.0",
+  "protocolAdmin": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "collateral": {
     "token": "0x1111111111111111111111111111111111111111",
     "decimals": 6
@@ -21,6 +22,7 @@
       "liquidation": "0x8888888888888888888888888888888888888888",
       "integrationLens": "0x9999999999999999999999999999999999999999",
       "oracle": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "fundingUpdater": "0xcccccccccccccccccccccccccccccccccccccccc",
       "portfolioMarketIndex": 0,
       "scales": {
         "collateralUnitsPerLotTick": "1000"
