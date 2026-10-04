@@ -399,6 +399,7 @@ export function validateManifest(manifest: DeploymentManifest): DeploymentManife
   }
 
   const ids = new Set<string>();
+  const portfolioGroupCredits = new Map<number, number>();
   for (const [i, market] of manifest.markets.entries()) {
     const prefix = `markets[${i}]`;
     if (!market.id || ids.has(market.id)) {
@@ -471,6 +472,19 @@ export function validateManifest(manifest: DeploymentManifest): DeploymentManife
         market.parameters.hedgeCreditBps,
         `${prefix}.parameters.hedgeCreditBps`,
         10000,
+      );
+      const priorCredit = portfolioGroupCredits.get(market.parameters.riskGroup);
+      if (
+        priorCredit !== undefined
+          && priorCredit !== market.parameters.hedgeCreditBps
+      ) {
+        throw new ManifestError(
+          `${prefix}.parameters.hedgeCreditBps must match its risk group`,
+        );
+      }
+      portfolioGroupCredits.set(
+        market.parameters.riskGroup,
+        market.parameters.hedgeCreditBps,
       );
     }
   }
