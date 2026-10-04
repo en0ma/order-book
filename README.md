@@ -56,6 +56,7 @@ ETH_RPC=<mainnet-rpc> forge test --match-contract MainnetForkTest -vvv
 
 See docs/ARCHITECTURE.md for the design, accounting model, liquidation flow, and current limitations.
 See docs/INTEGRATION_OPERATOR_AUDIT.md for the DEX integration, indexer, keeper, market-maker, SDK, and recovery surface audit.
+See docs/SELF_HOSTED_DEPLOYMENT.md for the clone/fork, deploy, administer, list-markets, and operator bootstrap model.
 See sdk/README.md and deployments/schema/v1.json for the dependency-free TypeScript integration SDK and versioned deployment manifest.
 
 The deployable architecture is production-bound, but production deployment still requires completed independent security audits and deployment-specific operational review.
@@ -73,6 +74,12 @@ Trailing stops use an extrema-capable on-chain oracle. Each order stores an acti
 
 At execution, the contract derives the high/low since activation from the oracle and verifies the retracement entirely on-chain. The repository now includes a bounded 4,096-observation segment-tree oracle with O(log N) append/query; the older mock remains test-only.
 
+
+## Self-hosted DEX model
+
+The repository is an open-source execution engine for protocol teams to deploy and operate themselves. A DEX team chooses its own collateral, oracle, market list, risk/fee configuration and protocol admin; deploys its own contracts; publishes its own manifest; and runs its own indexer, keepers, liquidators, market-making infrastructure and application stack.
+
+There is no repository-controlled production registry or hosted execution dependency. The reference standalone Foundry bootstrap deploys and wires a market, then hands administration and funding-update authority to the deploying team's configured Safe/timelock/governance address.
 
 ## Deployable architecture
 
