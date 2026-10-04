@@ -147,9 +147,7 @@ contract PortfolioAdmissionCoordinator {
         if (
             address(policy.sharedCollateralVault()) != address(vault)
                 || vault.controller() != address(this)
-        ) {
-            revert InvalidPortfolioAdmissionConfig();
-        }
+        ) revert InvalidPortfolioAdmissionConfig();
 
         int256 equity = policy.portfolioEquity(account);
         uint256 requirement = policy.portfolioRequirement(account);
@@ -270,7 +268,9 @@ contract PortfolioAdmissionCoordinator {
     ) external {
         IOrderBookCore core = _gatewayCore(marketIndex);
         core.moduleReleaseExposure(account, side, lots);
-        syncAccount(account);
+
+        int256 claim = vault.collateralClaim(account);
+        vault.setLockedCollateral(account, claim > 0 ? uint256(claim) : 0);
     }
 
     function gatewayTake(

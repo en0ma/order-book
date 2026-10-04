@@ -109,4 +109,36 @@ The example manifest under `deployments/example.json` is not a production deploy
 
 Portfolio mode uses the same self-hosted model: the DEX team deploys and operates all markets, shared collateral custody, margin policy, admission coordination and liquidation infrastructure.
 
-The portfolio policy and shared collateral vault now support explicit ownership transfer to the team's protocol admin. A reference multi-market portfolio bootstrap script is the next deployment-tooling layer; until that script lands, portfolio deployments should follow the tested constructor/configuration ordering in the portfolio test suite rather than inventing a different wiring sequence.
+The reference bootstrap is:
+
+`script/DeployPortfolio.s.sol:DeployPortfolio`
+
+It accepts comma-separated per-market environment arrays and deploys one Core / Advanced / MarketMaker / IntegrationLens stack per market, followed by the shared portfolio policy, collateral vault, admission coordinator and portfolio liquidation module.
+
+Required shared values:
+
+```bash
+export PROTOCOL_ADMIN=0x...
+export COLLATERAL_TOKEN=0x...
+```
+
+Required comma-separated market arrays must all have the same length:
+
+```bash
+export FUNDING_UPDATERS=0x...,0x...
+export MARK_ORACLES=0x...,0x...
+export EXECUTION_BAND_TICKS=40,40
+export INITIAL_MARGIN_BPS=1000,1000
+export TAKER_FEE_BPS=5,5
+export MAKER_REBATE_BPS=2,2
+export COLLATERAL_UNITS_PER_LOT_TICK=1000,1000
+export RISK_GROUPS=1,1
+export PORTFOLIO_MARGIN_BPS=1000,1000
+export HEDGE_CREDIT_BPS=5000,5000
+```
+
+Markets in the same risk group must use the same hedge-credit configuration. The script rejects mismatched array lengths, zero authorities/oracles, invalid fee schedules and invalid portfolio-margin parameters before deployment.
+
+The bootstrap wires every Core and Advanced module to the shared coordinator by deterministic market index, wires Advanced modules to the shared portfolio liquidator, assigns each Core its configured funding updater, configures shared collateral custody, then transfers Core/Advanced/policy/vault administration to `PROTOCOL_ADMIN`.
+
+As with standalone deployments, the broadcaster should be a temporary deployment key rather than the long-lived governance authority. The DEX team remains responsible for publishing a deployment manifest that maps its own market IDs/symbols to the deployed market indexes and contract addresses.
