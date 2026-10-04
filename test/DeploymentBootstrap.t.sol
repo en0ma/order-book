@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {TestBase} from "./TestBase.sol";
 import {DeployStandalone} from "../script/DeployStandalone.s.sol";
 import {OrderBookCore} from "../src/deployable/OrderBookCore.sol";
+import {AdvancedOrderModule} from "../src/deployable/AdvancedOrderModule.sol";
+import {LiquidationModule} from "../src/deployable/LiquidationModule.sol";
 import {PortfolioMarginPolicy} from "../src/deployable/PortfolioMarginPolicy.sol";
 import {PortfolioCollateralVault} from "../src/deployable/PortfolioCollateralVault.sol";
 import {SegmentTreeExtremaOracle} from "../src/SegmentTreeExtremaOracle.sol";
@@ -146,6 +148,46 @@ contract DeploymentBootstrapTest is TestBase {
             abi.encodeCall(deployer.deployStandalone, (config))
         );
         assertTrue(!ok, "zero admin deployment accepted");
+    }
+
+    function testRejectsMaintenanceMarginAtOrAboveInitialMargin() public {
+        MockERC20 token = new MockERC20();
+        SegmentTreeExtremaOracle oracle =
+            new SegmentTreeExtremaOracle(address(this), 100, 3_600);
+        DeployStandalone deployer = new DeployStandalone();
+
+        DeployStandalone.Config memory config = DeployStandalone.Config({
+            protocolAdmin: ADMIN,
+            fundingUpdater: FUNDING_OPERATOR,
+            collateralToken: address(token),
+            oracle: address(oracle),
+            executionBandTicks: 40,
+            initialMarginBps: 1_000,
+            maintenanceMarginBps: 1_000,
+            takerFeeBps: 5,
+            makerRebateBps: 2,
+            liquidatorRewardBps: 25,
+            collateralUnitsPerLotTick: 1_000
+        });
+
+        (bool bootstrapOk,) = address(deployer).call(
+            abi.encodeCall(deployer.deployStandalone, (config))
+        );
+        assertTrue(!bootstrapOk, "unsafe bootstrap margin accepted");
+
+        OrderBookCore core =
+            new OrderBookCore(address(token), address(oracle), 40, 1_000, 0, 0);
+        AdvancedOrderModule advanced =
+            new AdvancedOrderModule(address(core), address(oracle));
+
+        bool directAccepted;
+        try new LiquidationModule(address(core), address(advanced), 1_000)
+            returns (LiquidationModule)
+        {
+            directAccepted = true;
+        } catch {}
+
+        assertTrue(!directAccepted, "unsafe direct liquidation config accepted");
     }
 
     function testPortfolioAdminSurfacesSupportSafeHandoff() public {
