@@ -17,7 +17,7 @@ contract LiquidationModule {
     ILiquidationGateway public immutable gateway;
     LiquidationPolicy public immutable policy;
     uint16 public immutable maintenanceMarginBps;
-    address internal owner;
+    address public owner;
     uint16 public liquidatorRewardBps;
     bool internal _liquidatorRewardConfigured;
 
