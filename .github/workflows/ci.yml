@@ -35,6 +35,10 @@ jobs:
         working-directory: reference/indexer
         run: npm test
 
+      - name: Operator tests
+        working-directory: operator
+        run: npm test
+
       - name: Format sources
         run: forge fmt
 
