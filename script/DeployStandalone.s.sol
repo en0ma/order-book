@@ -18,6 +18,8 @@ interface VmDeploy {
 /// @dev Run with forge script and --broadcast. Contract ownership is assigned
 ///      to the broadcaster because CREATE transactions are broadcast directly.
 contract DeployStandalone {
+    error InvalidDeploymentConfig();
+
     VmDeploy internal constant vm =
         VmDeploy(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -49,7 +51,8 @@ contract DeployStandalone {
         address liquidation,
         address lens,
         address collateralToken,
-        address oracle
+        address oracle,
+        address protocolAdmin
     );
 
     function run() external returns (Deployment memory deployment) {
@@ -57,14 +60,16 @@ contract DeployStandalone {
             protocolAdmin: vm.envAddress("PROTOCOL_ADMIN"),
             collateralToken: vm.envAddress("COLLATERAL_TOKEN"),
             oracle: vm.envAddress("MARK_ORACLE"),
-            executionBandTicks: uint16(vm.envUint("EXECUTION_BAND_TICKS")),
-            initialMarginBps: uint16(vm.envUint("INITIAL_MARGIN_BPS")),
-            maintenanceMarginBps: uint16(vm.envUint("MAINTENANCE_MARGIN_BPS")),
-            takerFeeBps: uint16(vm.envUint("TAKER_FEE_BPS")),
-            makerRebateBps: uint16(vm.envUint("MAKER_REBATE_BPS")),
-            liquidatorRewardBps: uint16(vm.envUint("LIQUIDATOR_REWARD_BPS")),
-            collateralUnitsPerLotTick: uint128(vm.envUint("COLLATERAL_UNITS_PER_LOT_TICK"))
+            executionBandTicks: _envUint16("EXECUTION_BAND_TICKS"),
+            initialMarginBps: _envUint16("INITIAL_MARGIN_BPS"),
+            maintenanceMarginBps: _envUint16("MAINTENANCE_MARGIN_BPS"),
+            takerFeeBps: _envUint16("TAKER_FEE_BPS"),
+            makerRebateBps: _envUint16("MAKER_REBATE_BPS"),
+            liquidatorRewardBps: _envUint16("LIQUIDATOR_REWARD_BPS"),
+            collateralUnitsPerLotTick: _envUint128("COLLATERAL_UNITS_PER_LOT_TICK")
         });
+
+        _validateConfig(config);
 
         vm.startBroadcast();
         deployment = deployStandalone(config);
@@ -75,6 +80,8 @@ contract DeployStandalone {
         public
         returns (Deployment memory deployment)
     {
+        _validateConfig(config);
+
         deployment.core = new OrderBookCore(
             config.collateralToken,
             config.oracle,
@@ -122,7 +129,36 @@ contract DeployStandalone {
             address(deployment.liquidation),
             address(deployment.lens),
             config.collateralToken,
-            config.oracle
+            config.oracle,
+            config.protocolAdmin
         );
+    }
+
+    function _validateConfig(Config memory config) internal pure {
+        if (
+            config.protocolAdmin == address(0)
+                || config.collateralToken == address(0)
+                || config.oracle == address(0)
+                || config.initialMarginBps == 0
+                || config.initialMarginBps > 10_000
+                || config.maintenanceMarginBps == 0
+                || config.maintenanceMarginBps > 10_000
+                || config.takerFeeBps > 10_000
+                || config.makerRebateBps > config.takerFeeBps
+                || config.liquidatorRewardBps > 1_000
+                || config.collateralUnitsPerLotTick == 0
+        ) revert InvalidDeploymentConfig();
+    }
+
+    function _envUint16(string memory name) internal returns (uint16 value) {
+        uint256 raw = vm.envUint(name);
+        if (raw > type(uint16).max) revert InvalidDeploymentConfig();
+        value = uint16(raw);
+    }
+
+    function _envUint128(string memory name) internal returns (uint128 value) {
+        uint256 raw = vm.envUint(name);
+        if (raw == 0 || raw > type(uint128).max) revert InvalidDeploymentConfig();
+        value = uint128(raw);
     }
 }
