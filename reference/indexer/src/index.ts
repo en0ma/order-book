@@ -73,6 +73,8 @@ export type DecodedProtocolEvent =
   | { name: "TrailingOrderExecuted"; orderId: bigint }
   | { name: "OCOLinked"; firstOrderId: bigint; secondOrderId: bigint }
   | { name: "OTOLinked"; parentOrderId: bigint; childOrderId: bigint }
+  | { name: "OTOActivated"; parentOrderId: bigint; childOrderId: bigint; lots: bigint }
+  | { name: "OTOResized"; parentOrderId: bigint; childOrderId: bigint; lots: bigint }
   | { name: "ManagedQuoteUpdated"; maker: Address; side: Side; tick: number; shares: bigint; generation: number }
   | { name: "ManagedQuoteRemoved"; maker: Address; side: Side; tick: number }
   | { name: "PortfolioLockSynchronized"; account: Address; equity: bigint; requirement: bigint; lockedCollateral: bigint };
@@ -84,6 +86,7 @@ export interface PoolState {
 
 export interface AdvancedOrderState {
   active: boolean;
+  dormant: boolean;
   expiry: string;
   resting: boolean;
   sibling?: string;
@@ -115,13 +118,11 @@ export interface IndexerCheckpoint {
   deploymentBlock: number;
   cursor?: BlockCursor;
   state: IndexerState;
-  seenLogIds: string[];
 }
 
 interface Snapshot {
   cursor?: BlockCursor;
   state: IndexerState;
-  seenLogIds: Set<string>;
 }
 
 export class IndexerError extends Error {}
@@ -196,7 +197,6 @@ export class ReferenceIndexer {
 
   private cursor?: BlockCursor;
   private state: IndexerState;
-  private seenLogIds: Set<string>;
   private history: Snapshot[];
 
   constructor(
@@ -238,10 +238,8 @@ export class ReferenceIndexer {
       }
       this.cursor = checkpoint.cursor ? { ...checkpoint.cursor } : undefined;
       this.state = cloneState(checkpoint.state);
-      this.seenLogIds = new Set(checkpoint.seenLogIds);
     } else {
       this.state = emptyState();
-      this.seenLogIds = new Set();
     }
 
     this.history = [this.snapshot()];
@@ -261,7 +259,6 @@ export class ReferenceIndexer {
       deploymentBlock: this.manifest.deploymentBlock,
       cursor: this.cursor ? { ...this.cursor } : undefined,
       state: cloneState(this.state),
-      seenLogIds: [...this.seenLogIds],
     };
   }
 
@@ -271,31 +268,39 @@ export class ReferenceIndexer {
     }
     if (block.number < this.manifest.deploymentBlock) return;
 
-    if (this.cursor?.number === block.number && this.cursor.hash === block.hash) {
-      return;
+    for (const snapshot of this.history) {
+      if (
+        snapshot.cursor?.number === block.number
+        && snapshot.cursor.hash === block.hash
+      ) {
+        return;
+      }
     }
 
     if (!this.cursor && block.number !== this.manifest.deploymentBlock) {
       throw new IndexerError("first block must equal deploymentBlock");
     }
 
-    this.reconcileParent(block);
-
-    if (this.cursor && block.number !== this.cursor.number + 1) {
-      throw new IndexerError("non-contiguous block");
-    }
-
     const before = this.snapshot();
+    const historyBefore = this.history.slice();
+
     try {
+      this.reconcileParent(block);
+
+      if (this.cursor && block.number !== this.cursor.number + 1) {
+        throw new IndexerError("non-contiguous block");
+      }
+
+      const blockLogIds = new Set<string>();
       for (const log of canonicalLogs(block.logs)) {
         if (log.blockNumber !== block.number || log.blockHash !== block.hash) {
           throw new IndexerError("log does not belong to supplied block");
         }
 
         const logId = `${block.hash}:${log.transactionIndex}:${log.logIndex}`;
-        if (this.seenLogIds.has(logId)) continue;
+        if (blockLogIds.has(logId)) continue;
         this.applyLog(log);
-        this.seenLogIds.add(logId);
+        blockLogIds.add(logId);
       }
 
       this.cursor = { number: block.number, hash: block.hash };
@@ -303,6 +308,7 @@ export class ReferenceIndexer {
       if (this.history.length > this.maxReorgDepth + 1) this.history.shift();
     } catch (error) {
       this.restore(before);
+      this.history = historyBefore;
       throw error;
     }
   }
@@ -358,6 +364,8 @@ export class ReferenceIndexer {
       || event.name === "TrailingOrderExecuted"
       || event.name === "OCOLinked"
       || event.name === "OTOLinked"
+      || event.name === "OTOActivated"
+      || event.name === "OTOResized"
     ) {
       const marketId = this.requireMarket(this.advancedMarket, address, event.name);
       this.applyAdvancedEvent(marketId, event);
@@ -455,16 +463,34 @@ export class ReferenceIndexer {
       const child = this.ensureConditional(marketId, event.childOrderId);
       parent.children = [...new Set([...(parent.children ?? []), event.childOrderId.toString()])];
       child.parent = event.parentOrderId.toString();
+      child.active = false;
+      child.dormant = true;
+      return;
+    }
+
+    if (event.name === "OTOActivated" || event.name === "OTOResized") {
+      const child = this.ensureConditional(marketId, event.childOrderId);
+      child.parent = event.parentOrderId.toString();
+      if (event.name === "OTOActivated") {
+        child.active = true;
+        child.dormant = false;
+      }
       return;
     }
 
     const isTrailing = event.name.startsWith("Trailing");
     const key = orderKey(marketId, event.orderId);
     const collection = isTrailing ? this.state.trailing : this.state.conditionals;
-    const state = collection[key] ?? { active: false, expiry: "0", resting: false };
+    const state = collection[key] ?? {
+      active: false,
+      dormant: false,
+      expiry: "0",
+      resting: false,
+    };
 
     if (event.name === "ConditionalOrderPlaced" || event.name === "TrailingOrderPlaced") {
       state.active = true;
+      state.dormant = false;
       state.resting = false;
     } else if (event.name === "ConditionalExpirySet" || event.name === "TrailingExpirySet") {
       state.expiry = event.expiry.toString();
@@ -486,10 +512,12 @@ export class ReferenceIndexer {
       || event.name === "TrailingOrderExecuted"
     ) {
       state.active = false;
+      state.dormant = false;
       state.resting = false;
       state.expiry = "0";
     } else if (event.name === "ConditionalOrderExecuted") {
       state.active = false;
+      state.dormant = false;
       if (!state.resting) state.expiry = "0";
     }
 
@@ -498,7 +526,12 @@ export class ReferenceIndexer {
 
   private ensureConditional(marketId: string, orderId: bigint): AdvancedOrderState {
     const key = orderKey(marketId, orderId);
-    this.state.conditionals[key] ??= { active: false, expiry: "0", resting: false };
+    this.state.conditionals[key] ??= {
+      active: false,
+      dormant: false,
+      expiry: "0",
+      resting: false,
+    };
     return this.state.conditionals[key];
   }
 
@@ -529,13 +562,11 @@ export class ReferenceIndexer {
     return {
       cursor: this.cursor ? { ...this.cursor } : undefined,
       state: cloneState(this.state),
-      seenLogIds: new Set(this.seenLogIds),
     };
   }
 
   private restore(snapshot: Snapshot): void {
     this.cursor = snapshot.cursor ? { ...snapshot.cursor } : undefined;
     this.state = cloneState(snapshot.state);
-    this.seenLogIds = new Set(snapshot.seenLogIds);
   }
 }
