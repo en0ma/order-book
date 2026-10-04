@@ -488,3 +488,70 @@ test("live verifier reports wrong chain, missing code, read errors and mismatche
     ),
   );
 });
+
+
+test("live verifier includes collateral bytecode in preflight", async () => {
+  const manifest = standaloneManifest();
+  const sdk = new OrderBookSDK(manifest);
+  const expected = new Map(
+    sdk.deploymentVerificationPlan().map((plan) => [plan.id, plan.expected]),
+  );
+
+  const result = await executeDeploymentVerification(manifest, {
+    async chainId() {
+      return manifest.chainId;
+    },
+    async getCode(address) {
+      return address.toLowerCase() === manifest.collateral.token.toLowerCase()
+        ? "0x"
+        : "0x6000";
+    },
+    async read(plan) {
+      return expected.get(plan.id);
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.missingCode.some((entry) => entry.id === "collateral.token"),
+  );
+});
+
+test("live verifier captures chain and bytecode RPC failures", async () => {
+  const manifest = standaloneManifest();
+  const sdk = new OrderBookSDK(manifest);
+  const expected = new Map(
+    sdk.deploymentVerificationPlan().map((plan) => [plan.id, plan.expected]),
+  );
+
+  const result = await executeDeploymentVerification(manifest, {
+    async chainId() {
+      throw new Error("chain rpc unavailable");
+    },
+    async getCode(address) {
+      if (address.toLowerCase() === manifest.collateral.token.toLowerCase()) {
+        throw new Error("code rpc unavailable");
+      }
+      return "0x6000";
+    },
+    async read(plan) {
+      return expected.get(plan.id);
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.readErrors.some(
+      (entry) =>
+        entry.id === "preflight.chainId"
+          && entry.error === "chain rpc unavailable",
+    ),
+  );
+  assert.ok(
+    result.readErrors.some(
+      (entry) =>
+        entry.id === "preflight.code:collateral.token"
+          && entry.error === "code rpc unavailable",
+    ),
+  );
+});
