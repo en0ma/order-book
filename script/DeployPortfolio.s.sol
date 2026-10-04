@@ -26,6 +26,8 @@ interface VmDeployPortfolio {
 /// @dev Each market receives an independent execution stack while collateral, portfolio
 ///      admission and liquidation are coordinated across the configured market set.
 contract DeployPortfolio {
+    uint256 internal constant MAX_MARKETS = 32;
+
     error InvalidDeploymentConfig();
 
     VmDeployPortfolio internal constant vm =
@@ -242,7 +244,7 @@ contract DeployPortfolio {
             config.protocolAdmin == address(0)
                 || config.collateralToken == address(0)
                 || length == 0
-                || length > PortfolioMarginPolicy.MAX_MARKETS()
+                || length > MAX_MARKETS
                 || length > type(uint8).max
                 || config.fundingUpdaters.length != length
                 || config.executionBandTicks.length != length
