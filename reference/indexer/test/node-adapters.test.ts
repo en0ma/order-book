@@ -235,8 +235,23 @@ test("rollback cursor API is bounded to retained indexer history", () => {
   });
 
   assert.deepEqual(indexer.retainedBlocks(), [
+    { number: 10, hash: "0x10" },
     { number: 11, hash: "0x11" },
     { number: 12, hash: "0x12" },
+  ]);
+
+  indexer.applyBlock({
+    chainId: 1,
+    number: 13,
+    hash: "0x13",
+    parentHash: "0x12",
+    logs: [],
+  });
+
+  assert.deepEqual(indexer.retainedBlocks(), [
+    { number: 11, hash: "0x11" },
+    { number: 12, hash: "0x12" },
+    { number: 13, hash: "0x13" },
   ]);
   assert.throws(
     () => indexer.rollbackTo({ number: 10, hash: "0x10" }),
