@@ -31,6 +31,10 @@ jobs:
         working-directory: sdk
         run: npm test
 
+      - name: Reference indexer tests
+        working-directory: reference/indexer
+        run: npm test
+
       - name: Format sources
         run: forge fmt
 

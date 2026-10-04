@@ -453,7 +453,7 @@ Invariant:
 4. Implement `IntegrationLens`.
 5. Add replay/reorg integration tests.
 6. Publish TypeScript SDK and deployment manifest schema. **Implemented.**
-7. Publish reference indexer.
+7. Publish reference indexer. **Implemented: `reference/indexer` provides manifest-bound replay, checkpoints, duplicate protection and bounded reorg rollback.**
 8. Publish reference keeper/liquidator services.
 9. Add WebSocket/API examples on top of the reference indexer.
 
