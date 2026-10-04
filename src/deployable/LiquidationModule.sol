@@ -46,7 +46,12 @@ contract LiquidationModule {
                 || maintenanceBps_ > 10_000
         ) revert InvalidLiquidationConfig();
 
-        core = IOrderBookCore(core_);
+        IOrderBookCore coreRef = IOrderBookCore(core_);
+        if (maintenanceBps_ >= coreRef.initialMarginBps()) {
+            revert InvalidLiquidationConfig();
+        }
+
+        core = coreRef;
         gateway = ILiquidationGateway(gateway_);
         policy = new LiquidationPolicy(core_, gateway_, maintenanceBps_);
         maintenanceMarginBps = maintenanceBps_;
