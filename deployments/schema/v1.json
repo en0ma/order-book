@@ -82,7 +82,19 @@
             "hedgeCreditBps": { "type": "integer", "minimum": 0, "maximum": 10000 }
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["portfolioMarketIndex"] },
+          "then": {
+            "properties": {
+              "parameters": {
+                "required": ["riskGroup", "portfolioMarginBps", "hedgeCreditBps"]
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }
