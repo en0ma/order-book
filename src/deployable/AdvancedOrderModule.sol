@@ -22,6 +22,13 @@ interface IPortfolioAdmissionGateway {
         uint96 lots
     ) external;
 
+    function gatewayLiquidationReleaseExposure(
+        uint256 marketIndex,
+        address account,
+        IOrderBookCore.Side side,
+        uint96 lots
+    ) external;
+
     function gatewayTake(
         uint256 marketIndex,
         address account,
@@ -328,9 +335,9 @@ contract AdvancedOrderModule {
             if (order.owner != account) continue;
 
             if (restingLinks[id].active) {
-                _cancelRestingOrder(id);
+                _cancelRestingOrder(id, true);
             } else if (_active(order) || _dormant(order)) {
-                _cancelConditional(id, true);
+                _cancelConditional(id, true, true);
             }
         }
 
@@ -338,7 +345,7 @@ contract AdvancedOrderModule {
             uint64 id = trailingIds[i];
             TrailingOrder storage order = trailingOrders[id];
             if (order.owner == account && (order.flags & FLAG_ACTIVE) != 0) {
-                _cancelTrailing(id, true);
+                _cancelTrailing(id, true, true);
             }
         }
 
@@ -572,9 +579,9 @@ contract AdvancedOrderModule {
         if (expiry == 0 || block.timestamp < expiry) revert InvalidExpiry();
 
         if (restingLinks[orderId].active) {
-            _cancelRestingOrder(orderId);
+            _cancelRestingOrder(orderId, false);
         } else {
-            _cancelConditional(orderId, true);
+            _cancelConditional(orderId, true, false);
         }
         delete conditionalExpiry[orderId];
         emit ConditionalOrderExpired(orderId);
@@ -655,7 +662,7 @@ contract AdvancedOrderModule {
         uint64 parentOfExit = otoParent[orderId];
         if (parentOfExit != 0 && restingLinks[parentOfExit].active) {
             _syncRestingOrder(parentOfExit);
-            _cancelRestingOrder(parentOfExit);
+            _cancelRestingOrder(parentOfExit, false);
             order = stored;
         }
 
@@ -693,7 +700,7 @@ contract AdvancedOrderModule {
             if (filledLots != 0) {
                 _resizeOTOChildren(orderId, order.owner, filledLots);
             } else {
-                _cancelOTOChildren(orderId);
+                _cancelOTOChildren(orderId, liquidation);
             }
         }
 
@@ -705,7 +712,7 @@ contract AdvancedOrderModule {
         _unlinkOTOChild(orderId);
 
         uint64 sibling = order.sibling;
-        if (sibling != 0) _cancelConditional(sibling, true);
+        if (sibling != 0) _cancelConditional(sibling, true, false);
 
         emit ConditionalOrderExecuted(orderId, filledLots);
     }
@@ -835,7 +842,7 @@ contract AdvancedOrderModule {
         }
     }
 
-    function _cancelRestingOrder(uint64 parentOrderId)
+    function _cancelRestingOrder(uint64 parentOrderId, bool liquidation)
         internal
         returns (uint96 removedLots)
     {
@@ -868,7 +875,7 @@ contract AdvancedOrderModule {
         // protect and must be retired with the parent. Partially filled parents
         // keep their activated exits alive for the realized position.
         if (cumulativeFilledLots == 0) {
-            _cancelOTOChildren(parentOrderId);
+            _cancelOTOChildren(parentOrderId, liquidation);
         }
 
         emit RestingOrderCancelled(parentOrderId, removedLots);
@@ -931,7 +938,7 @@ contract AdvancedOrderModule {
         if (order.owner == address(0)) revert OrderNotFound();
         uint64 expiry = trailingExpiry[orderId];
         if (expiry == 0 || block.timestamp < expiry) revert InvalidExpiry();
-        _cancelTrailing(orderId, true);
+        _cancelTrailing(orderId, true, false);
         delete trailingExpiry[orderId];
         emit TrailingOrderExpired(orderId);
     }
@@ -1035,18 +1042,18 @@ contract AdvancedOrderModule {
         }
     }
 
-    function _cancelOTOChildren(uint64 parentOrderId) internal {
+    function _cancelOTOChildren(uint64 parentOrderId, bool liquidation) internal {
         uint64 first = otoChildOne[parentOrderId];
         uint64 second = otoChildTwo[parentOrderId];
 
         if (first != 0) {
-            _cancelConditional(first, true);
+            _cancelConditional(first, true, liquidation);
             delete otoParent[first];
             delete otoChildMaxLots[first];
         }
 
         if (second != 0) {
-            _cancelConditional(second, true);
+            _cancelConditional(second, true, liquidation);
             delete otoParent[second];
             delete otoChildMaxLots[second];
         }
@@ -1069,7 +1076,7 @@ contract AdvancedOrderModule {
         delete otoChildMaxLots[orderId];
     }
 
-    function _cancelConditional(uint64 orderId, bool releaseRisk) internal {
+    function _cancelConditional(uint64 orderId, bool releaseRisk, bool liquidation) internal {
         ConditionalOrder storage order = conditionalOrders[orderId];
         if (order.owner == address(0)) revert OrderNotFound();
 
@@ -1082,7 +1089,7 @@ contract AdvancedOrderModule {
 
         bool reduceOnly = (order.flags & FLAG_REDUCE_ONLY) != 0;
         if (releaseRisk && !reduceOnly) {
-            _releaseExposure(order.owner, order.side, order.lots);
+            _releaseExposure(order.owner, order.side, order.lots, liquidation);
         }
 
         uint64 sibling = order.sibling;
@@ -1104,7 +1111,7 @@ contract AdvancedOrderModule {
         emit ConditionalOrderCancelled(orderId);
     }
 
-    function _cancelTrailing(uint64 orderId, bool releaseRisk) internal {
+    function _cancelTrailing(uint64 orderId, bool releaseRisk, bool liquidation) internal {
         TrailingOrder storage order = trailingOrders[orderId];
         if (order.owner == address(0)) revert OrderNotFound();
         if ((order.flags & FLAG_ACTIVE) == 0) return;
@@ -1114,7 +1121,7 @@ contract AdvancedOrderModule {
 
         bool reduceOnly = (order.flags & FLAG_REDUCE_ONLY) != 0;
         if (releaseRisk && !reduceOnly) {
-            _releaseExposure(order.owner, order.side, order.lots);
+            _releaseExposure(order.owner, order.side, order.lots, liquidation);
         }
 
         delete trailingExpiry[orderId];
@@ -1143,17 +1150,35 @@ contract AdvancedOrderModule {
         IOrderBookCore.Side side,
         uint96 lots
     ) internal {
+        _releaseExposure(account, side, lots, false);
+    }
+
+    function _releaseExposure(
+        address account,
+        IOrderBookCore.Side side,
+        uint96 lots,
+        bool liquidation
+    ) internal {
         IPortfolioAdmissionGateway controller = portfolioController;
         if (address(controller) == address(0)) {
             core.moduleReleaseExposure(account, side, lots);
             return;
         }
-        controller.gatewayReleaseExposure(
-            portfolioMarketIndex,
-            account,
-            side,
-            lots
-        );
+        if (liquidation) {
+            controller.gatewayLiquidationReleaseExposure(
+                portfolioMarketIndex,
+                account,
+                side,
+                lots
+            );
+        } else {
+            controller.gatewayReleaseExposure(
+                portfolioMarketIndex,
+                account,
+                side,
+                lots
+            );
+        }
     }
 
     function _take(
