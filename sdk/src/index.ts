@@ -49,6 +49,25 @@ export interface TransactionPlan {
   args: readonly unknown[];
 }
 
+export interface ReadPlan {
+  id: string;
+  target: Address;
+  functionName: string;
+  args: readonly unknown[];
+  expected: unknown;
+}
+
+export interface VerificationMismatch {
+  id: string;
+  expected: unknown;
+  actual: unknown;
+}
+
+export interface VerificationResult {
+  ok: boolean;
+  mismatches: VerificationMismatch[];
+}
+
 export interface QuoteUpdate {
   side: Side;
   tick: number;
@@ -153,6 +172,178 @@ export class OrderBookSDK {
     const market = this.manifest.markets.find((item) => item.id === id);
     if (!market) throw new ManifestError(`unknown market: ${id}`);
     return market;
+  }
+
+  deploymentVerificationPlan(): ReadPlan[] {
+    const plans: ReadPlan[] = [];
+    const zero = "0x0000000000000000000000000000000000000000" as Address;
+
+    for (const market of this.manifest.markets) {
+      const prefix = `market:${market.id}`;
+      const portfolioController = market.portfolioMarketIndex !== undefined
+        ? this.requirePortfolioCoordinator()
+        : zero;
+
+      plans.push(
+        {
+          id: `${prefix}:core.markOracle`,
+          target: market.core,
+          functionName: "markOracle",
+          args: [],
+          expected: market.oracle,
+        },
+        {
+          id: `${prefix}:core.initialMarginBps`,
+          target: market.core,
+          functionName: "initialMarginBps",
+          args: [],
+          expected: BigInt(market.parameters.initialMarginBps),
+        },
+        {
+          id: `${prefix}:core.advancedModule`,
+          target: market.core,
+          functionName: "advancedModule",
+          args: [],
+          expected: market.advanced,
+        },
+        {
+          id: `${prefix}:core.portfolioController`,
+          target: market.core,
+          functionName: "portfolioController",
+          args: [],
+          expected: portfolioController,
+        },
+        {
+          id: `${prefix}:core.accountingScale`,
+          target: market.core,
+          functionName: "notionalValue",
+          args: [1n, 1],
+          expected: BigInt(market.scales.collateralUnitsPerLotTick),
+        },
+        {
+          id: `${prefix}:advanced.marketMakerModule`,
+          target: market.advanced,
+          functionName: "marketMakerModule",
+          args: [],
+          expected: market.marketMaker ?? zero,
+        },
+        {
+          id: `${prefix}:advanced.liquidationModule`,
+          target: market.advanced,
+          functionName: "liquidationModule",
+          args: [],
+          expected: market.portfolioLiquidation ?? market.liquidation ?? zero,
+        },
+        {
+          id: `${prefix}:advanced.portfolioController`,
+          target: market.advanced,
+          functionName: "portfolioController",
+          args: [],
+          expected: portfolioController,
+        },
+      );
+
+      if (market.portfolioMarketIndex !== undefined) {
+        plans.push({
+          id: `${prefix}:advanced.portfolioMarketIndex`,
+          target: market.advanced,
+          functionName: "portfolioMarketIndex",
+          args: [],
+          expected: BigInt(market.portfolioMarketIndex),
+        });
+      }
+
+      if (market.marketMaker) {
+        plans.push(
+          {
+            id: `${prefix}:marketMaker.core`,
+            target: market.marketMaker,
+            functionName: "core",
+            args: [],
+            expected: market.core,
+          },
+          {
+            id: `${prefix}:marketMaker.gateway`,
+            target: market.marketMaker,
+            functionName: "gateway",
+            args: [],
+            expected: market.advanced,
+          },
+        );
+      }
+
+      if (market.integrationLens) {
+        plans.push(
+          {
+            id: `${prefix}:lens.core`,
+            target: market.integrationLens,
+            functionName: "core",
+            args: [],
+            expected: market.core,
+          },
+          {
+            id: `${prefix}:lens.advanced`,
+            target: market.integrationLens,
+            functionName: "advanced",
+            args: [],
+            expected: market.advanced,
+          },
+        );
+      }
+
+      if (market.liquidation && market.parameters.maintenanceMarginBps !== undefined) {
+        plans.push({
+          id: `${prefix}:liquidation.maintenanceMarginBps`,
+          target: market.liquidation,
+          functionName: "maintenanceMarginBps",
+          args: [],
+          expected: BigInt(market.parameters.maintenanceMarginBps),
+        });
+      }
+    }
+
+    if (this.manifest.portfolio) {
+      const { coordinator, policy, vault } = this.manifest.portfolio;
+      plans.push(
+        {
+          id: "portfolio:vault.collateralToken",
+          target: vault,
+          functionName: "collateralToken",
+          args: [],
+          expected: this.manifest.collateral.token,
+        },
+        {
+          id: "portfolio:vault.controller",
+          target: vault,
+          functionName: "controller",
+          args: [],
+          expected: coordinator,
+        },
+        {
+          id: "portfolio:policy.sharedCollateralVault",
+          target: policy,
+          functionName: "sharedCollateralVault",
+          args: [],
+          expected: vault,
+        },
+        {
+          id: "portfolio:coordinator.policy",
+          target: coordinator,
+          functionName: "policy",
+          args: [],
+          expected: policy,
+        },
+        {
+          id: "portfolio:coordinator.vault",
+          target: coordinator,
+          functionName: "vault",
+          args: [],
+          expected: vault,
+        },
+      );
+    }
+
+    return plans;
   }
 
   take(
@@ -469,4 +660,46 @@ export function encodePackedQuoteUpdates(updates: readonly QuoteUpdate[]): Hex {
     out += word.toString(16).padStart(32, "0");
   }
   return out as Hex;
+}
+
+function verificationValueEqual(expected: unknown, actual: unknown): boolean {
+  if (typeof expected === "string" && /^0x[0-9a-fA-F]{40}$/.test(expected)) {
+    return typeof actual === "string" && actual.toLowerCase() === expected.toLowerCase();
+  }
+  if (typeof expected === "bigint") {
+    if (typeof actual === "bigint") return actual === expected;
+    if (typeof actual === "number" && Number.isSafeInteger(actual)) {
+      return BigInt(actual) === expected;
+    }
+    if (typeof actual === "string" && /^[0-9]+$/.test(actual)) {
+      return BigInt(actual) === expected;
+    }
+    return false;
+  }
+  return Object.is(expected, actual);
+}
+
+export function verifyDeploymentResults(
+  plans: readonly ReadPlan[],
+  results: Readonly<Record<string, unknown>>,
+): VerificationResult {
+  const mismatches: VerificationMismatch[] = [];
+  const ids = new Set<string>();
+
+  for (const plan of plans) {
+    if (ids.has(plan.id)) throw new Error(`duplicate verification plan id: ${plan.id}`);
+    ids.add(plan.id);
+
+    if (!(plan.id in results)) {
+      mismatches.push({ id: plan.id, expected: plan.expected, actual: undefined });
+      continue;
+    }
+
+    const actual = results[plan.id];
+    if (!verificationValueEqual(plan.expected, actual)) {
+      mismatches.push({ id: plan.id, expected: plan.expected, actual });
+    }
+  }
+
+  return { ok: mismatches.length === 0, mismatches };
 }
