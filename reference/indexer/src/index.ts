@@ -275,6 +275,10 @@ export class ReferenceIndexer {
       return;
     }
 
+    if (!this.cursor && block.number !== this.manifest.deploymentBlock) {
+      throw new IndexerError("first block must equal deploymentBlock");
+    }
+
     this.reconcileParent(block);
 
     if (this.cursor && block.number !== this.cursor.number + 1) {
