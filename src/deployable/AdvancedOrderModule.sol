@@ -110,7 +110,7 @@ contract AdvancedOrderModule {
 
     IOrderBookCore public immutable core;
     IExtremaOracle internal immutable extremaOracle;
-    address internal owner;
+    address public owner;
     address public marketMakerModule;
     address public liquidationModule;
     IPortfolioAdmissionGateway public portfolioController;
