@@ -3,6 +3,9 @@ pragma solidity ^0.8.24;
 
 import {TestBase} from "./TestBase.sol";
 import {DeployStandalone} from "../script/DeployStandalone.s.sol";
+import {OrderBookCore} from "../src/deployable/OrderBookCore.sol";
+import {PortfolioMarginPolicy} from "../src/deployable/PortfolioMarginPolicy.sol";
+import {PortfolioCollateralVault} from "../src/deployable/PortfolioCollateralVault.sol";
 import {SegmentTreeExtremaOracle} from "../src/SegmentTreeExtremaOracle.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
@@ -100,5 +103,43 @@ contract DeploymentBootstrapTest is TestBase {
 
         vm.prank(ADMIN);
         deployed.liquidation.transferOwnership(NEXT_ADMIN);
+    }
+
+    function testPortfolioAdminSurfacesSupportSafeHandoff() public {
+        MockERC20 token = new MockERC20();
+        SegmentTreeExtremaOracle oracle =
+            new SegmentTreeExtremaOracle(address(this), 100, 3_600);
+        OrderBookCore core =
+            new OrderBookCore(address(token), address(oracle), 40, 1_000, 0, 0);
+
+        PortfolioMarginPolicy.MarketInput[] memory markets =
+            new PortfolioMarginPolicy.MarketInput[](1);
+        markets[0] = PortfolioMarginPolicy.MarketInput({
+            core: address(core),
+            riskGroup: 1,
+            marginBps: 1_000,
+            hedgeCreditBps: 0
+        });
+
+        PortfolioMarginPolicy policy = new PortfolioMarginPolicy(markets);
+        PortfolioCollateralVault vault =
+            new PortfolioCollateralVault(address(token));
+
+        policy.transferOwnership(ADMIN);
+        vault.transferOwnership(ADMIN);
+
+        assertTrue(policy.owner() == ADMIN, "policy admin handoff");
+        assertTrue(vault.owner() == ADMIN, "vault admin handoff");
+
+        vm.prank(ADMIN);
+        policy.configureSharedCollateralVault(address(vault));
+        assertTrue(
+            address(policy.sharedCollateralVault()) == address(vault),
+            "policy admin cannot configure vault"
+        );
+
+        vm.prank(ADMIN);
+        vault.configureController(NEXT_ADMIN);
+        assertTrue(vault.controller() == NEXT_ADMIN, "vault admin cannot configure");
     }
 }
