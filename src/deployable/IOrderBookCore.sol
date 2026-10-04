@@ -16,6 +16,7 @@ interface IOrderBookCore {
 
     function markOracle() external view returns (IMarkOracle);
     function currentMarkTick() external view returns (uint16);
+    function initialMarginBps() external view returns (uint16);
     function accountRisk(address account)
         external
         view

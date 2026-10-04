@@ -18,7 +18,7 @@ contract PortfolioCollateralVault {
     error UnsupportedTokenBehavior();
 
     IERC20Minimal public immutable collateralToken;
-    address public immutable owner;
+    address public owner;
     address public controller;
 
     uint256 public totalAccountedCollateral;
@@ -26,6 +26,7 @@ contract PortfolioCollateralVault {
     mapping(address => uint256) public portfolioWithdrawn;
     mapping(address => uint256) public lockedCollateral;
 
+    event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
     event ControllerConfigured(address indexed controller);
     event Deposited(address indexed account, uint256 amount);
     event Withdrawn(address indexed account, uint256 amount);
@@ -50,6 +51,13 @@ contract PortfolioCollateralVault {
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
         _;
+    }
+
+    function transferOwnership(address nextOwner) external onlyOwner {
+        if (nextOwner == address(0)) revert Unauthorized();
+        address previousOwner = owner;
+        owner = nextOwner;
+        emit OwnershipTransferred(previousOwner, nextOwner);
     }
 
     modifier onlyController() {

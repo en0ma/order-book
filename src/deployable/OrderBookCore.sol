@@ -60,7 +60,7 @@ contract OrderBookCore is IOrderBookCore {
     error ReduceOnlyViolation();
     error PositionOverflow();
 
-    address internal immutable owner;
+    address public owner;
     address public fundingUpdater;
     address public advancedModule;
     address public override portfolioController;
@@ -68,7 +68,7 @@ contract OrderBookCore is IOrderBookCore {
     IERC20Minimal internal immutable collateralToken;
     IMarkOracle public immutable markOracle;
     uint16 internal immutable executionBandTicks;
-    uint16 internal immutable initialMarginBps;
+    uint16 public immutable override initialMarginBps;
     uint128 internal collateralUnitsPerLotTick;
     bool internal unitScaleLocked;
 
@@ -111,6 +111,7 @@ contract OrderBookCore is IOrderBookCore {
     mapping(Side => mapping(uint8 => uint256)) internal _tickWords;
     mapping(Side => uint256) internal _occupiedWords;
 
+    event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
     event AdvancedModuleConfigured(address indexed module);
     event FundingUpdaterChanged(address indexed previousUpdater, address indexed newUpdater);
     event FundingIndexUpdated(int128 fundingIndexX18);
@@ -189,6 +190,13 @@ contract OrderBookCore is IOrderBookCore {
 
     function _requireOwner() internal view {
         if (msg.sender != owner) revert Unauthorized();
+    }
+
+    function transferOwnership(address nextOwner) external onlyOwner {
+        if (nextOwner == address(0)) revert Unauthorized();
+        address previousOwner = owner;
+        owner = nextOwner;
+        emit OwnershipTransferred(previousOwner, nextOwner);
     }
 
     function _requireModule() internal view {

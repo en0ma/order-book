@@ -17,10 +17,11 @@ contract LiquidationModule {
     ILiquidationGateway public immutable gateway;
     LiquidationPolicy public immutable policy;
     uint16 public immutable maintenanceMarginBps;
-    address internal immutable owner;
+    address public owner;
     uint16 public liquidatorRewardBps;
     bool internal _liquidatorRewardConfigured;
 
+    event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
     event Liquidated(
         address indexed liquidator,
         address indexed account,
@@ -45,11 +46,25 @@ contract LiquidationModule {
                 || maintenanceBps_ > 10_000
         ) revert InvalidLiquidationConfig();
 
-        core = IOrderBookCore(core_);
+        IOrderBookCore coreRef = IOrderBookCore(core_);
+        if (maintenanceBps_ >= coreRef.initialMarginBps()) {
+            revert InvalidLiquidationConfig();
+        }
+
+        core = coreRef;
         gateway = ILiquidationGateway(gateway_);
         policy = new LiquidationPolicy(core_, gateway_, maintenanceBps_);
         maintenanceMarginBps = maintenanceBps_;
         owner = msg.sender;
+    }
+
+    function transferOwnership(address nextOwner) external {
+        if (msg.sender != owner || nextOwner == address(0)) {
+            revert InvalidLiquidationConfig();
+        }
+        address previousOwner = owner;
+        owner = nextOwner;
+        emit OwnershipTransferred(previousOwner, nextOwner);
     }
 
     function configureLiquidatorReward(uint16 rewardBps) external {
