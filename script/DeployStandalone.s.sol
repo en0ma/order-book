@@ -147,7 +147,7 @@ contract DeployStandalone {
                 || config.initialMarginBps == 0
                 || config.initialMarginBps > 10_000
                 || config.maintenanceMarginBps == 0
-                || config.maintenanceMarginBps > 10_000
+                || config.maintenanceMarginBps >= config.initialMarginBps
                 || config.takerFeeBps > 10_000
                 || config.makerRebateBps > config.takerFeeBps
                 || config.liquidatorRewardBps > 1_000
