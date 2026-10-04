@@ -89,9 +89,13 @@ Status:
 - deterministic replay/checkpoint/reorg test model: implemented.
 
 Remaining:
-1. Publish a reference indexer service/schema implementation.
-2. Publish reference keeper loops for triggers, expiries, resting sync and liquidation.
-3. Add API/WebSocket examples on top of the reference indexer.
+1. Add concrete RPC/ABI/database adapters around the dependency-free reference packages.
+2. Add API/WebSocket examples on top of the reference indexer.
+3. Add production runbook/metrics guidance for keeper and liquidator services.
+
+Implemented:
+- manifest-bound bounded-reorg reference indexer in `reference/indexer`;
+- dependency-free keeper/liquidator planning primitives and conservative liquidation registries in `operator`.
 
 ### P2: operator quality
 
@@ -454,8 +458,8 @@ Invariant:
 5. Add replay/reorg integration tests.
 6. Publish TypeScript SDK and deployment manifest schema. **Implemented.**
 7. Publish reference indexer. **Implemented: `reference/indexer` provides manifest-bound replay, checkpoints, duplicate protection and bounded reorg rollback.**
-8. Publish reference keeper/liquidator services.
-9. Add WebSocket/API examples on top of the reference indexer.
+8. Publish reference keeper/liquidator planning primitives. **Implemented: `operator` provides deterministic replay registries and transport-neutral keeper task planning.**
+9. Add RPC/storage adapters and WebSocket/API examples on top of the reference packages.
 
 ## Non-goals
 
