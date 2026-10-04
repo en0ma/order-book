@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "mode": "portfolio",
+  "protocolAdmin": "0x1111111111111111111111111111111111111111",
+  "collateral": {
+    "token": "0x2222222222222222222222222222222222222222",
+    "decimals": 6
+  },
+  "markets": [
+    {
+      "id": "ETH-PERP",
+      "fundingUpdater": "0x3333333333333333333333333333333333333333",
+      "oracle": "0x4444444444444444444444444444444444444444",
+      "executionBandTicks": 40,
+      "initialMarginBps": 1000,
+      "takerFeeBps": 5,
+      "makerRebateBps": 2,
+      "collateralUnitsPerLotTick": "1000",
+      "oracleMaxAgeSeconds": 60,
+      "riskGroup": 1,
+      "portfolioMarginBps": 1000,
+      "hedgeCreditBps": 5000
+    },
+    {
+      "id": "BTC-PERP",
+      "fundingUpdater": "0x5555555555555555555555555555555555555555",
+      "oracle": "0x6666666666666666666666666666666666666666",
+      "executionBandTicks": 60,
+      "initialMarginBps": 1200,
+      "takerFeeBps": 7,
+      "makerRebateBps": 3,
+      "collateralUnitsPerLotTick": "2000",
+      "oracleMaxAgeSeconds": 60,
+      "riskGroup": 1,
+      "portfolioMarginBps": 1200,
+      "hedgeCreditBps": 5000
+    }
+  ]
+}
