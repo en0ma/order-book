@@ -593,11 +593,11 @@ contract AdvancedOrderModule {
         if (order.owner != msg.sender) revert Unauthorized();
 
         if (!_active(order) && restingLinks[orderId].active) {
-            _cancelRestingOrder(orderId);
+            _cancelRestingOrder(orderId, false);
             return;
         }
 
-        _cancelConditional(orderId, true);
+        _cancelConditional(orderId, true, false);
     }
 
     function linkOCO(uint64 firstOrderId, uint64 secondOrderId) external {
@@ -700,7 +700,7 @@ contract AdvancedOrderModule {
             if (filledLots != 0) {
                 _resizeOTOChildren(orderId, order.owner, filledLots);
             } else {
-                _cancelOTOChildren(orderId, liquidation);
+                _cancelOTOChildren(orderId, false);
             }
         }
 
@@ -762,7 +762,7 @@ contract AdvancedOrderModule {
         if (filledLots != 0) {
             _resizeOTOChildren(orderId, order.owner, filledLots);
         } else if (restingLots == 0) {
-            _cancelOTOChildren(orderId);
+            _cancelOTOChildren(orderId, false);
         }
     }
 
@@ -784,7 +784,7 @@ contract AdvancedOrderModule {
         if (parent.owner == address(0)) revert OrderNotFound();
         if (parent.owner != msg.sender) revert Unauthorized();
 
-        removedLots = _cancelRestingOrder(parentOrderId);
+        removedLots = _cancelRestingOrder(parentOrderId, false);
     }
 
     function _syncRestingOrder(uint64 parentOrderId)
@@ -948,7 +948,7 @@ contract AdvancedOrderModule {
         if (order.owner == address(0)) revert OrderNotFound();
         if (order.owner != msg.sender) revert Unauthorized();
 
-        _cancelTrailing(orderId, true);
+        _cancelTrailing(orderId, true, false);
     }
 
     function executeTrailingOrder(uint64 orderId) external returns (uint96 filledLots) {
@@ -1104,7 +1104,7 @@ contract AdvancedOrderModule {
         _unlinkOTOChild(orderId);
 
         if (otoChildOne[orderId] != 0 || otoChildTwo[orderId] != 0) {
-            _cancelOTOChildren(orderId);
+            _cancelOTOChildren(orderId, liquidation);
         }
 
         delete conditionalExpiry[orderId];
