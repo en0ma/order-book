@@ -144,7 +144,31 @@ contract PortfolioAdmissionCoordinator {
         public
         returns (uint256 lockedCollateral)
     {
-        return _syncAccount(account, true);
+        if (
+            address(policy.sharedCollateralVault()) != address(vault)
+                || vault.controller() != address(this)
+        ) revert InvalidPortfolioAdmissionConfig();
+
+        int256 equity = policy.portfolioEquity(account);
+        uint256 requirement = policy.portfolioRequirement(account);
+        if (requirement > uint256(type(int256).max) || equity < int256(requirement)) {
+            revert InsufficientPortfolioCollateral();
+        }
+
+        int256 claim = vault.collateralClaim(account);
+        uint256 positiveClaim = claim > 0 ? uint256(claim) : 0;
+        uint256 withdrawable = uint256(equity - int256(requirement));
+        if (withdrawable > positiveClaim) withdrawable = positiveClaim;
+
+        lockedCollateral = positiveClaim - withdrawable;
+        vault.setLockedCollateral(account, lockedCollateral);
+
+        emit PortfolioLockSynchronized(
+            account,
+            equity,
+            requirement,
+            lockedCollateral
+        );
     }
 
     function take(
@@ -244,7 +268,9 @@ contract PortfolioAdmissionCoordinator {
     ) external {
         IOrderBookCore core = _gatewayCore(marketIndex);
         core.moduleReleaseExposure(account, side, lots);
-        _syncAccount(account, false);
+
+        int256 claim = vault.collateralClaim(account);
+        vault.setLockedCollateral(account, claim > 0 ? uint256(claim) : 0);
     }
 
     function gatewayTake(
@@ -287,36 +313,6 @@ contract PortfolioAdmissionCoordinator {
             reservedRiskCeiling
         );
         syncAccount(account);
-    }
-
-    function _syncAccount(address account, bool requireHealthy)
-        internal
-        returns (uint256 lockedCollateral)
-    {
-        if (
-            address(policy.sharedCollateralVault()) != address(vault)
-                || vault.controller() != address(this)
-        ) revert InvalidPortfolioAdmissionConfig();
-
-        int256 equity = policy.portfolioEquity(account);
-        uint256 requirement = policy.portfolioRequirement(account);
-        bool healthy =
-            requirement <= uint256(type(int256).max) && equity >= int256(requirement);
-        if (requireHealthy && !healthy) revert InsufficientPortfolioCollateral();
-
-        int256 claim = vault.collateralClaim(account);
-        uint256 positiveClaim = claim > 0 ? uint256(claim) : 0;
-
-        if (!healthy) {
-            lockedCollateral = positiveClaim;
-        } else {
-            uint256 withdrawable = uint256(equity - int256(requirement));
-            if (withdrawable > positiveClaim) withdrawable = positiveClaim;
-            lockedCollateral = positiveClaim - withdrawable;
-        }
-
-        vault.setLockedCollateral(account, lockedCollateral);
-        emit PortfolioLockSynchronized(account, equity, requirement, lockedCollateral);
     }
 
     function _core(uint256 marketIndex)
