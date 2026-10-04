@@ -191,6 +191,9 @@ test("builds portfolio manifest with deterministic market indexes", () => {
   assert.equal(manifest.markets[0].core, CORE_A);
   assert.equal(manifest.markets[0].portfolioMarketIndex, 0);
   assert.equal(manifest.markets[0].portfolioLiquidation, PORTFOLIO_LIQ);
+  assert.equal(manifest.markets[0].parameters.riskGroup, 1);
+  assert.equal(manifest.markets[0].parameters.portfolioMarginBps, 1000);
+  assert.equal(manifest.markets[0].parameters.hedgeCreditBps, 5000);
   assert.equal(manifest.markets[1].id, "BTC-PERP");
   assert.equal(manifest.markets[1].core, CORE_B);
   assert.equal(manifest.markets[1].portfolioMarketIndex, 1);
@@ -211,5 +214,52 @@ test("fails closed when deployed addresses do not match the spec", () => {
         },
       ),
     ManifestError,
+  );
+});
+
+
+test("rejects accounting scales above uint128", () => {
+  const spec = standaloneSpec();
+  if (spec.mode !== "standalone") throw new Error("bad fixture");
+  spec.markets[0].collateralUnitsPerLotTick = (1n << 128n).toString();
+  assert.throws(
+    () => validateDeploymentSpec(spec),
+    /collateralUnitsPerLotTick must fit uint128/,
+  );
+});
+
+test("requires bootstrap-created module addresses when building manifests", () => {
+  const spec = standaloneSpec();
+  assert.throws(
+    () =>
+      buildDeploymentManifest(
+        spec,
+        [{
+          id: "ETH-PERP",
+          core: CORE_A,
+          advanced: ADV_A,
+          marketMaker: "" as never,
+          liquidation: PORTFOLIO_LIQ,
+          integrationLens: LENS_A,
+        }],
+        { chainId: 1, deploymentBlock: 1, packageVersion: "0.2.0" },
+      ),
+    /marketMaker/,
+  );
+
+  assert.throws(
+    () =>
+      buildDeploymentManifest(
+        spec,
+        [{
+          id: "ETH-PERP",
+          core: CORE_A,
+          advanced: ADV_A,
+          marketMaker: MM_A,
+          integrationLens: LENS_A,
+        }],
+        { chainId: 1, deploymentBlock: 1, packageVersion: "0.2.0" },
+      ),
+    /missing standalone liquidation address/,
   );
 });
