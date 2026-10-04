@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {TestBase} from "./TestBase.sol";
 import {DeployPortfolio} from "../script/DeployPortfolio.s.sol";
 import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
+import {PortfolioLiquidationModule} from "../src/deployable/PortfolioLiquidationModule.sol";
 import {SegmentTreeExtremaOracle} from "../src/SegmentTreeExtremaOracle.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
@@ -101,6 +102,58 @@ contract DeployPortfolioTest is TestBase {
             )
         );
         assertTrue(!ok, "direct core risk increase bypassed coordinator");
+    }
+
+    function testPortfolioLiquidationCleanupCanReleaseRiskWhileUnderMargined()
+        public
+    {
+        DeployPortfolio.Deployment memory deployment =
+            script.deployPortfolio(_config());
+
+        token.mint(address(this), 20_000);
+        token.approve(address(deployment.vault), type(uint256).max);
+        deployment.vault.deposit(20_000);
+
+        uint64 orderId = deployment.markets[0].advanced.placeConditionalOrder(
+            IOrderBookCore.Side.Bid,
+            true,
+            500,
+            500,
+            1,
+            IOrderBookCore.FillPolicy.IOC,
+            false
+        );
+
+        oracleA.record(300);
+        assertTrue(
+            deployment.policy.isUnderMargined(address(this)),
+            "account did not become under-margined"
+        );
+
+        PortfolioLiquidationModule.CleanupInput[] memory cleanups =
+            new PortfolioLiquidationModule.CleanupInput[](2);
+        for (uint256 i; i < cleanups.length; ++i) {
+            cleanups[i].makerSides = new IOrderBookCore.Side[](0);
+            cleanups[i].makerTicks = new uint16[](0);
+            cleanups[i].conditionalIds = new uint64[](0);
+            cleanups[i].trailingIds = new uint64[](0);
+        }
+        cleanups[0].conditionalIds = new uint64[](1);
+        cleanups[0].conditionalIds[0] = orderId;
+
+        deployment.liquidation.liquidate(address(this), cleanups);
+
+        assertEq(
+            uint256(
+                deployment.markets[0].advanced.activeAdvancedOrders(address(this))
+            ),
+            0,
+            "advanced order survived liquidation cleanup"
+        );
+        assertTrue(
+            !deployment.policy.isUnderMargined(address(this)),
+            "risk release did not restore health"
+        );
     }
 
     function testPortfolioBootstrapRejectsInvalidArrayLengths() public {
