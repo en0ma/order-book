@@ -78,6 +78,9 @@ test("routes portfolio risk growth through coordinator", () => {
   const manifest = standaloneManifest();
   manifest.portfolio = { coordinator: G, policy: H, vault: A };
   manifest.markets[0].portfolioMarketIndex = 3;
+  manifest.markets[0].parameters.riskGroup = 1;
+  manifest.markets[0].parameters.portfolioMarginBps = 1000;
+  manifest.markets[0].parameters.hedgeCreditBps = 5000;
 
   const sdk = new OrderBookSDK(manifest);
 
@@ -115,6 +118,9 @@ test("routes collateral and liquidity lifecycle by deployment mode", () => {
   const manifest = standaloneManifest();
   manifest.portfolio = { coordinator: G, policy: H, vault: A };
   manifest.markets[0].portfolioMarketIndex = 2;
+  manifest.markets[0].parameters.riskGroup = 1;
+  manifest.markets[0].parameters.portfolioMarginBps = 1000;
+  manifest.markets[0].parameters.hedgeCreditBps = 5000;
   const portfolio = new OrderBookSDK(manifest);
 
   assert.deepEqual(portfolio.deposit("ETH-PERP", 100n), {
@@ -138,6 +144,9 @@ test("advanced orders always target the advanced gateway", () => {
   const manifest = standaloneManifest();
   manifest.portfolio = { coordinator: G, policy: H, vault: A };
   manifest.markets[0].portfolioMarketIndex = 0;
+  manifest.markets[0].parameters.riskGroup = 1;
+  manifest.markets[0].parameters.portfolioMarginBps = 1000;
+  manifest.markets[0].parameters.hedgeCreditBps = 5000;
   const sdk = new OrderBookSDK(manifest);
 
   assert.deepEqual(
@@ -214,6 +223,9 @@ test("rejects unsorted packed MM updates", () => {
 test("rejects malformed or inconsistent manifests", () => {
   const manifest = standaloneManifest();
   manifest.markets[0].portfolioMarketIndex = 0;
+  manifest.markets[0].parameters.riskGroup = 1;
+  manifest.markets[0].parameters.portfolioMarginBps = 1000;
+  manifest.markets[0].parameters.hedgeCreditBps = 5000;
   assert.throws(() => new OrderBookSDK(manifest), ManifestError);
 
   const duplicate = standaloneManifest();
@@ -278,6 +290,9 @@ test("builds shared portfolio verification plans and market indexes", () => {
   const manifest = standaloneManifest();
   manifest.portfolio = { coordinator: G, policy: H, vault: A };
   manifest.markets[0].portfolioMarketIndex = 3;
+  manifest.markets[0].parameters.riskGroup = 1;
+  manifest.markets[0].parameters.portfolioMarginBps = 1000;
+  manifest.markets[0].parameters.hedgeCreditBps = 5000;
   manifest.markets[0].portfolioLiquidation = E;
   manifest.markets[0].liquidation = undefined;
 
@@ -293,6 +308,13 @@ test("builds shared portfolio verification plans and market indexes", () => {
     functionName: "markets",
     args: [3n],
     expected: [B, C],
+  });
+  assert.deepEqual(byId.get("market:ETH-PERP:policy.marketSlot"), {
+    id: "market:ETH-PERP:policy.marketSlot",
+    target: H,
+    functionName: "markets",
+    args: [3n],
+    expected: [B, 1n, 1000n, 5000n],
   });
   assert.equal(byId.get("market:ETH-PERP:advanced.liquidationModule")?.expected, E);
   assert.equal(byId.get("portfolio:vault.controller")?.expected, G);
@@ -355,6 +377,9 @@ test("does not call standalone liquidation getters for portfolio modules", () =>
   const manifest = standaloneManifest();
   manifest.portfolio = { coordinator: G, policy: H, vault: A };
   manifest.markets[0].portfolioMarketIndex = 0;
+  manifest.markets[0].parameters.riskGroup = 1;
+  manifest.markets[0].parameters.portfolioMarginBps = 1000;
+  manifest.markets[0].parameters.hedgeCreditBps = 5000;
   manifest.markets[0].liquidation = E;
   manifest.markets[0].parameters.maintenanceMarginBps = 500;
 
@@ -371,6 +396,9 @@ test("verifies coordinator tuple results positionally", () => {
   const manifest = standaloneManifest();
   manifest.portfolio = { coordinator: G, policy: H, vault: A };
   manifest.markets[0].portfolioMarketIndex = 0;
+  manifest.markets[0].parameters.riskGroup = 1;
+  manifest.markets[0].parameters.portfolioMarginBps = 1000;
+  manifest.markets[0].parameters.hedgeCreditBps = 5000;
   const sdk = new OrderBookSDK(manifest);
   const plan = sdk
     .deploymentVerificationPlan()

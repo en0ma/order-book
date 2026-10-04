@@ -40,6 +40,9 @@ export interface MarketManifest {
     takerFeeBps: number;
     makerRebateBps: number;
     oracleMaxAgeSeconds?: number;
+    riskGroup?: number;
+    portfolioMarginBps?: number;
+    hedgeCreditBps?: number;
   };
 }
 
@@ -74,11 +77,92 @@ export interface QuoteUpdate {
   lots: bigint;
 }
 
+export interface BaseMarketDeploymentSpec {
+  id: string;
+  fundingUpdater: Address;
+  oracle: Address;
+  executionBandTicks: number;
+  initialMarginBps: number;
+  takerFeeBps: number;
+  makerRebateBps: number;
+  collateralUnitsPerLotTick: string;
+  oracleMaxAgeSeconds?: number;
+}
+
+export interface StandaloneMarketDeploymentSpec extends BaseMarketDeploymentSpec {
+  maintenanceMarginBps: number;
+  liquidatorRewardBps: number;
+}
+
+export interface PortfolioMarketDeploymentSpec extends BaseMarketDeploymentSpec {
+  riskGroup: number;
+  portfolioMarginBps: number;
+  hedgeCreditBps: number;
+}
+
+export type DeploymentSpec =
+  | {
+      schemaVersion: 1;
+      mode: "standalone";
+      protocolAdmin: Address;
+      collateral: { token: Address; decimals: number };
+      markets: StandaloneMarketDeploymentSpec[];
+    }
+  | {
+      schemaVersion: 1;
+      mode: "portfolio";
+      protocolAdmin: Address;
+      collateral: { token: Address; decimals: number };
+      markets: PortfolioMarketDeploymentSpec[];
+    };
+
+export interface DeploymentEnvironment {
+  script: "DeployStandalone" | "DeployPortfolio";
+  marketId?: string;
+  env: Readonly<Record<string, string>>;
+}
+
+export interface MarketDeploymentAddresses {
+  id: string;
+  core: Address;
+  advanced: Address;
+  marketMaker: Address;
+  liquidation?: Address;
+  integrationLens: Address;
+}
+
+export interface PortfolioDeploymentAddresses {
+  coordinator: Address;
+  policy: Address;
+  vault: Address;
+  liquidation: Address;
+}
+
+export interface DeploymentManifestMetadata {
+  chainId: number;
+  deploymentBlock: number;
+  packageVersion: string;
+}
+
 export declare class ManifestError extends Error {}
 
 export declare function validateManifest(
   manifest: DeploymentManifest,
 ): DeploymentManifest;
+
+export declare function validateDeploymentSpec(spec: DeploymentSpec): DeploymentSpec;
+
+export declare function compileDeploymentEnvironments(
+  spec: DeploymentSpec,
+): DeploymentEnvironment[];
+
+export declare function buildDeploymentManifest(
+  spec: DeploymentSpec,
+  markets: readonly MarketDeploymentAddresses[],
+  metadata: DeploymentManifestMetadata,
+  portfolio?: PortfolioDeploymentAddresses,
+): DeploymentManifest;
+
 
 export declare class OrderBookSDK {
   readonly manifest: DeploymentManifest;

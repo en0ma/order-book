@@ -31,7 +31,10 @@
         "maintenanceMarginBps": 500,
         "takerFeeBps": 5,
         "makerRebateBps": 2,
-        "oracleMaxAgeSeconds": 60
+        "oracleMaxAgeSeconds": 60,
+        "riskGroup": 1,
+        "portfolioMarginBps": 1000,
+        "hedgeCreditBps": 5000
       }
     }
   ]

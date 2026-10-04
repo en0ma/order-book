@@ -13,6 +13,29 @@ Each team is expected to:
 
 The repository does not assume a hosted control plane or shared production deployment.
 
+## Declarative deployment spec
+
+DEX teams can define their deployment once using the versioned schema at `deployments/spec/schema/v1.json` instead of hand-maintaining separate Foundry environment arrays and client manifests.
+
+The TypeScript SDK exposes:
+
+- `validateDeploymentSpec(spec)` to enforce the same fee, margin, address, risk-group and market-count invariants expected by the deployment scripts;
+- `compileDeploymentEnvironments(spec)` to produce the exact environment variables for `DeployStandalone` or `DeployPortfolio`;
+- `buildDeploymentManifest(spec, deployedAddresses, metadata, portfolio?)` to turn the same source spec plus resolved deployment addresses into the canonical `deployments/schema/v1.json` manifest.
+
+The intended self-hosted workflow is:
+
+1. define the DEX team's collateral, admin, market IDs, funding operators, oracles, fees and risk parameters in one deployment spec;
+2. validate the spec before any broadcast;
+3. compile Foundry environment inputs from that spec;
+4. run the repository bootstrap script(s);
+5. collect the deployed contract addresses and deployment block;
+6. build the canonical client/operator manifest from the original spec plus those resolved addresses;
+7. execute the SDK deployment-verification plan against live chain state;
+8. only then publish the manifest and start the team's indexer/keeper/MM services.
+
+`deployments/spec/example.json` is a non-production portfolio example. It intentionally contains placeholder addresses and must not be reused as a live deployment.
+
 ## Standalone market bootstrap
 
 The first reference deployment script is:

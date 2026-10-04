@@ -40,6 +40,9 @@ export interface MarketManifest {
     takerFeeBps: number;
     makerRebateBps: number;
     oracleMaxAgeSeconds?: number;
+    riskGroup?: number;
+    portfolioMarginBps?: number;
+    hedgeCreditBps?: number;
   };
 }
 
@@ -74,7 +77,293 @@ export interface QuoteUpdate {
   lots: bigint;
 }
 
+export interface BaseMarketDeploymentSpec {
+  id: string;
+  fundingUpdater: Address;
+  oracle: Address;
+  executionBandTicks: number;
+  initialMarginBps: number;
+  takerFeeBps: number;
+  makerRebateBps: number;
+  collateralUnitsPerLotTick: string;
+  oracleMaxAgeSeconds?: number;
+}
+
+export interface StandaloneMarketDeploymentSpec extends BaseMarketDeploymentSpec {
+  maintenanceMarginBps: number;
+  liquidatorRewardBps: number;
+}
+
+export interface PortfolioMarketDeploymentSpec extends BaseMarketDeploymentSpec {
+  riskGroup: number;
+  portfolioMarginBps: number;
+  hedgeCreditBps: number;
+}
+
+export type DeploymentSpec =
+  | {
+      schemaVersion: 1;
+      mode: "standalone";
+      protocolAdmin: Address;
+      collateral: { token: Address; decimals: number };
+      markets: StandaloneMarketDeploymentSpec[];
+    }
+  | {
+      schemaVersion: 1;
+      mode: "portfolio";
+      protocolAdmin: Address;
+      collateral: { token: Address; decimals: number };
+      markets: PortfolioMarketDeploymentSpec[];
+    };
+
+export interface DeploymentEnvironment {
+  script: "DeployStandalone" | "DeployPortfolio";
+  marketId?: string;
+  env: Readonly<Record<string, string>>;
+}
+
+export interface MarketDeploymentAddresses {
+  id: string;
+  core: Address;
+  advanced: Address;
+  marketMaker: Address;
+  liquidation?: Address;
+  integrationLens: Address;
+}
+
+export interface PortfolioDeploymentAddresses {
+  coordinator: Address;
+  policy: Address;
+  vault: Address;
+  liquidation: Address;
+}
+
+export interface DeploymentManifestMetadata {
+  chainId: number;
+  deploymentBlock: number;
+  packageVersion: string;
+}
+
+
 export class ManifestError extends Error {}
+
+function assertDeploymentMarketBase(
+  market: BaseMarketDeploymentSpec,
+  prefix: string,
+): void {
+  if (!market.id) throw new ManifestError(`${prefix}.id is required`);
+  assertAddress(market.fundingUpdater, `${prefix}.fundingUpdater`);
+  assertAddress(market.oracle, `${prefix}.oracle`);
+  assertUint(market.executionBandTicks, `${prefix}.executionBandTicks`, 65535);
+  assertUint(market.initialMarginBps, `${prefix}.initialMarginBps`, 10000);
+  if (market.initialMarginBps === 0) {
+    throw new ManifestError(`${prefix}.initialMarginBps must be greater than zero`);
+  }
+  assertUint(market.takerFeeBps, `${prefix}.takerFeeBps`, 10000);
+  assertUint(market.makerRebateBps, `${prefix}.makerRebateBps`, 10000);
+  if (market.makerRebateBps > market.takerFeeBps) {
+    throw new ManifestError(`${prefix}.makerRebateBps cannot exceed takerFeeBps`);
+  }
+  if (!/^[0-9]+$/.test(market.collateralUnitsPerLotTick)) {
+    throw new ManifestError(`${prefix}.collateralUnitsPerLotTick must be a positive uint128 string`);
+  }
+  const accountingScale = BigInt(market.collateralUnitsPerLotTick);
+  if (accountingScale === 0n || accountingScale > ((1n << 128n) - 1n)) {
+    throw new ManifestError(`${prefix}.collateralUnitsPerLotTick must fit uint128`);
+  }
+  if (market.oracleMaxAgeSeconds !== undefined) {
+    assertUint(market.oracleMaxAgeSeconds, `${prefix}.oracleMaxAgeSeconds`);
+  }
+}
+
+export function validateDeploymentSpec(spec: DeploymentSpec): DeploymentSpec {
+  if (spec.schemaVersion !== 1) throw new ManifestError("unsupported deployment spec schemaVersion");
+  assertAddress(spec.protocolAdmin, "protocolAdmin");
+  assertAddress(spec.collateral.token, "collateral.token");
+  assertUint(spec.collateral.decimals, "collateral.decimals", 255);
+  if (!Array.isArray(spec.markets) || spec.markets.length === 0) {
+    throw new ManifestError("at least one deployment market is required");
+  }
+  if (spec.mode === "portfolio" && spec.markets.length > 32) {
+    throw new ManifestError("portfolio deployments support at most 32 markets");
+  }
+
+  const ids = new Set<string>();
+  const groupCredits = new Map<number, number>();
+  spec.markets.forEach((market, i) => {
+    const prefix = `markets[${i}]`;
+    assertDeploymentMarketBase(market, prefix);
+    if (ids.has(market.id)) throw new ManifestError(`${prefix}.id must be unique`);
+    ids.add(market.id);
+
+    if (spec.mode === "standalone") {
+      const standalone = market as StandaloneMarketDeploymentSpec;
+      assertUint(standalone.maintenanceMarginBps, `${prefix}.maintenanceMarginBps`, 10000);
+      if (
+        standalone.maintenanceMarginBps === 0
+          || standalone.maintenanceMarginBps >= standalone.initialMarginBps
+      ) {
+        throw new ManifestError(
+          `${prefix}.maintenanceMarginBps must be positive and below initialMarginBps`,
+        );
+      }
+      assertUint(standalone.liquidatorRewardBps, `${prefix}.liquidatorRewardBps`, 1000);
+    } else {
+      const portfolio = market as PortfolioMarketDeploymentSpec;
+      assertUint(portfolio.riskGroup, `${prefix}.riskGroup`, 0xffffffff);
+      if (portfolio.riskGroup === 0) {
+        throw new ManifestError(`${prefix}.riskGroup must be greater than zero`);
+      }
+      assertUint(portfolio.portfolioMarginBps, `${prefix}.portfolioMarginBps`, 10000);
+      if (portfolio.portfolioMarginBps === 0) {
+        throw new ManifestError(`${prefix}.portfolioMarginBps must be greater than zero`);
+      }
+      assertUint(portfolio.hedgeCreditBps, `${prefix}.hedgeCreditBps`, 10000);
+      const prior = groupCredits.get(portfolio.riskGroup);
+      if (prior !== undefined && prior !== portfolio.hedgeCreditBps) {
+        throw new ManifestError(`${prefix}.hedgeCreditBps must match its risk group`);
+      }
+      groupCredits.set(portfolio.riskGroup, portfolio.hedgeCreditBps);
+    }
+  });
+
+  return spec;
+}
+
+export function compileDeploymentEnvironments(
+  spec: DeploymentSpec,
+): DeploymentEnvironment[] {
+  validateDeploymentSpec(spec);
+  if (spec.mode === "standalone") {
+    return spec.markets.map((market) => ({
+      script: "DeployStandalone" as const,
+      marketId: market.id,
+      env: {
+        PROTOCOL_ADMIN: spec.protocolAdmin,
+        FUNDING_UPDATER: market.fundingUpdater,
+        COLLATERAL_TOKEN: spec.collateral.token,
+        MARK_ORACLE: market.oracle,
+        EXECUTION_BAND_TICKS: String(market.executionBandTicks),
+        INITIAL_MARGIN_BPS: String(market.initialMarginBps),
+        MAINTENANCE_MARGIN_BPS: String(market.maintenanceMarginBps),
+        TAKER_FEE_BPS: String(market.takerFeeBps),
+        MAKER_REBATE_BPS: String(market.makerRebateBps),
+        LIQUIDATOR_REWARD_BPS: String(market.liquidatorRewardBps),
+        COLLATERAL_UNITS_PER_LOT_TICK: market.collateralUnitsPerLotTick,
+      },
+    }));
+  }
+
+  const join = <T>(select: (market: PortfolioMarketDeploymentSpec) => T) =>
+    spec.markets.map(select).join(",");
+  return [{
+    script: "DeployPortfolio",
+    env: {
+      PROTOCOL_ADMIN: spec.protocolAdmin,
+      COLLATERAL_TOKEN: spec.collateral.token,
+      FUNDING_UPDATERS: join((market) => market.fundingUpdater),
+      MARK_ORACLES: join((market) => market.oracle),
+      EXECUTION_BAND_TICKS: join((market) => market.executionBandTicks),
+      INITIAL_MARGIN_BPS: join((market) => market.initialMarginBps),
+      TAKER_FEE_BPS: join((market) => market.takerFeeBps),
+      MAKER_REBATE_BPS: join((market) => market.makerRebateBps),
+      COLLATERAL_UNITS_PER_LOT_TICK: join((market) => market.collateralUnitsPerLotTick),
+      RISK_GROUPS: join((market) => market.riskGroup),
+      PORTFOLIO_MARGIN_BPS: join((market) => market.portfolioMarginBps),
+      HEDGE_CREDIT_BPS: join((market) => market.hedgeCreditBps),
+    },
+  }];
+}
+
+export function buildDeploymentManifest(
+  spec: DeploymentSpec,
+  markets: readonly MarketDeploymentAddresses[],
+  metadata: DeploymentManifestMetadata,
+  portfolio?: PortfolioDeploymentAddresses,
+): DeploymentManifest {
+  validateDeploymentSpec(spec);
+  assertUint(metadata.chainId, "chainId");
+  if (metadata.chainId === 0) throw new ManifestError("chainId must be greater than zero");
+  assertUint(metadata.deploymentBlock, "deploymentBlock");
+  if (!metadata.packageVersion) throw new ManifestError("packageVersion is required");
+  if (markets.length !== spec.markets.length) {
+    throw new ManifestError("deployed market address count does not match deployment spec");
+  }
+  if ((spec.mode === "portfolio") !== Boolean(portfolio)) {
+    throw new ManifestError("portfolio deployment addresses must match deployment mode");
+  }
+
+  const addresses = new Map(markets.map((market) => [market.id, market]));
+  if (addresses.size !== markets.length) throw new ManifestError("deployed market ids must be unique");
+
+  const manifestMarkets = spec.markets.map((market, index): MarketManifest => {
+    const deployed = addresses.get(market.id);
+    if (!deployed) throw new ManifestError(`missing deployed addresses for ${market.id}`);
+    assertAddress(deployed.core, `${market.id}.core`);
+    assertAddress(deployed.advanced, `${market.id}.advanced`);
+    assertAddress(deployed.marketMaker, `${market.id}.marketMaker`);
+    assertAddress(deployed.integrationLens, `${market.id}.integrationLens`);
+    if (spec.mode === "standalone") {
+      if (!deployed.liquidation) {
+        throw new ManifestError(`missing standalone liquidation address for ${market.id}`);
+      }
+      assertAddress(deployed.liquidation, `${market.id}.liquidation`);
+    }
+
+    return {
+      id: market.id,
+      core: deployed.core,
+      advanced: deployed.advanced,
+      marketMaker: deployed.marketMaker,
+      liquidation: spec.mode === "standalone" ? deployed.liquidation : undefined,
+      portfolioLiquidation: spec.mode === "portfolio" ? portfolio?.liquidation : undefined,
+      integrationLens: deployed.integrationLens,
+      oracle: market.oracle,
+      portfolioMarketIndex: spec.mode === "portfolio" ? index : undefined,
+      scales: { collateralUnitsPerLotTick: market.collateralUnitsPerLotTick },
+      parameters: {
+        executionBandTicks: market.executionBandTicks,
+        initialMarginBps: market.initialMarginBps,
+        maintenanceMarginBps:
+          spec.mode === "standalone"
+            ? (market as StandaloneMarketDeploymentSpec).maintenanceMarginBps
+            : undefined,
+        takerFeeBps: market.takerFeeBps,
+        makerRebateBps: market.makerRebateBps,
+        oracleMaxAgeSeconds: market.oracleMaxAgeSeconds,
+        riskGroup:
+          spec.mode === "portfolio"
+            ? (market as PortfolioMarketDeploymentSpec).riskGroup
+            : undefined,
+        portfolioMarginBps:
+          spec.mode === "portfolio"
+            ? (market as PortfolioMarketDeploymentSpec).portfolioMarginBps
+            : undefined,
+        hedgeCreditBps:
+          spec.mode === "portfolio"
+            ? (market as PortfolioMarketDeploymentSpec).hedgeCreditBps
+            : undefined,
+      },
+    };
+  });
+
+  const manifest: DeploymentManifest = {
+    schemaVersion: 1,
+    chainId: metadata.chainId,
+    deploymentBlock: metadata.deploymentBlock,
+    packageVersion: metadata.packageVersion,
+    collateral: { ...spec.collateral },
+    portfolio: portfolio
+      ? {
+          coordinator: portfolio.coordinator,
+          policy: portfolio.policy,
+          vault: portfolio.vault,
+        }
+      : undefined,
+    markets: manifestMarkets,
+  };
+  return validateManifest(manifest);
+}
 
 function assertAddress(value: string, field: string): asserts value is Address {
   if (
@@ -110,6 +399,7 @@ export function validateManifest(manifest: DeploymentManifest): DeploymentManife
   }
 
   const ids = new Set<string>();
+  const portfolioGroupCredits = new Map<number, number>();
   for (const [i, market] of manifest.markets.entries()) {
     const prefix = `markets[${i}]`;
     if (!market.id || ids.has(market.id)) {
@@ -155,6 +445,47 @@ export function validateManifest(manifest: DeploymentManifest): DeploymentManife
     }
     if (market.parameters.oracleMaxAgeSeconds !== undefined) {
       assertUint(market.parameters.oracleMaxAgeSeconds, `${prefix}.parameters.oracleMaxAgeSeconds`);
+    }
+    if (market.portfolioMarketIndex !== undefined) {
+      if (
+        market.parameters.riskGroup === undefined
+          || market.parameters.portfolioMarginBps === undefined
+          || market.parameters.hedgeCreditBps === undefined
+      ) {
+        throw new ManifestError(`${prefix}.parameters requires portfolio risk settings`);
+      }
+      assertUint(market.parameters.riskGroup, `${prefix}.parameters.riskGroup`, 0xffffffff);
+      if (market.parameters.riskGroup === 0) {
+        throw new ManifestError(`${prefix}.parameters.riskGroup must be greater than zero`);
+      }
+      assertUint(
+        market.parameters.portfolioMarginBps,
+        `${prefix}.parameters.portfolioMarginBps`,
+        10000,
+      );
+      if (market.parameters.portfolioMarginBps === 0) {
+        throw new ManifestError(
+          `${prefix}.parameters.portfolioMarginBps must be greater than zero`,
+        );
+      }
+      assertUint(
+        market.parameters.hedgeCreditBps,
+        `${prefix}.parameters.hedgeCreditBps`,
+        10000,
+      );
+      const priorCredit = portfolioGroupCredits.get(market.parameters.riskGroup);
+      if (
+        priorCredit !== undefined
+          && priorCredit !== market.parameters.hedgeCreditBps
+      ) {
+        throw new ManifestError(
+          `${prefix}.parameters.hedgeCreditBps must match its risk group`,
+        );
+      }
+      portfolioGroupCredits.set(
+        market.parameters.riskGroup,
+        market.parameters.hedgeCreditBps,
+      );
     }
   }
 
@@ -266,6 +597,18 @@ export class OrderBookSDK {
             functionName: "markets",
             args: [BigInt(market.portfolioMarketIndex)],
             expected: [market.core, market.advanced],
+          },
+          {
+            id: `${prefix}:policy.marketSlot`,
+            target: this.manifest.portfolio!.policy,
+            functionName: "markets",
+            args: [BigInt(market.portfolioMarketIndex)],
+            expected: [
+              market.core,
+              BigInt(market.parameters.riskGroup!),
+              BigInt(market.parameters.portfolioMarginBps!),
+              BigInt(market.parameters.hedgeCreditBps!),
+            ],
           },
         );
       }
