@@ -11,6 +11,7 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 
 contract DeploymentBootstrapTest is TestBase {
     address internal constant ADMIN = address(0xAD11);
+    address internal constant FUNDING_OPERATOR = address(0xF00D);
     address internal constant NEXT_ADMIN = address(0xBEEF);
 
     function testStandaloneBootstrapWiresSelfHostedStack() public {
@@ -21,6 +22,7 @@ contract DeploymentBootstrapTest is TestBase {
 
         DeployStandalone.Config memory config = DeployStandalone.Config({
             protocolAdmin: ADMIN,
+            fundingUpdater: FUNDING_OPERATOR,
             collateralToken: address(token),
             oracle: address(oracle),
             executionBandTicks: 40,
@@ -96,7 +98,7 @@ contract DeploymentBootstrapTest is TestBase {
             "liquidation owner not handed off"
         );
         assertTrue(
-            deployed.core.fundingUpdater() == ADMIN,
+            deployed.core.fundingUpdater() == FUNDING_OPERATOR,
             "funding updater not handed off"
         );
 
@@ -128,6 +130,7 @@ contract DeploymentBootstrapTest is TestBase {
 
         DeployStandalone.Config memory config = DeployStandalone.Config({
             protocolAdmin: address(0),
+            fundingUpdater: FUNDING_OPERATOR,
             collateralToken: address(token),
             oracle: address(oracle),
             executionBandTicks: 40,
