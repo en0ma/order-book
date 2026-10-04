@@ -40,6 +40,9 @@ export interface MarketManifest {
     takerFeeBps: number;
     makerRebateBps: number;
     oracleMaxAgeSeconds?: number;
+    riskGroup?: number;
+    portfolioMarginBps?: number;
+    hedgeCreditBps?: number;
   };
 }
 
@@ -123,9 +126,9 @@ export interface MarketDeploymentAddresses {
   id: string;
   core: Address;
   advanced: Address;
-  marketMaker?: Address;
+  marketMaker: Address;
   liquidation?: Address;
-  integrationLens?: Address;
+  integrationLens: Address;
 }
 
 export interface PortfolioDeploymentAddresses {
@@ -161,9 +164,12 @@ function assertDeploymentMarketBase(
   if (market.makerRebateBps > market.takerFeeBps) {
     throw new ManifestError(`${prefix}.makerRebateBps cannot exceed takerFeeBps`);
   }
-  if (!/^[0-9]+$/.test(market.collateralUnitsPerLotTick)
-      || BigInt(market.collateralUnitsPerLotTick) === 0n) {
-    throw new ManifestError(`${prefix}.collateralUnitsPerLotTick must be a positive uint string`);
+  if (!/^[0-9]+$/.test(market.collateralUnitsPerLotTick)) {
+    throw new ManifestError(`${prefix}.collateralUnitsPerLotTick must be a positive uint128 string`);
+  }
+  const accountingScale = BigInt(market.collateralUnitsPerLotTick);
+  if (accountingScale === 0n || accountingScale > ((1n << 128n) - 1n)) {
+    throw new ManifestError(`${prefix}.collateralUnitsPerLotTick must fit uint128`);
   }
   if (market.oracleMaxAgeSeconds !== undefined) {
     assertUint(market.oracleMaxAgeSeconds, `${prefix}.oracleMaxAgeSeconds`);
@@ -295,10 +301,13 @@ export function buildDeploymentManifest(
     if (!deployed) throw new ManifestError(`missing deployed addresses for ${market.id}`);
     assertAddress(deployed.core, `${market.id}.core`);
     assertAddress(deployed.advanced, `${market.id}.advanced`);
-    if (deployed.marketMaker) assertAddress(deployed.marketMaker, `${market.id}.marketMaker`);
-    if (deployed.liquidation) assertAddress(deployed.liquidation, `${market.id}.liquidation`);
-    if (deployed.integrationLens) {
-      assertAddress(deployed.integrationLens, `${market.id}.integrationLens`);
+    assertAddress(deployed.marketMaker, `${market.id}.marketMaker`);
+    assertAddress(deployed.integrationLens, `${market.id}.integrationLens`);
+    if (spec.mode === "standalone") {
+      if (!deployed.liquidation) {
+        throw new ManifestError(`missing standalone liquidation address for ${market.id}`);
+      }
+      assertAddress(deployed.liquidation, `${market.id}.liquidation`);
     }
 
     return {
@@ -322,6 +331,18 @@ export function buildDeploymentManifest(
         takerFeeBps: market.takerFeeBps,
         makerRebateBps: market.makerRebateBps,
         oracleMaxAgeSeconds: market.oracleMaxAgeSeconds,
+        riskGroup:
+          spec.mode === "portfolio"
+            ? (market as PortfolioMarketDeploymentSpec).riskGroup
+            : undefined,
+        portfolioMarginBps:
+          spec.mode === "portfolio"
+            ? (market as PortfolioMarketDeploymentSpec).portfolioMarginBps
+            : undefined,
+        hedgeCreditBps:
+          spec.mode === "portfolio"
+            ? (market as PortfolioMarketDeploymentSpec).hedgeCreditBps
+            : undefined,
       },
     };
   });
@@ -423,6 +444,34 @@ export function validateManifest(manifest: DeploymentManifest): DeploymentManife
     }
     if (market.parameters.oracleMaxAgeSeconds !== undefined) {
       assertUint(market.parameters.oracleMaxAgeSeconds, `${prefix}.parameters.oracleMaxAgeSeconds`);
+    }
+    if (market.portfolioMarketIndex !== undefined) {
+      if (
+        market.parameters.riskGroup === undefined
+          || market.parameters.portfolioMarginBps === undefined
+          || market.parameters.hedgeCreditBps === undefined
+      ) {
+        throw new ManifestError(`${prefix}.parameters requires portfolio risk settings`);
+      }
+      assertUint(market.parameters.riskGroup, `${prefix}.parameters.riskGroup`, 0xffffffff);
+      if (market.parameters.riskGroup === 0) {
+        throw new ManifestError(`${prefix}.parameters.riskGroup must be greater than zero`);
+      }
+      assertUint(
+        market.parameters.portfolioMarginBps,
+        `${prefix}.parameters.portfolioMarginBps`,
+        10000,
+      );
+      if (market.parameters.portfolioMarginBps === 0) {
+        throw new ManifestError(
+          `${prefix}.parameters.portfolioMarginBps must be greater than zero`,
+        );
+      }
+      assertUint(
+        market.parameters.hedgeCreditBps,
+        `${prefix}.parameters.hedgeCreditBps`,
+        10000,
+      );
     }
   }
 
@@ -534,6 +583,18 @@ export class OrderBookSDK {
             functionName: "markets",
             args: [BigInt(market.portfolioMarketIndex)],
             expected: [market.core, market.advanced],
+          },
+          {
+            id: `${prefix}:policy.marketSlot`,
+            target: this.manifest.portfolio!.policy,
+            functionName: "markets",
+            args: [BigInt(market.portfolioMarketIndex)],
+            expected: [
+              market.core,
+              BigInt(market.parameters.riskGroup!),
+              BigInt(market.parameters.portfolioMarginBps!),
+              BigInt(market.parameters.hedgeCreditBps!),
+            ],
           },
         );
       }
