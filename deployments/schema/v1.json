@@ -4,12 +4,13 @@
   "title": "Order Book Deployment Manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "chainId", "deploymentBlock", "packageVersion", "collateral", "markets"],
+  "required": ["schemaVersion", "chainId", "deploymentBlock", "packageVersion", "protocolAdmin", "collateral", "markets"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "chainId": { "type": "integer", "minimum": 1 },
     "deploymentBlock": { "type": "integer", "minimum": 0 },
     "packageVersion": { "type": "string", "minLength": 1 },
+    "protocolAdmin": { "$ref": "#/$defs/address" },
     "collateral": {
       "type": "object",
       "additionalProperties": false,
@@ -47,7 +48,7 @@
     "market": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "core", "advanced", "oracle", "scales", "parameters"],
+      "required": ["id", "core", "advanced", "oracle", "fundingUpdater", "scales", "parameters"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "core": { "$ref": "#/$defs/address" },
@@ -57,6 +58,7 @@
         "portfolioLiquidation": { "$ref": "#/$defs/address" },
         "integrationLens": { "$ref": "#/$defs/address" },
         "oracle": { "$ref": "#/$defs/address" },
+        "fundingUpdater": { "$ref": "#/$defs/address" },
         "portfolioMarketIndex": { "type": "integer", "minimum": 0, "maximum": 255 },
         "scales": {
           "type": "object",
