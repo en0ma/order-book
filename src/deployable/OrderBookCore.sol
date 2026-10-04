@@ -68,7 +68,7 @@ contract OrderBookCore is IOrderBookCore {
     IERC20Minimal internal immutable collateralToken;
     IMarkOracle public immutable markOracle;
     uint16 internal immutable executionBandTicks;
-    uint16 internal immutable initialMarginBps;
+    uint16 public immutable override initialMarginBps;
     uint128 internal collateralUnitsPerLotTick;
     bool internal unitScaleLocked;
 
