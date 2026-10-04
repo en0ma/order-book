@@ -7,6 +7,7 @@ import {
   OrderBookSDK,
   encodePackedQuoteUpdates,
   validateManifest,
+  verifyDeploymentResults,
   type DeploymentManifest,
 } from "../dist/index.js";
 
@@ -246,4 +247,146 @@ test("plans packed quote refresh against configured MM module", () => {
   assert.equal(plan.target, D);
   assert.equal(plan.functionName, "batchReplaceQuotesPacked");
   assert.match(plan.args[0] as string, /^0x[0-9a-f]{64}$/);
+});
+
+
+test("builds standalone deployment verification plans from the manifest", () => {
+  const sdk = new OrderBookSDK(standaloneManifest());
+  const plans = sdk.deploymentVerificationPlan();
+
+  const byId = new Map(plans.map((plan) => [plan.id, plan]));
+  assert.deepEqual(byId.get("market:ETH-PERP:core.markOracle"), {
+    id: "market:ETH-PERP:core.markOracle",
+    target: B,
+    functionName: "markOracle",
+    args: [],
+    expected: F,
+  });
+  assert.deepEqual(byId.get("market:ETH-PERP:core.accountingScale"), {
+    id: "market:ETH-PERP:core.accountingScale",
+    target: B,
+    functionName: "notionalValue",
+    args: [1n, 1],
+    expected: 1000n,
+  });
+  assert.equal(byId.get("market:ETH-PERP:advanced.core")?.expected, B);
+  assert.deepEqual(byId.get("market:ETH-PERP:advanced.marketMakerModule")?.expected, D);
+  assert.equal(byId.has("portfolio:vault.controller"), false);
+});
+
+test("builds shared portfolio verification plans and market indexes", () => {
+  const manifest = standaloneManifest();
+  manifest.portfolio = { coordinator: G, policy: H, vault: A };
+  manifest.markets[0].portfolioMarketIndex = 3;
+  manifest.markets[0].portfolioLiquidation = E;
+  manifest.markets[0].liquidation = undefined;
+
+  const plans = new OrderBookSDK(manifest).deploymentVerificationPlan();
+  const byId = new Map(plans.map((plan) => [plan.id, plan]));
+
+  assert.equal(byId.get("market:ETH-PERP:core.portfolioController")?.expected, G);
+  assert.equal(byId.get("market:ETH-PERP:advanced.portfolioController")?.expected, G);
+  assert.equal(byId.get("market:ETH-PERP:advanced.portfolioMarketIndex")?.expected, 3n);
+  assert.deepEqual(byId.get("market:ETH-PERP:coordinator.marketSlot"), {
+    id: "market:ETH-PERP:coordinator.marketSlot",
+    target: G,
+    functionName: "markets",
+    args: [3n],
+    expected: [B, C],
+  });
+  assert.equal(byId.get("market:ETH-PERP:advanced.liquidationModule")?.expected, E);
+  assert.equal(byId.get("portfolio:vault.controller")?.expected, G);
+  assert.equal(byId.get("portfolio:policy.sharedCollateralVault")?.expected, A);
+  assert.equal(byId.get("portfolio:coordinator.policy")?.expected, H);
+});
+
+test("verifies read results with address and integer normalization", () => {
+  const sdk = new OrderBookSDK(standaloneManifest());
+  const plans = sdk.deploymentVerificationPlan().slice(0, 3);
+  const results = Object.fromEntries(
+    plans.map((plan) => [
+      plan.id,
+      typeof plan.expected === "string"
+        ? plan.expected.toUpperCase().replace("0X", "0x")
+        : typeof plan.expected === "bigint"
+          ? plan.expected.toString()
+          : plan.expected,
+    ]),
+  );
+
+  assert.deepEqual(verifyDeploymentResults(plans, results), {
+    ok: true,
+    mismatches: [],
+  });
+
+  results[plans[0].id] = A;
+  const mismatch = verifyDeploymentResults(plans, results);
+  assert.equal(mismatch.ok, false);
+  assert.equal(mismatch.mismatches[0].id, plans[0].id);
+});
+
+test("reports missing deployment verification reads", () => {
+  const sdk = new OrderBookSDK(standaloneManifest());
+  const plan = sdk.deploymentVerificationPlan()[0];
+  const result = verifyDeploymentResults([plan], {});
+  assert.equal(result.ok, false);
+  assert.equal(result.mismatches[0].actual, undefined);
+});
+
+
+test("verifies standalone liquidation back-references and maintenance margin", () => {
+  const manifest = standaloneManifest();
+  manifest.markets[0].liquidation = G;
+  manifest.markets[0].parameters.maintenanceMarginBps = 500;
+
+  const byId = new Map(
+    new OrderBookSDK(manifest).deploymentVerificationPlan().map((plan) => [plan.id, plan]),
+  );
+
+  assert.equal(byId.get("market:ETH-PERP:liquidation.core")?.expected, B);
+  assert.equal(byId.get("market:ETH-PERP:liquidation.gateway")?.expected, C);
+  assert.equal(
+    byId.get("market:ETH-PERP:liquidation.maintenanceMarginBps")?.expected,
+    500n,
+  );
+});
+
+test("does not call standalone liquidation getters for portfolio modules", () => {
+  const manifest = standaloneManifest();
+  manifest.portfolio = { coordinator: G, policy: H, vault: A };
+  manifest.markets[0].portfolioMarketIndex = 0;
+  manifest.markets[0].liquidation = E;
+  manifest.markets[0].parameters.maintenanceMarginBps = 500;
+
+  const ids = new Set(
+    new OrderBookSDK(manifest).deploymentVerificationPlan().map((plan) => plan.id),
+  );
+
+  assert.equal(ids.has("market:ETH-PERP:liquidation.core"), false);
+  assert.equal(ids.has("market:ETH-PERP:liquidation.gateway"), false);
+  assert.equal(ids.has("market:ETH-PERP:liquidation.maintenanceMarginBps"), false);
+});
+
+test("verifies coordinator tuple results positionally", () => {
+  const manifest = standaloneManifest();
+  manifest.portfolio = { coordinator: G, policy: H, vault: A };
+  manifest.markets[0].portfolioMarketIndex = 0;
+  const sdk = new OrderBookSDK(manifest);
+  const plan = sdk
+    .deploymentVerificationPlan()
+    .find((item) => item.id === "market:ETH-PERP:coordinator.marketSlot");
+  assert.ok(plan);
+
+  assert.equal(
+    verifyDeploymentResults([plan], {
+      [plan.id]: [B.toUpperCase().replace("0X", "0x"), C],
+    }).ok,
+    true,
+  );
+  assert.equal(
+    verifyDeploymentResults([plan], {
+      [plan.id]: [C, B],
+    }).ok,
+    false,
+  );
 });
