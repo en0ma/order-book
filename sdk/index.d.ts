@@ -49,6 +49,25 @@ export interface TransactionPlan {
   args: readonly unknown[];
 }
 
+export interface ReadPlan {
+  id: string;
+  target: Address;
+  functionName: string;
+  args: readonly unknown[];
+  expected: unknown;
+}
+
+export interface VerificationMismatch {
+  id: string;
+  expected: unknown;
+  actual: unknown;
+}
+
+export interface VerificationResult {
+  ok: boolean;
+  mismatches: VerificationMismatch[];
+}
+
 export interface QuoteUpdate {
   side: Side;
   tick: number;
@@ -67,6 +86,8 @@ export declare class OrderBookSDK {
   constructor(manifest: DeploymentManifest);
 
   market(id: string): MarketManifest;
+
+  deploymentVerificationPlan(): ReadPlan[];
 
   take(
     marketId: string,
@@ -187,3 +208,8 @@ export declare class OrderBookSDK {
 export declare function encodePackedQuoteUpdates(
   updates: readonly QuoteUpdate[],
 ): Hex;
+
+export declare function verifyDeploymentResults(
+  plans: readonly ReadPlan[],
+  results: Readonly<Record<string, unknown>>,
+): VerificationResult;
