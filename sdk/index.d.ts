@@ -8,6 +8,7 @@ export interface DeploymentManifest {
   chainId: number;
   deploymentBlock: number;
   packageVersion: string;
+  protocolAdmin: Address;
   collateral: {
     token: Address;
     decimals: number;
@@ -29,6 +30,7 @@ export interface MarketManifest {
   portfolioLiquidation?: Address;
   integrationLens?: Address;
   oracle: Address;
+  fundingUpdater: Address;
   portfolioMarketIndex?: number;
   scales: {
     collateralUnitsPerLotTick: string;
@@ -69,6 +71,28 @@ export interface VerificationMismatch {
 export interface VerificationResult {
   ok: boolean;
   mismatches: VerificationMismatch[];
+}
+
+export interface VerificationReadError {
+  id: string;
+  error: string;
+}
+
+export interface VerificationCodeError {
+  id: string;
+  address: Address;
+}
+
+export interface LiveVerificationResult extends VerificationResult {
+  readErrors: VerificationReadError[];
+  missingCode: VerificationCodeError[];
+  chainIdMismatch?: { expected: number; actual: number };
+}
+
+export interface DeploymentVerificationAdapter {
+  read(plan: ReadPlan): Promise<unknown>;
+  getCode?(address: Address): Promise<string>;
+  chainId?(): Promise<number>;
 }
 
 export interface QuoteUpdate {
@@ -297,3 +321,8 @@ export declare function verifyDeploymentResults(
   plans: readonly ReadPlan[],
   results: Readonly<Record<string, unknown>>,
 ): VerificationResult;
+
+export declare function executeDeploymentVerification(
+  manifest: DeploymentManifest,
+  adapter: DeploymentVerificationAdapter,
+): Promise<LiveVerificationResult>;

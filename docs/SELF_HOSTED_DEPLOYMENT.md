@@ -31,8 +31,9 @@ The intended self-hosted workflow is:
 4. run the repository bootstrap script(s);
 5. collect the deployed contract addresses and deployment block;
 6. build the canonical client/operator manifest from the original spec plus those resolved addresses;
-7. execute the SDK deployment-verification plan against live chain state;
-8. only then publish the manifest and start the team's indexer/keeper/MM services.
+7. execute the SDK live deployment verifier against the target RPC;
+8. require the verifier to confirm the expected chain, deployed bytecode, protocol-admin handoff, per-market funding updater, module wiring, accounting scale and portfolio policy/vault/coordinator state;
+9. only then publish the manifest and start the team's indexer/keeper/MM services.
 
 `deployments/spec/example.json` is a non-production portfolio example. It intentionally contains placeholder addresses and must not be reused as a live deployment.
 
@@ -118,7 +119,7 @@ Ownership transfer does not affect matching-path execution.
 A deployment team should:
 
 1. verify deployed bytecode and constructor parameters;
-2. verify the module wiring and protocol-admin addresses;
+2. verify module wiring, protocol-admin ownership and funding-updater authorities;
 3. publish a deployment manifest matching `deployments/schema/v1.json`;
 4. initialize and validate oracle operations;
 5. start its own indexer from the deployment block;
@@ -165,3 +166,22 @@ Markets in the same risk group must use the same hedge-credit configuration. The
 The bootstrap wires every Core and Advanced module to the shared coordinator by deterministic market index, wires Advanced modules to the shared portfolio liquidator, assigns each Core its configured funding updater, configures shared collateral custody, then transfers Core/Advanced/policy/vault administration to `PROTOCOL_ADMIN`.
 
 As with standalone deployments, the broadcaster should be a temporary deployment key rather than the long-lived governance authority. The DEX team remains responsible for publishing a deployment manifest that maps its own market IDs/symbols to the deployed market indexes and contract addresses.
+
+
+## Live deployment verification
+
+The canonical manifest records the DEX team's long-lived `protocolAdmin` plus each market's `fundingUpdater`. These are operational authorities, not repository-controlled addresses.
+
+The SDK exposes `executeDeploymentVerification(manifest, adapter)`. The adapter is intentionally transport-neutral so teams can use viem, ethers, their own RPC client, or backend infrastructure.
+
+The verifier:
+- checks the connected chain ID when the adapter exposes it;
+- optionally verifies that every manifest contract/oracle address has deployed bytecode;
+- executes the canonical deployment read plan;
+- verifies Core funding-updater authority;
+- verifies Core, Advanced and standalone Liquidation ownership against `protocolAdmin`;
+- verifies portfolio policy/vault ownership and shared-custody wiring;
+- verifies per-market module back-references, market indexes, accounting scale and portfolio policy parameters;
+- reports RPC/read failures separately from value mismatches and fails closed on either.
+
+A deployment should not publish its manifest or start public operator services until this verification is green against the target chain.
