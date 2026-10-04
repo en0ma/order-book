@@ -15,8 +15,8 @@ interface VmDeploy {
 }
 
 /// @notice Foundry deployment script for a single standalone market.
-/// @dev Run with forge script and --broadcast. Contract ownership is assigned
-///      to the broadcaster because CREATE transactions are broadcast directly.
+/// @dev Run with forge script and --broadcast. The broadcaster performs deployment
+///      and one-time wiring, then long-lived admin authority moves to protocolAdmin.
 contract DeployStandalone {
     error InvalidDeploymentConfig();
 
