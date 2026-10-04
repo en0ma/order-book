@@ -6,6 +6,8 @@ The SDK deliberately does not own RPC transport or signing. It produces typed tr
 
 ## Included
 
+- declarative deployment-spec validation and Foundry environment compilation;
+- canonical deployment-manifest construction from resolved deployment addresses;
 - deployment manifest validation;
 - manifest-driven live deployment verification plans;
 - standalone vs portfolio routing for taker orders, maker liquidity, deposits and withdrawals;
@@ -28,6 +30,14 @@ Each planner returns:
 ```
 
 The caller is responsible for ABI encoding, simulation, signing and submission.
+
+## Deployment specs
+
+Use `deployments/spec/schema/v1.json` to define a DEX deployment before broadcasting contracts. The spec contains the team's own protocol admin, collateral, market IDs, oracles, funding operators, fees, accounting scales and risk parameters.
+
+`compileDeploymentEnvironments(spec)` emits the exact environment variables consumed by the repository's standalone or portfolio Foundry bootstrap. Standalone specs produce one environment bundle per listed market; portfolio specs produce one ordered multi-market bundle.
+
+After deployment, `buildDeploymentManifest(spec, deployedAddresses, metadata, portfolio?)` combines the original source spec with actual deployed addresses and returns the canonical client/operator manifest. This keeps market ordering, portfolio indexes, oracle configuration and risk metadata derived from one source of truth.
 
 ## Deployment manifests
 
