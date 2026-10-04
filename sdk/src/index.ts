@@ -306,7 +306,7 @@ export function buildDeploymentManifest(
       core: deployed.core,
       advanced: deployed.advanced,
       marketMaker: deployed.marketMaker,
-      liquidation: spec.mode === "standalone" ? deployed.liquidation : portfolio?.liquidation,
+      liquidation: spec.mode === "standalone" ? deployed.liquidation : undefined,
       portfolioLiquidation: spec.mode === "portfolio" ? portfolio?.liquidation : undefined,
       integrationLens: deployed.integrationLens,
       oracle: market.oracle,
