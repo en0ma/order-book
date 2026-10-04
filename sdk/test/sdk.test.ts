@@ -6,6 +6,7 @@ import {
   ManifestError,
   OrderBookSDK,
   encodePackedQuoteUpdates,
+  executeDeploymentVerification,
   validateManifest,
   verifyDeploymentResults,
   type DeploymentManifest,
@@ -26,6 +27,7 @@ function standaloneManifest(): DeploymentManifest {
     chainId: 1,
     deploymentBlock: 123,
     packageVersion: "0.1.0",
+    protocolAdmin: H,
     collateral: { token: A, decimals: 6 },
     markets: [
       {
@@ -35,6 +37,7 @@ function standaloneManifest(): DeploymentManifest {
         marketMaker: D,
         integrationLens: E,
         oracle: F,
+        fundingUpdater: G,
         scales: { collateralUnitsPerLotTick: "1000" },
         parameters: {
           executionBandTicks: 40,
@@ -267,6 +270,9 @@ test("builds standalone deployment verification plans from the manifest", () => 
   const plans = sdk.deploymentVerificationPlan();
 
   const byId = new Map(plans.map((plan) => [plan.id, plan]));
+  assert.equal(byId.get("market:ETH-PERP:core.owner")?.expected, H);
+  assert.equal(byId.get("market:ETH-PERP:core.fundingUpdater")?.expected, G);
+  assert.equal(byId.get("market:ETH-PERP:advanced.owner")?.expected, H);
   assert.deepEqual(byId.get("market:ETH-PERP:core.markOracle"), {
     id: "market:ETH-PERP:core.markOracle",
     target: B,
@@ -317,6 +323,8 @@ test("builds shared portfolio verification plans and market indexes", () => {
     expected: [B, 1n, 1000n, 5000n],
   });
   assert.equal(byId.get("market:ETH-PERP:advanced.liquidationModule")?.expected, E);
+  assert.equal(byId.get("portfolio:policy.owner")?.expected, H);
+  assert.equal(byId.get("portfolio:vault.owner")?.expected, H);
   assert.equal(byId.get("portfolio:vault.controller")?.expected, G);
   assert.equal(byId.get("portfolio:policy.sharedCollateralVault")?.expected, A);
   assert.equal(byId.get("portfolio:coordinator.policy")?.expected, H);
@@ -416,5 +424,67 @@ test("verifies coordinator tuple results positionally", () => {
       [plan.id]: [C, B],
     }).ok,
     false,
+  );
+});
+
+
+test("executes live deployment verification fail-closed", async () => {
+  const manifest = standaloneManifest();
+  manifest.markets[0].liquidation = G;
+  manifest.markets[0].parameters.maintenanceMarginBps = 500;
+
+  const sdk = new OrderBookSDK(manifest);
+  const expected = new Map(
+    sdk.deploymentVerificationPlan().map((plan) => [plan.id, plan.expected]),
+  );
+
+  const result = await executeDeploymentVerification(manifest, {
+    async chainId() {
+      return 1;
+    },
+    async getCode() {
+      return "0x6000";
+    },
+    async read(plan) {
+      return expected.get(plan.id);
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.readErrors, []);
+  assert.deepEqual(result.missingCode, []);
+  assert.equal(result.chainIdMismatch, undefined);
+});
+
+test("live verifier reports wrong chain, missing code, read errors and mismatches", async () => {
+  const manifest = standaloneManifest();
+  const sdk = new OrderBookSDK(manifest);
+  const plans = sdk.deploymentVerificationPlan();
+  const first = plans[0];
+
+  const result = await executeDeploymentVerification(manifest, {
+    async chainId() {
+      return 10;
+    },
+    async getCode(address) {
+      return address.toLowerCase() === manifest.markets[0].core.toLowerCase()
+        ? "0x"
+        : "0x6000";
+    },
+    async read(plan) {
+      if (plan.id === first.id) throw new Error("rpc unavailable");
+      if (plan.id === "market:ETH-PERP:core.fundingUpdater") return A;
+      return plan.expected;
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.chainIdMismatch, { expected: 1, actual: 10 });
+  assert.ok(result.missingCode.some((entry) => entry.address === manifest.markets[0].core));
+  assert.ok(result.readErrors.some((entry) => entry.id === first.id));
+  assert.ok(
+    result.mismatches.some(
+      (entry) => entry.id === "market:ETH-PERP:core.fundingUpdater",
+    ),
   );
 });
