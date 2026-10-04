@@ -221,6 +221,13 @@ export class OrderBookSDK {
           expected: BigInt(market.scales.collateralUnitsPerLotTick),
         },
         {
+          id: `${prefix}:advanced.core`,
+          target: market.advanced,
+          functionName: "core",
+          args: [],
+          expected: market.core,
+        },
+        {
           id: `${prefix}:advanced.marketMakerModule`,
           target: market.advanced,
           functionName: "marketMakerModule",
@@ -244,13 +251,23 @@ export class OrderBookSDK {
       );
 
       if (market.portfolioMarketIndex !== undefined) {
-        plans.push({
-          id: `${prefix}:advanced.portfolioMarketIndex`,
-          target: market.advanced,
-          functionName: "portfolioMarketIndex",
-          args: [],
-          expected: BigInt(market.portfolioMarketIndex),
-        });
+        const coordinator = this.requirePortfolioCoordinator();
+        plans.push(
+          {
+            id: `${prefix}:advanced.portfolioMarketIndex`,
+            target: market.advanced,
+            functionName: "portfolioMarketIndex",
+            args: [],
+            expected: BigInt(market.portfolioMarketIndex),
+          },
+          {
+            id: `${prefix}:coordinator.marketSlot`,
+            target: coordinator,
+            functionName: "markets",
+            args: [BigInt(market.portfolioMarketIndex)],
+            expected: [market.core, market.advanced],
+          },
+        );
       }
 
       if (market.marketMaker) {
@@ -291,14 +308,34 @@ export class OrderBookSDK {
         );
       }
 
-      if (market.liquidation && market.parameters.maintenanceMarginBps !== undefined) {
-        plans.push({
-          id: `${prefix}:liquidation.maintenanceMarginBps`,
-          target: market.liquidation,
-          functionName: "maintenanceMarginBps",
-          args: [],
-          expected: BigInt(market.parameters.maintenanceMarginBps),
-        });
+      if (
+        market.portfolioMarketIndex === undefined
+          && market.liquidation
+          && market.parameters.maintenanceMarginBps !== undefined
+      ) {
+        plans.push(
+          {
+            id: `${prefix}:liquidation.core`,
+            target: market.liquidation,
+            functionName: "core",
+            args: [],
+            expected: market.core,
+          },
+          {
+            id: `${prefix}:liquidation.gateway`,
+            target: market.liquidation,
+            functionName: "gateway",
+            args: [],
+            expected: market.advanced,
+          },
+          {
+            id: `${prefix}:liquidation.maintenanceMarginBps`,
+            target: market.liquidation,
+            functionName: "maintenanceMarginBps",
+            args: [],
+            expected: BigInt(market.parameters.maintenanceMarginBps),
+          },
+        );
       }
     }
 
@@ -663,6 +700,10 @@ export function encodePackedQuoteUpdates(updates: readonly QuoteUpdate[]): Hex {
 }
 
 function verificationValueEqual(expected: unknown, actual: unknown): boolean {
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual) || actual.length < expected.length) return false;
+    return expected.every((value, index) => verificationValueEqual(value, actual[index]));
+  }
   if (typeof expected === "string" && /^0x[0-9a-fA-F]{40}$/.test(expected)) {
     return typeof actual === "string" && actual.toLowerCase() === expected.toLowerCase();
   }
