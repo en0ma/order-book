@@ -419,8 +419,6 @@ export function validateManifest(manifest: DeploymentManifest): DeploymentManife
     throw new ManifestError("at least one market is required");
   }
 
-  push("collateral.token", manifest.collateral.token);
-
   if (manifest.portfolio) {
     assertAddress(manifest.portfolio.coordinator, "portfolio.coordinator");
     assertAddress(manifest.portfolio.policy, "portfolio.policy");
@@ -1165,6 +1163,8 @@ function deploymentAddresses(manifest: DeploymentManifest): { id: string; addres
   const push = (id: string, address: Address | undefined) => {
     if (address) entries.push({ id, address });
   };
+
+  push("collateral.token", manifest.collateral.token);
 
   if (manifest.portfolio) {
     push("portfolio.coordinator", manifest.portfolio.coordinator);
