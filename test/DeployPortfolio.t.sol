@@ -79,7 +79,7 @@ contract DeployPortfolioTest is TestBase {
                 "funding updater"
             );
             assertEq(
-                uint256(market.core.collateralUnitsPerLotTick()),
+                market.core.notionalValue(1, 1),
                 i == 0 ? 1_000 : 2_000,
                 "accounting scale"
             );
