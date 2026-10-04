@@ -31,12 +31,13 @@ The script configures the accounting scale, advanced module, market-maker module
 
 `PROTOCOL_ADMIN` should normally be the DEX team's Safe, timelock or governance executor rather than the funded broadcast key.
 
-The script also transfers the Core funding-updater role to `PROTOCOL_ADMIN`, so the deployer key is not left with an operational privilege after bootstrap.
+The script assigns the Core funding-updater role to a separate `FUNDING_UPDATER` address, so routine funding operations do not need to use the governance admin and the deployer key is not left with an operational privilege after bootstrap.
 
 ### Required environment
 
 ```bash
 export PROTOCOL_ADMIN=0x...
+export FUNDING_UPDATER=0x...
 export COLLATERAL_TOKEN=0x...
 export MARK_ORACLE=0x...
 
@@ -62,7 +63,7 @@ forge script script/DeployStandalone.s.sol:DeployStandalone \
   -vvvv
 ```
 
-The funded broadcaster performs deployment and one-time wiring. The configured protocol admin receives the long-lived administrative authority before the script finishes.
+The funded broadcaster performs deployment and one-time wiring. The configured protocol admin receives the long-lived administrative authority before the script finishes, while the configured funding updater receives only the Core funding-update role.
 
 Before a production broadcast, run the script without `--broadcast` against the target RPC and verify every address and parameter.
 
@@ -83,7 +84,7 @@ The standalone bootstrap transfers:
 - `OrderBookCore` administration;
 - `AdvancedOrderModule` administration;
 - `LiquidationModule` administration;
-- Core funding-update authority.
+- Core funding-update authority to the separately configured funding operator.
 
 The portfolio policy and collateral vault also support ownership handoff for portfolio deployments.
 
