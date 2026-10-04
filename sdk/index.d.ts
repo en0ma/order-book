@@ -40,6 +40,9 @@ export interface MarketManifest {
     takerFeeBps: number;
     makerRebateBps: number;
     oracleMaxAgeSeconds?: number;
+    riskGroup?: number;
+    portfolioMarginBps?: number;
+    hedgeCreditBps?: number;
   };
 }
 
@@ -123,9 +126,9 @@ export interface MarketDeploymentAddresses {
   id: string;
   core: Address;
   advanced: Address;
-  marketMaker?: Address;
+  marketMaker: Address;
   liquidation?: Address;
-  integrationLens?: Address;
+  integrationLens: Address;
 }
 
 export interface PortfolioDeploymentAddresses {
