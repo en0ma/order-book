@@ -79,7 +79,7 @@ At execution, the contract derives the high/low since activation from the oracle
 
 The repository is an open-source execution engine for protocol teams to deploy and operate themselves. A DEX team chooses its own collateral, oracle, market list, risk/fee configuration and protocol admin; deploys its own contracts; publishes its own manifest; and runs its own indexer, keepers, liquidators, market-making infrastructure and application stack.
 
-There is no repository-controlled production registry or hosted execution dependency. The reference standalone Foundry bootstrap deploys and wires a market, then hands administration and funding-update authority to the deploying team's configured Safe/timelock/governance address.
+There is no repository-controlled production registry or hosted execution dependency. The reference standalone Foundry bootstrap deploys and wires a market, hands administration to the deploying team's configured Safe/timelock/governance address, and assigns routine funding updates to a separately configured operator.
 
 ## Deployable architecture
 
