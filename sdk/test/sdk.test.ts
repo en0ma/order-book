@@ -309,6 +309,13 @@ test("builds shared portfolio verification plans and market indexes", () => {
     args: [3n],
     expected: [B, C],
   });
+  assert.deepEqual(byId.get("market:ETH-PERP:policy.marketSlot"), {
+    id: "market:ETH-PERP:policy.marketSlot",
+    target: H,
+    functionName: "markets",
+    args: [3n],
+    expected: [B, 1n, 1000n, 5000n],
+  });
   assert.equal(byId.get("market:ETH-PERP:advanced.liquidationModule")?.expected, E);
   assert.equal(byId.get("portfolio:vault.controller")?.expected, G);
   assert.equal(byId.get("portfolio:policy.sharedCollateralVault")?.expected, A);
