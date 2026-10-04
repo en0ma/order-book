@@ -86,6 +86,15 @@ contract DeploymentBootstrapTest is TestBase {
             address(deployed.lens.advanced()) == address(deployed.advanced),
             "lens advanced wiring"
         );
+        assertTrue(deployed.core.owner() == ADMIN, "core owner not handed off");
+        assertTrue(
+            deployed.advanced.owner() == ADMIN,
+            "advanced owner not handed off"
+        );
+        assertTrue(
+            deployed.liquidation.owner() == ADMIN,
+            "liquidation owner not handed off"
+        );
         assertTrue(
             deployed.core.fundingUpdater() == ADMIN,
             "funding updater not handed off"
