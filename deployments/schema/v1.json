@@ -76,7 +76,10 @@
             "maintenanceMarginBps": { "type": "integer", "minimum": 0, "maximum": 10000 },
             "takerFeeBps": { "type": "integer", "minimum": 0, "maximum": 10000 },
             "makerRebateBps": { "type": "integer", "minimum": 0, "maximum": 10000 },
-            "oracleMaxAgeSeconds": { "type": "integer", "minimum": 0 }
+            "oracleMaxAgeSeconds": { "type": "integer", "minimum": 0 },
+            "riskGroup": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+            "portfolioMarginBps": { "type": "integer", "minimum": 1, "maximum": 10000 },
+            "hedgeCreditBps": { "type": "integer", "minimum": 0, "maximum": 10000 }
           }
         }
       }
