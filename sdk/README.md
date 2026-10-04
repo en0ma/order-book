@@ -9,7 +9,7 @@ The SDK deliberately does not own RPC transport or signing. It produces typed tr
 - declarative deployment-spec validation and Foundry environment compilation;
 - canonical deployment-manifest construction from resolved deployment addresses;
 - deployment manifest validation;
-- manifest-driven live deployment verification plans;
+- manifest-driven live deployment verification plans and execution;
 - standalone vs portfolio routing for taker orders, maker liquidity, deposits and withdrawals;
 - advanced-order transaction planning;
 - OCO / OTO graph planning;
@@ -43,15 +43,19 @@ After deployment, `buildDeploymentManifest(spec, deployedAddresses, metadata, po
 
 Use `deployments/schema/v1.json` as the canonical machine-readable schema. A sample document is available at `deployments/example.json`.
 
+The manifest includes the DEX team's `protocolAdmin` and each market's `fundingUpdater` so launch verification can prove that the temporary deployer retained no unintended authority.
+
 Manifest values should be generated from the actual deployment inputs and verified on-chain before publication. Do not copy the example addresses into a real deployment.
 
 ## Deployment verification
 
 `OrderBookSDK.deploymentVerificationPlan()` returns transport-neutral read plans with stable IDs, targets, function names, arguments and expected values from the manifest. The plans verify existing read surfaces without adding protocol bytecode, including Core oracle/advanced/portfolio wiring, accounting scale, Advanced MM/liquidation/portfolio wiring, MM and lens back-references, standalone liquidation maintenance margin, and shared portfolio vault/policy/coordinator wiring.
 
-Execute those reads with the DEX team's preferred RPC library, collect results by plan ID, then call `verifyDeploymentResults(plans, results)`. Address comparisons are case-insensitive and integer-like RPC results may be bigint, safe integers, or decimal strings.
+`executeDeploymentVerification(manifest, adapter)` provides the executable fail-closed layer around those plans while remaining transport-neutral. An adapter supplies a read function and may also supply chain-ID and bytecode lookups. The result separates value mismatches, read/RPC failures, missing bytecode and wrong-chain failures.
 
-A deployment pipeline should fail closed on any mismatch before publishing the manifest or starting the indexer/keepers.
+The canonical plans also verify Core/Advanced/Liquidation ownership, Core funding-updater authority, and portfolio policy/vault ownership. Address comparisons are case-insensitive and integer-like RPC results may be bigint, safe integers, or decimal strings.
+
+A deployment pipeline should require a fully green verification result before publishing the manifest or starting the indexer/keepers.
 
 ## Market-maker packed encoding
 
