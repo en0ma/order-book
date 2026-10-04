@@ -270,21 +270,27 @@ contract PortfolioAdmissionCoordinator {
     ) external {
         IOrderBookCore core = _gatewayCore(marketIndex);
         core.moduleReleaseExposure(account, side, lots);
-        syncAccount(account);
-    }
 
-    /// @notice Risk-decreasing release used only by a configured market gateway
-    ///         during liquidation cleanup.
-    /// @dev Deliberately skips syncAccount: an under-margined account may remain
-    ///      unhealthy until its positions are reduced later in the same liquidation.
-    function gatewayLiquidationReleaseExposure(
-        uint256 marketIndex,
-        address account,
-        IOrderBookCore.Side side,
-        uint96 lots
-    ) external {
-        IOrderBookCore core = _gatewayCore(marketIndex);
-        core.moduleReleaseExposure(account, side, lots);
+        int256 equity = policy.portfolioEquity(account);
+        uint256 requirement = policy.portfolioRequirement(account);
+        if (
+            requirement <= uint256(type(int256).max)
+                && equity >= int256(requirement)
+        ) {
+            syncAccount(account);
+            return;
+        }
+
+        int256 claim = vault.collateralClaim(account);
+        uint256 lockedCollateral = claim > 0 ? uint256(claim) : 0;
+        vault.setLockedCollateral(account, lockedCollateral);
+
+        emit PortfolioLockSynchronized(
+            account,
+            equity,
+            requirement,
+            lockedCollateral
+        );
     }
 
     function gatewayTake(
