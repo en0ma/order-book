@@ -79,3 +79,40 @@ npm test
 ```
 
 The tests cover canonical ordering, duplicate delivery, checkpoint recovery, short-reorg replacement, pool exhaustion generation rollover, triggered-limit resting/GTD semantics, OCO/OTO reconstruction, MM quote lifecycle, portfolio locks, emitter validation, and deep-reorg failure.
+
+
+## Node JSON-RPC + checkpoint adapter
+
+Node services can use the optional `@en0ma/order-book-reference-indexer/node` subpath.
+
+It provides:
+
+- `HttpJsonRpcClient` using Node's native `fetch` for `eth_chainId`, block headers and per-block `eth_getLogs`;
+- manifest-derived protocol event address filters;
+- `JsonFileCheckpointStore` with atomic temporary-file + rename persistence;
+- `ReferenceNodeService` for deployment-block startup, restart from persisted checkpoints, sequential canonical replay and retained-window reorg reconciliation.
+
+The service intentionally accepts a `ProtocolLogDecoder` callback instead of forcing an ABI/runtime dependency. A DEX team can bind viem, ethers or its own generated ABI decoder while retaining the repository's canonical replay, chain validation and persistence logic.
+
+Example:
+
+```ts
+import {
+  HttpJsonRpcClient,
+  JsonFileCheckpointStore,
+  ReferenceNodeService,
+} from "@en0ma/order-book-reference-indexer/node";
+
+const rpc = new HttpJsonRpcClient(process.env.RPC_URL!);
+const checkpoints = new JsonFileCheckpointStore("./data/indexer-checkpoint.json");
+const service = await ReferenceNodeService.create(
+  manifest,
+  rpc,
+  decodeProtocolLog,
+  checkpoints,
+);
+
+await service.syncTo();
+```
+
+On every sync the adapter verifies the connected chain. Before advancing, it rechecks the persisted head hash; if that head became orphaned, it finds a common ancestor inside the indexer's bounded retained window, rolls back, and replays the canonical replacement branch. A deeper reorg fails closed and requires restoration from a finalized checkpoint.
