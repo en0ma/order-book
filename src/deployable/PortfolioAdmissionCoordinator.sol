@@ -273,6 +273,20 @@ contract PortfolioAdmissionCoordinator {
         syncAccount(account);
     }
 
+    /// @notice Risk-decreasing release used only by a configured market gateway
+    ///         during liquidation cleanup.
+    /// @dev Deliberately skips syncAccount: an under-margined account may remain
+    ///      unhealthy until its positions are reduced later in the same liquidation.
+    function gatewayLiquidationReleaseExposure(
+        uint256 marketIndex,
+        address account,
+        IOrderBookCore.Side side,
+        uint96 lots
+    ) external {
+        IOrderBookCore core = _gatewayCore(marketIndex);
+        core.moduleReleaseExposure(account, side, lots);
+    }
+
     function gatewayTake(
         uint256 marketIndex,
         address account,
