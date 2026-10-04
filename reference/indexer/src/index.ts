@@ -249,6 +249,33 @@ export class ReferenceIndexer {
     return this.cursor ? { ...this.cursor } : undefined;
   }
 
+  retainedBlocks(): BlockCursor[] {
+    return this.history
+      .flatMap((snapshot) => snapshot.cursor ? [{ ...snapshot.cursor }] : []);
+  }
+
+  rollbackTo(cursor?: BlockCursor): void {
+    if (!cursor) {
+      const initial = this.history[0];
+      if (initial.cursor) {
+        throw new IndexerError("cannot rollback before checkpoint");
+      }
+      this.restore(initial);
+      this.history = [this.snapshot()];
+      return;
+    }
+
+    const index = this.history.findIndex(
+      (snapshot) =>
+        snapshot.cursor?.number === cursor.number
+        && snapshot.cursor.hash === cursor.hash,
+    );
+    if (index < 0) throw new IndexerError("rollback checkpoint unavailable");
+
+    this.restore(this.history[index]);
+    this.history = this.history.slice(0, index + 1);
+  }
+
   snapshotState(): IndexerState {
     return cloneState(this.state);
   }
