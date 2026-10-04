@@ -91,6 +91,12 @@ contract DeploymentBootstrapTest is TestBase {
             "funding updater not handed off"
         );
 
+        vm.prank(address(deployer));
+        (bool oldCoreOwnerOk,) = address(deployed.core).call(
+            abi.encodeCall(deployed.core.setFundingUpdater, (NEXT_ADMIN))
+        );
+        assertTrue(!oldCoreOwnerOk, "deployer retained core admin");
+
         vm.prank(ADMIN);
         deployed.core.setFundingUpdater(NEXT_ADMIN);
         assertTrue(
@@ -103,6 +109,31 @@ contract DeploymentBootstrapTest is TestBase {
 
         vm.prank(ADMIN);
         deployed.liquidation.transferOwnership(NEXT_ADMIN);
+    }
+
+    function testRejectsZeroProtocolAdminBeforeDeployment() public {
+        MockERC20 token = new MockERC20();
+        SegmentTreeExtremaOracle oracle =
+            new SegmentTreeExtremaOracle(address(this), 100, 3_600);
+        DeployStandalone deployer = new DeployStandalone();
+
+        DeployStandalone.Config memory config = DeployStandalone.Config({
+            protocolAdmin: address(0),
+            collateralToken: address(token),
+            oracle: address(oracle),
+            executionBandTicks: 40,
+            initialMarginBps: 1_000,
+            maintenanceMarginBps: 500,
+            takerFeeBps: 5,
+            makerRebateBps: 2,
+            liquidatorRewardBps: 25,
+            collateralUnitsPerLotTick: 1_000
+        });
+
+        (bool ok,) = address(deployer).call(
+            abi.encodeCall(deployer.deployStandalone, (config))
+        );
+        assertTrue(!ok, "zero admin deployment accepted");
     }
 
     function testPortfolioAdminSurfacesSupportSafeHandoff() public {
@@ -130,6 +161,11 @@ contract DeploymentBootstrapTest is TestBase {
 
         assertTrue(policy.owner() == ADMIN, "policy admin handoff");
         assertTrue(vault.owner() == ADMIN, "vault admin handoff");
+
+        (bool oldPolicyOwnerOk,) = address(policy).call(
+            abi.encodeCall(policy.configureSharedCollateralVault, (address(vault)))
+        );
+        assertTrue(!oldPolicyOwnerOk, "deployer retained policy admin");
 
         vm.prank(ADMIN);
         policy.configureSharedCollateralVault(address(vault));
