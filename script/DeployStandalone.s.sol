@@ -25,6 +25,7 @@ contract DeployStandalone {
 
     struct Config {
         address protocolAdmin;
+        address fundingUpdater;
         address collateralToken;
         address oracle;
         uint16 executionBandTicks;
@@ -52,12 +53,14 @@ contract DeployStandalone {
         address lens,
         address collateralToken,
         address oracle,
-        address protocolAdmin
+        address protocolAdmin,
+        address fundingUpdater
     );
 
     function run() external returns (Deployment memory deployment) {
         Config memory config = Config({
             protocolAdmin: vm.envAddress("PROTOCOL_ADMIN"),
+            fundingUpdater: vm.envAddress("FUNDING_UPDATER"),
             collateralToken: vm.envAddress("COLLATERAL_TOKEN"),
             oracle: vm.envAddress("MARK_ORACLE"),
             executionBandTicks: _envUint16("EXECUTION_BAND_TICKS"),
@@ -117,7 +120,7 @@ contract DeployStandalone {
             config.liquidatorRewardBps
         );
 
-        deployment.core.setFundingUpdater(config.protocolAdmin);
+        deployment.core.setFundingUpdater(config.fundingUpdater);
         deployment.core.transferOwnership(config.protocolAdmin);
         deployment.advanced.transferOwnership(config.protocolAdmin);
         deployment.liquidation.transferOwnership(config.protocolAdmin);
@@ -130,13 +133,15 @@ contract DeployStandalone {
             address(deployment.lens),
             config.collateralToken,
             config.oracle,
-            config.protocolAdmin
+            config.protocolAdmin,
+            config.fundingUpdater
         );
     }
 
     function _validateConfig(Config memory config) internal pure {
         if (
             config.protocolAdmin == address(0)
+                || config.fundingUpdater == address(0)
                 || config.collateralToken == address(0)
                 || config.oracle == address(0)
                 || config.initialMarginBps == 0
