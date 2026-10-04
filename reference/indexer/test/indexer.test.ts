@@ -143,6 +143,39 @@ test("deduplicates repeated log delivery and repeated block delivery", () => {
   );
 });
 
+test("ignores redelivery of a retained canonical non-head block", () => {
+  const indexer = new ReferenceIndexer(manifest(), { maxReorgDepth: 8 });
+  const block100 = block(100, "0x100", "0x099", [
+    log(100, "0x100", 0, 0, CORE, {
+      name: "LiquidityAdded",
+      side: 0,
+      tick: 95,
+      lots: 20n,
+      generation: 0,
+    }),
+  ]);
+  indexer.applyBlock(block100);
+  indexer.applyBlock(
+    block(101, "0x101", "0x100", [
+      log(101, "0x101", 0, 0, CORE, {
+        name: "Trade",
+        takerSide: 1,
+        tick: 95,
+        lots: 3n,
+      }),
+    ]),
+  );
+
+  indexer.applyBlock(block100);
+
+  assert.deepEqual(indexer.head(), { number: 101, hash: "0x101" });
+  assert.equal(
+    indexer.snapshotState().pools["ETH-PERP:0:95"].remainingLots,
+    "17",
+  );
+});
+
+
 test("rolls back an orphaned block and applies the canonical sibling", () => {
   const indexer = new ReferenceIndexer(manifest(), { maxReorgDepth: 8 });
 
@@ -255,6 +288,7 @@ test("reconstructs conditional resting and GTD lifecycle", () => {
 
   assert.deepEqual(indexer.snapshotState().conditionals["ETH-PERP:1"], {
     active: false,
+    dormant: false,
     expiry: "1000",
     resting: true,
   });
@@ -271,9 +305,52 @@ test("reconstructs conditional resting and GTD lifecycle", () => {
 
   assert.deepEqual(indexer.snapshotState().conditionals["ETH-PERP:1"], {
     active: false,
+    dormant: false,
     expiry: "0",
     resting: false,
   });
+});
+
+test("tracks OTO child dormancy and activation", () => {
+  const indexer = new ReferenceIndexer(manifest());
+
+  indexer.applyBlock(
+    block(100, "0x100", "0x099", [
+      log(100, "0x100", 0, 0, ADVANCED, {
+        name: "ConditionalOrderPlaced",
+        orderId: 1n,
+      }),
+      log(100, "0x100", 0, 1, ADVANCED, {
+        name: "ConditionalOrderPlaced",
+        orderId: 2n,
+      }),
+      log(100, "0x100", 1, 0, ADVANCED, {
+        name: "OTOLinked",
+        parentOrderId: 1n,
+        childOrderId: 2n,
+      }),
+    ]),
+  );
+
+  let child = indexer.snapshotState().conditionals["ETH-PERP:2"];
+  assert.equal(child.active, false);
+  assert.equal(child.dormant, true);
+
+  indexer.applyBlock(
+    block(101, "0x101", "0x100", [
+      log(101, "0x101", 0, 0, ADVANCED, {
+        name: "OTOActivated",
+        parentOrderId: 1n,
+        childOrderId: 2n,
+        lots: 5n,
+      }),
+    ]),
+  );
+
+  child = indexer.snapshotState().conditionals["ETH-PERP:2"];
+  assert.equal(child.active, true);
+  assert.equal(child.dormant, false);
+  assert.equal(child.parent, "1");
 });
 
 test("reconstructs OCO and OTO graph relationships", () => {
@@ -402,6 +479,66 @@ test("requires fresh replay to start exactly at deploymentBlock", () => {
     () => indexer.applyBlock(block(101, "0x101", "0x100", [])),
     /deploymentBlock/,
   );
+});
+
+test("failed sibling application leaves the prior head and history intact", () => {
+  const indexer = new ReferenceIndexer(manifest(), { maxReorgDepth: 8 });
+
+  indexer.applyBlock(
+    block(100, "0x100", "0x099", [
+      log(100, "0x100", 0, 0, CORE, {
+        name: "LiquidityAdded",
+        side: 0,
+        tick: 95,
+        lots: 20n,
+        generation: 0,
+      }),
+    ]),
+  );
+  indexer.applyBlock(block(101, "0x101", "0x100", []));
+
+  assert.throws(
+    () =>
+      indexer.applyBlock(
+        block(101, "0x101-bad", "0x100", [
+          log(101, "0x101-bad", 0, 0, CORE, {
+            name: "Trade",
+            takerSide: 1,
+            tick: 95,
+            lots: 99n,
+          }),
+        ]),
+      ),
+    /exceeds replayed pool lots/,
+  );
+
+  assert.deepEqual(indexer.head(), { number: 101, hash: "0x101" });
+
+  indexer.applyBlock(block(102, "0x102", "0x101", []));
+  assert.deepEqual(indexer.head(), { number: 102, hash: "0x102" });
+});
+
+test("checkpoint size does not retain historical log identities", () => {
+  const indexer = new ReferenceIndexer(manifest(), { maxReorgDepth: 2 });
+  for (let number = 100; number <= 104; number += 1) {
+    const hash = `0x${number}`;
+    const parent = number === 100 ? "0x099" : `0x${number - 1}`;
+    indexer.applyBlock(
+      block(number, hash, parent, [
+        log(number, hash, 0, 0, CORE, {
+          name: "LiquidityAdded",
+          side: 0,
+          tick: 95,
+          lots: 1n,
+          generation: 0,
+        }),
+      ]),
+    );
+  }
+
+  const checkpoint = indexer.checkpoint() as unknown as Record<string, unknown>;
+  assert.equal("seenLogIds" in checkpoint, false);
+  assert.equal(JSON.stringify(checkpoint).includes("0x100:0:0"), false);
 });
 
 test("rejects a reorg beyond retained history", () => {
