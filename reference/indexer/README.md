@@ -42,7 +42,7 @@ The adapter should fetch logs beginning at `manifest.deploymentBlock`. A fresh `
 
 ## Checkpoints and restart
 
-Persist `indexer.checkpoint()` at finalized block boundaries. The checkpoint is JSON-safe: bigint protocol values are stored as decimal strings.
+Persist `indexer.checkpoint()` at finalized block boundaries. The checkpoint is JSON-safe: bigint protocol values are stored as decimal strings. It also carries the bounded retained reorg window, so a restarted service can still roll back a short orphaned tip instead of losing recovery history at process restart.
 
 On restart:
 
@@ -79,3 +79,40 @@ npm test
 ```
 
 The tests cover canonical ordering, duplicate delivery, checkpoint recovery, short-reorg replacement, pool exhaustion generation rollover, triggered-limit resting/GTD semantics, OCO/OTO reconstruction, MM quote lifecycle, portfolio locks, emitter validation, and deep-reorg failure.
+
+
+## Node JSON-RPC + checkpoint adapter
+
+Node services can use the optional `@en0ma/order-book-reference-indexer/node` subpath.
+
+It provides:
+
+- `HttpJsonRpcClient` using Node's native `fetch` for `eth_chainId`, block headers and per-block `eth_getLogs`;
+- manifest-derived protocol event address filters;
+- `JsonFileCheckpointStore` with atomic temporary-file + rename persistence;
+- `ReferenceNodeService` for deployment-block startup, restart from persisted checkpoints, sequential canonical replay and retained-window reorg reconciliation.
+
+The service intentionally accepts a `ProtocolLogDecoder` callback instead of forcing an ABI/runtime dependency. A DEX team can bind viem, ethers or its own generated ABI decoder while retaining the repository's canonical replay, chain validation and persistence logic.
+
+Example:
+
+```ts
+import {
+  HttpJsonRpcClient,
+  JsonFileCheckpointStore,
+  ReferenceNodeService,
+} from "@en0ma/order-book-reference-indexer/node";
+
+const rpc = new HttpJsonRpcClient(process.env.RPC_URL!);
+const checkpoints = new JsonFileCheckpointStore("./data/indexer-checkpoint.json");
+const service = await ReferenceNodeService.create(
+  manifest,
+  rpc,
+  decodeProtocolLog,
+  checkpoints,
+);
+
+await service.syncTo();
+```
+
+On every sync the adapter re-queries the connected chain ID before touching replay state. Before advancing, it rechecks the persisted head hash; if that head became orphaned, it finds a common ancestor inside the checkpoint-restored bounded retained window, rolls back, and replays the canonical replacement branch. A deeper reorg fails closed and requires restoration from a finalized checkpoint.

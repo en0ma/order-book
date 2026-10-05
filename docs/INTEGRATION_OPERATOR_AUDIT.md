@@ -89,13 +89,16 @@ Status:
 - deterministic replay/checkpoint/reorg test model: implemented.
 
 Remaining:
-1. Add concrete RPC/ABI/database adapters around the dependency-free reference packages.
+1. Add a canonical ABI decoder adapter and production database adapter around the reference packages.
 2. Add API/WebSocket examples on top of the reference indexer.
 3. Add production runbook/metrics guidance for keeper and liquidator services.
 
 Implemented:
+- Node JSON-RPC ingestion + atomic filesystem checkpoint adapter in `reference/indexer/node`;
 - manifest-bound bounded-reorg reference indexer in `reference/indexer`;
 - dependency-free keeper/liquidator planning primitives and conservative liquidation registries in `operator`.
+
+
 
 ### P2: operator quality
 
