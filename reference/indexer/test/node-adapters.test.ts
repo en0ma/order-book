@@ -258,3 +258,86 @@ test("rollback cursor API is bounded to retained indexer history", () => {
     /rollback checkpoint unavailable/,
   );
 });
+
+test("restart preserves retained history and recovers a short reorg", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "order-book-restart-reorg-"));
+  try {
+    const fixture = createRpcFixture();
+    const rpc = new HttpJsonRpcClient("http://rpc.test", { fetch: fixture.fetch });
+    const store = new JsonFileCheckpointStore(join(dir, "checkpoint.json"));
+
+    const first = await ReferenceNodeService.create(
+      manifest,
+      rpc,
+      decoder,
+      store,
+      { maxReorgDepth: 8 },
+    );
+    await first.syncTo(11);
+
+    const restarted = await ReferenceNodeService.create(
+      manifest,
+      rpc,
+      decoder,
+      store,
+      { maxReorgDepth: 8 },
+    );
+    assert.deepEqual(restarted.indexer.retainedBlocks(), [
+      { number: 10, hash: "0xaaa10" },
+      { number: 11, hash: "0xaaa11" },
+    ]);
+
+    const replacement = {
+      number: hex(11),
+      hash: "0xbbb11",
+      parentHash: "0xaaa10",
+    };
+    fixture.blocks.set(11, replacement);
+    fixture.logs.set(11, [rawLog(replacement, 0, 0, "0x03")]);
+
+    await restarted.syncTo(11);
+
+    assert.deepEqual(restarted.indexer.head(), {
+      number: 11,
+      hash: "0xbbb11",
+    });
+    assert.equal(
+      restarted.indexer.snapshotState().pools["ETH-PERP:0:100"].remainingLots,
+      "3",
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("node service rejects a chain switch between sync calls", async () => {
+  const fixture = createRpcFixture();
+  let chainId = 1;
+  const fetch = async (url, init) => {
+    const request = JSON.parse(init.body);
+    if (request.method === "eth_chainId") {
+      return jsonResponse(hex(chainId));
+    }
+    return fixture.fetch(url, init);
+  };
+
+  const dir = await mkdtemp(join(tmpdir(), "order-book-chain-switch-"));
+  try {
+    const rpc = new HttpJsonRpcClient("http://rpc.test", { fetch });
+    const store = new JsonFileCheckpointStore(join(dir, "checkpoint.json"));
+    const service = await ReferenceNodeService.create(manifest, rpc, decoder, store);
+
+    await service.syncTo(10);
+    const before = service.indexer.head();
+
+    chainId = 2;
+    await assert.rejects(
+      service.syncTo(11),
+      /does not match manifest chainId/,
+    );
+    assert.deepEqual(service.indexer.head(), before);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
