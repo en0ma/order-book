@@ -124,8 +124,8 @@ test("keeper idempotency keys are stable and suppress duplicate submission", asy
     marketId: "ETH-PERP",
     orderId: 7n,
   } as const;
-  const expectedId = keeperTaskId(manifest, indexer.headBlock(), task);
-  assert.equal(expectedId, keeperTaskId(manifest, indexer.headBlock(), task));
+  const expectedId = keeperTaskId(manifest, indexer.branchEpoch(), task);
+  assert.equal(expectedId, keeperTaskId(manifest, indexer.branchEpoch(), task));
 
   const seen = new Set<string>();
   const submissions: string[] = [];
@@ -141,13 +141,13 @@ test("keeper idempotency keys are stable and suppress duplicate submission", asy
 
   const first = await executeKeeperTasksIdempotent(
     manifest,
-    indexer.headBlock(),
+    indexer.branchEpoch(),
     [task],
     executor,
   );
   const second = await executeKeeperTasksIdempotent(
     manifest,
-    indexer.headBlock(),
+    indexer.branchEpoch(),
     [task],
     executor,
   );
@@ -215,4 +215,65 @@ test("checkpoint files fail closed across deployment identities", async () => {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+
+test("keeper idempotency stays stable across ordinary head advances and changes after reorg", async () => {
+  const indexer = new ReferenceIndexer(1);
+  indexer.applyBlock(
+    { number: 1, hash: "0x1", parentHash: "0x0" },
+    [conditionalEvent(1, "0x1")],
+  );
+  const task = {
+    kind: "executeConditional",
+    marketId: "ETH-PERP",
+    orderId: 7n,
+  } as const;
+
+  const first = keeperTaskId(manifest, indexer.branchEpoch(), task);
+  indexer.applyBlock({ number: 2, hash: "0x2a", parentHash: "0x1" }, []);
+  const advanced = keeperTaskId(manifest, indexer.branchEpoch(), task);
+  assert.equal(advanced, first);
+
+  indexer.rollbackTo(1);
+  indexer.applyBlock({ number: 2, hash: "0x2b", parentHash: "0x1" }, []);
+  const replacement = keeperTaskId(manifest, indexer.branchEpoch(), task);
+  assert.notEqual(replacement, first);
+});
+
+test("sync rejects an indexed checkpoint ahead of the configured safe head", async () => {
+  const indexer = new ReferenceIndexer(1);
+  const adapter = linearAdapter(6);
+  await syncOperatorOnce(manifest, indexer, adapter, {
+    confirmationDepth: 0,
+    maxBlocksPerSync: 6,
+  });
+  assert.equal(indexer.headBlock()?.number, 6);
+
+  await assert.rejects(
+    () => syncOperatorOnce(manifest, indexer, adapter, {
+      confirmationDepth: 2,
+      maxBlocksPerSync: 2,
+    }),
+    /ahead of configured safe head/,
+  );
+  assert.equal(indexer.headBlock()?.number, 6);
+});
+
+test("checkpoint persists canonical branch epoch across restart", () => {
+  const indexer = new ReferenceIndexer(1);
+  indexer.applyBlock(
+    { number: 1, hash: "0x1", parentHash: "0x0" },
+    [conditionalEvent(1, "0x1")],
+  );
+  indexer.applyBlock({ number: 2, hash: "0x2a", parentHash: "0x1" }, []);
+  indexer.rollbackTo(1);
+  indexer.applyBlock({ number: 2, hash: "0x2b", parentHash: "0x1" }, []);
+
+  const checkpoint = indexer.checkpoint(manifest);
+  assert.equal(checkpoint.branchEpoch, 1);
+
+  const restored = new ReferenceIndexer(1);
+  restored.restoreCheckpoint(checkpoint, manifest);
+  assert.equal(restored.branchEpoch(), 1);
 });
