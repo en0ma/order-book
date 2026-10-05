@@ -118,9 +118,10 @@ export interface IndexerCheckpoint {
   deploymentBlock: number;
   cursor?: BlockCursor;
   state: IndexerState;
+  retainedHistory?: Snapshot[];
 }
 
-interface Snapshot {
+export interface Snapshot {
   cursor?: BlockCursor;
   state: IndexerState;
 }
@@ -238,11 +239,30 @@ export class ReferenceIndexer {
       }
       this.cursor = checkpoint.cursor ? { ...checkpoint.cursor } : undefined;
       this.state = cloneState(checkpoint.state);
+
+      const retained = checkpoint.retainedHistory ?? [];
+      this.history = retained.map((snapshot) => ({
+        cursor: snapshot.cursor ? { ...snapshot.cursor } : undefined,
+        state: cloneState(snapshot.state),
+      }));
+      if (this.history.length === 0) {
+        this.history = [this.snapshot()];
+      } else {
+        const latest = this.history[this.history.length - 1];
+        if (
+          latest.cursor?.number !== this.cursor?.number
+          || latest.cursor?.hash !== this.cursor?.hash
+        ) {
+          throw new IndexerError("checkpoint retained history does not end at cursor");
+        }
+        if (this.history.length > this.maxReorgDepth + 1) {
+          this.history = this.history.slice(-(this.maxReorgDepth + 1));
+        }
+      }
     } else {
       this.state = emptyState();
+      this.history = [this.snapshot()];
     }
-
-    this.history = [this.snapshot()];
   }
 
   head(): BlockCursor | undefined {
@@ -286,6 +306,10 @@ export class ReferenceIndexer {
       deploymentBlock: this.manifest.deploymentBlock,
       cursor: this.cursor ? { ...this.cursor } : undefined,
       state: cloneState(this.state),
+      retainedHistory: this.history.map((snapshot) => ({
+        cursor: snapshot.cursor ? { ...snapshot.cursor } : undefined,
+        state: cloneState(snapshot.state),
+      })),
     };
   }
 
