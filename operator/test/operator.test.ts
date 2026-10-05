@@ -418,6 +418,16 @@ test("validates self-hosted operator manifests", () => {
   assert.throws(
     () => validateOperatorManifest({
       ...manifest,
+      collateral: {
+        ...manifest.collateral,
+        token: "0x0000000000000000000000000000000000000000",
+      },
+    }),
+    /collateral\.token/,
+  );
+  assert.throws(
+    () => validateOperatorManifest({
+      ...manifest,
       portfolio: {
         coordinator: "0x4444444444444444444444444444444444444444",
         policy: "0x5555555555555555555555555555555555555555",
@@ -441,16 +451,24 @@ test("checkpoint round trip restores JSON-safe operator state", () => {
     })],
   );
 
-  const checkpoint = indexer.checkpoint();
+  const checkpoint = indexer.checkpoint(manifest);
   const encoded = JSON.stringify(checkpoint);
   assert.ok(encoded.includes('"ETH-PERP:1:101"'));
+  assert.equal(checkpoint.deploymentBlock, manifest.deploymentBlock);
 
   const restored = new ReferenceIndexer(1);
-  restored.restoreCheckpoint(checkpoint);
+  restored.restoreCheckpoint(checkpoint, manifest);
   assert.equal(restored.headBlock()?.hash, "0x1");
   assert.deepEqual(
     restored.state.pools.get("ETH-PERP:1:101"),
     { remainingLots: 9n, generation: 2 },
+  );
+assert.throws(
+    () => restored.restoreCheckpoint(checkpoint, {
+      ...manifest,
+      deploymentBlock: manifest.deploymentBlock + 1,
+    }),
+    /checkpoint does not match deployment manifest/,
   );
 });
 
@@ -501,6 +519,29 @@ test("runtime adapter catches up, rolls back a short reorg, and replans keepers"
   assert.equal(second.appliedBlocks, 1);
   assert.equal(indexer.headBlock()?.hash, "0x2b");
   assert.equal(indexer.state.conditionals.get("ETH-PERP:7")?.expiry, 50n);
+});
+
+test("portfolio runtime requires current health adapter support", async () => {
+  const portfolioManifest: OperatorManifest = {
+    ...manifest,
+    portfolio: {
+      coordinator: "0x4444444444444444444444444444444444444444",
+      policy: "0x5555555555555555555555555555555555555555",
+      vault: "0x6666666666666666666666666666666666666666",
+    },
+    markets: [{ ...manifest.markets[0], portfolioMarketIndex: 0 }],
+  };
+  const adapter = {
+    async getChainId() { return 1; },
+    async getHeadBlockNumber() { return 0; },
+    async getBlock() { throw new Error("not reached"); },
+    async getEvents() { return []; },
+    async getMarkTicks() { return { "ETH-PERP": 100 }; },
+  };
+  await assert.rejects(
+    () => syncOperatorOnce(portfolioManifest, new ReferenceIndexer(1), adapter),
+    /requires getPortfolioHealth/,
+  );
 });
 
 test("keeper execution always simulates before submission", async () => {
