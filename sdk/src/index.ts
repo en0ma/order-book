@@ -1208,6 +1208,28 @@ export async function verifyDeploymentOrThrow(
   manifest: DeploymentManifest,
   adapter: DeploymentVerificationAdapter,
 ): Promise<LiveVerificationResult & { ok: true }> {
+  const readErrors: VerificationReadError[] = [];
+  if (!adapter.chainId) {
+    readErrors.push({
+      id: "preflight.chainId",
+      error: "chainId preflight is required for fail-closed verification",
+    });
+  }
+  if (!adapter.getCode) {
+    readErrors.push({
+      id: "preflight.getCode",
+      error: "getCode preflight is required for fail-closed verification",
+    });
+  }
+  if (readErrors.length !== 0) {
+    throw new DeploymentVerificationError({
+      ok: false,
+      mismatches: [],
+      readErrors,
+      missingCode: [],
+    });
+  }
+
   const result = await executeDeploymentVerification(manifest, adapter);
   assertDeploymentVerified(result);
   return result;
