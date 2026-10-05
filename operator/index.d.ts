@@ -84,12 +84,31 @@ export interface KeeperExecutor {
   simulate(task: KeeperTask): Promise<boolean>;
   submit(task: KeeperTask): Promise<string>;
 }
+export interface IdempotentKeeperExecutor {
+  simulate(task: KeeperTask): Promise<boolean>;
+  alreadySubmitted(idempotencyKey: string): Promise<boolean>;
+  submit(task: KeeperTask, idempotencyKey: string): Promise<string>;
+}
+export interface OperatorSyncOptions {
+  confirmationDepth?: number;
+  maxBlocksPerSync?: number;
+}
+export interface OperatorCheckpointStore {
+  load(manifestIdentity: string): Promise<OperatorCheckpoint | undefined>;
+  save(manifestIdentity: string, checkpoint: OperatorCheckpoint): Promise<void>;
+}
 export interface OperatorSyncResult {
   fromBlock: number;
   toBlock: number;
+  remoteHead: number;
+  safeHead: number;
   appliedBlocks: number;
   rolledBackTo?: number;
   tasks: KeeperTask[];
+}
+export interface OperatorCycleResult extends OperatorSyncResult {
+  restoredCheckpoint: boolean;
+  submitted: { task: KeeperTask; transactionId: string; idempotencyKey: string }[];
 }
 export declare class ReferenceIndexer {
   readonly chainId: number;
@@ -109,5 +128,8 @@ export declare function validateOperatorManifest(input: unknown): OperatorManife
 export declare function serializeState(state: IndexState): SerializedIndexState;
 export declare function deserializeState(state: SerializedIndexState): IndexState;
 export declare function knownOperatorAccounts(state: IndexState): Address[];
-export declare function syncOperatorOnce(manifestInput: unknown, indexer: ReferenceIndexer, adapter: OperatorRpcAdapter): Promise<OperatorSyncResult>;
+export declare function syncOperatorOnce(manifestInput: unknown, indexer: ReferenceIndexer, adapter: OperatorRpcAdapter, options?: OperatorSyncOptions): Promise<OperatorSyncResult>;
 export declare function executeKeeperTasks(tasks: readonly KeeperTask[], executor: KeeperExecutor): Promise<{ task: KeeperTask; transactionId: string }[]>;
+export declare function keeperTaskId(manifestInput: unknown, head: BlockRef | undefined, task: KeeperTask): string;
+export declare function executeKeeperTasksIdempotent(manifestInput: unknown, head: BlockRef | undefined, tasks: readonly KeeperTask[], executor: IdempotentKeeperExecutor): Promise<{ task: KeeperTask; transactionId: string; idempotencyKey: string }[]>;
+export declare function runOperatorCycle(manifestInput: unknown, indexer: ReferenceIndexer, adapter: OperatorRpcAdapter, store: OperatorCheckpointStore, executor?: IdempotentKeeperExecutor, options?: OperatorSyncOptions): Promise<OperatorCycleResult>;
