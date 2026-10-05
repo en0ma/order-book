@@ -3,8 +3,12 @@ import assert from "node:assert/strict";
 
 import {
   ReferenceIndexer,
+  executeKeeperTasks,
   planKeeperTasks,
+  syncOperatorOnce,
+  validateOperatorManifest,
   type NormalizedEvent,
+  type OperatorManifest,
 } from "../dist/index.js";
 
 const CORE = "0x1111111111111111111111111111111111111111";
@@ -385,5 +389,182 @@ test("liquidation planning uses current portfolio health input", () => {
     knownMakerKeys: [],
     conditionalIds: [3n],
     trailingIds: [],
+  }]);
+});
+
+
+const manifest: OperatorManifest = {
+  schemaVersion: 1,
+  chainId: 1,
+  deploymentBlock: 1,
+  collateral: {
+    token: "0x9999999999999999999999999999999999999999",
+    decimals: 6,
+  },
+  markets: [{
+    id: "ETH-PERP",
+    core: CORE,
+    advanced: ADV,
+    oracle: "0x3333333333333333333333333333333333333333",
+  }],
+};
+
+test("validates self-hosted operator manifests", () => {
+  assert.deepEqual(validateOperatorManifest(manifest), manifest);
+  assert.throws(
+    () => validateOperatorManifest({ ...manifest, chainId: 0 }),
+    /chainId/,
+  );
+  assert.throws(
+    () => validateOperatorManifest({
+      ...manifest,
+      collateral: {
+        ...manifest.collateral,
+        token: "0x0000000000000000000000000000000000000000",
+      },
+    }),
+    /collateral\.token/,
+  );
+  assert.throws(
+    () => validateOperatorManifest({
+      ...manifest,
+      portfolio: {
+        coordinator: "0x4444444444444444444444444444444444444444",
+        policy: "0x5555555555555555555555555555555555555555",
+        vault: "0x6666666666666666666666666666666666666666",
+      },
+    }),
+    /portfolioMarketIndex/,
+  );
+});
+
+test("checkpoint round trip restores JSON-safe operator state", () => {
+  const indexer = new ReferenceIndexer(1);
+  indexer.applyBlock(
+    { number: 1, hash: "0x1", parentHash: "0x0" },
+    [event(1, "0x1", 0, 0, "LiquidityAdded", {
+      account: ALICE,
+      side: 1,
+      tick: 101,
+      lots: 9n,
+      generation: 2,
+    })],
+  );
+
+  const checkpoint = indexer.checkpoint(manifest);
+  const encoded = JSON.stringify(checkpoint);
+  assert.ok(encoded.includes('"ETH-PERP:1:101"'));
+  assert.equal(checkpoint.deploymentBlock, manifest.deploymentBlock);
+
+  const restored = new ReferenceIndexer(1);
+  restored.restoreCheckpoint(checkpoint, manifest);
+  assert.equal(restored.headBlock()?.hash, "0x1");
+  assert.deepEqual(
+    restored.state.pools.get("ETH-PERP:1:101"),
+    { remainingLots: 9n, generation: 2 },
+  );
+assert.throws(
+    () => restored.restoreCheckpoint(checkpoint, {
+      ...manifest,
+      deploymentBlock: manifest.deploymentBlock + 1,
+    }),
+    /checkpoint does not match deployment manifest/,
+  );
+});
+
+test("runtime adapter catches up, rolls back a short reorg, and replans keepers", async () => {
+  const blocks = new Map<number, { number: number; hash: string; parentHash: string }>([
+    [1, { number: 1, hash: "0x1", parentHash: "0x0" }],
+    [2, { number: 2, hash: "0x2a", parentHash: "0x1" }],
+  ]);
+  const logs = new Map<string, NormalizedEvent[]>([
+    ["0x1", [event(1, "0x1", 0, 0, "ConditionalOrderPlaced", {
+      orderId: 7n,
+      owner: ALICE,
+      triggerAboveOrEqual: true,
+      triggerTick: 110,
+    })]],
+    ["0x2a", []],
+    ["0x2b", [event(2, "0x2b", 0, 0, "ConditionalExpirySet", {
+      orderId: 7n,
+      expiry: 50n,
+    })]],
+  ]);
+
+  const adapter = {
+    async getChainId() { return 1; },
+    async getHeadBlockNumber() { return 2; },
+    async getBlock(number: number) {
+      const block = blocks.get(number);
+      if (!block) throw new Error("missing block");
+      return block;
+    },
+    async getEvents(block: { hash: string }) { return logs.get(block.hash) ?? []; },
+    async getMarkTicks() { return { "ETH-PERP": 120 }; },
+    async getTimestamp() { return 10n; },
+  };
+
+  const indexer = new ReferenceIndexer(1, 8);
+  const first = await syncOperatorOnce(manifest, indexer, adapter);
+  assert.equal(first.appliedBlocks, 2);
+  assert.deepEqual(first.tasks, [{
+    kind: "executeConditional",
+    marketId: "ETH-PERP",
+    orderId: 7n,
+  }]);
+
+  blocks.set(2, { number: 2, hash: "0x2b", parentHash: "0x1" });
+  const second = await syncOperatorOnce(manifest, indexer, adapter);
+  assert.equal(second.rolledBackTo, 1);
+  assert.equal(second.appliedBlocks, 1);
+  assert.equal(indexer.headBlock()?.hash, "0x2b");
+  assert.equal(indexer.state.conditionals.get("ETH-PERP:7")?.expiry, 50n);
+});
+
+test("portfolio runtime requires current health adapter support", async () => {
+  const portfolioManifest: OperatorManifest = {
+    ...manifest,
+    portfolio: {
+      coordinator: "0x4444444444444444444444444444444444444444",
+      policy: "0x5555555555555555555555555555555555555555",
+      vault: "0x6666666666666666666666666666666666666666",
+    },
+    markets: [{ ...manifest.markets[0], portfolioMarketIndex: 0 }],
+  };
+  const adapter = {
+    async getChainId() { return 1; },
+    async getHeadBlockNumber() { return 0; },
+    async getBlock() { throw new Error("not reached"); },
+    async getEvents() { return []; },
+    async getMarkTicks() { return { "ETH-PERP": 100 }; },
+  };
+  await assert.rejects(
+    () => syncOperatorOnce(portfolioManifest, new ReferenceIndexer(1), adapter),
+    /requires getPortfolioHealth/,
+  );
+});
+
+test("keeper execution always simulates before submission", async () => {
+  const tasks = [
+    { kind: "executeConditional", marketId: "ETH-PERP", orderId: 1n },
+    { kind: "executeConditional", marketId: "ETH-PERP", orderId: 2n },
+  ] as const;
+  const calls: string[] = [];
+
+  const submitted = await executeKeeperTasks(tasks, {
+    async simulate(task) {
+      calls.push(`simulate:${task.orderId}`);
+      return task.orderId === 2n;
+    },
+    async submit(task) {
+      calls.push(`submit:${task.orderId}`);
+      return `tx-${task.orderId}`;
+    },
+  });
+
+  assert.deepEqual(calls, ["simulate:1", "simulate:2", "submit:2"]);
+  assert.deepEqual(submitted, [{
+    task: tasks[1],
+    transactionId: "tx-2",
   }]);
 });

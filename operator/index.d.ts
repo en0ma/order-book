@@ -34,13 +34,80 @@ export type KeeperTask =
   | { kind: "syncResting"; marketId: string; orderId: bigint }
   | { kind: "liquidationCandidate"; account: Address; knownMakerKeys: readonly string[]; conditionalIds: readonly bigint[]; trailingIds: readonly bigint[] };
 export interface KeeperContext { now: bigint; markTicks: Readonly<Record<string, number>>; portfolioHealth?: Readonly<Record<Address, { equity: bigint; requirement: bigint }>>; }
+export interface OperatorMarketManifest {
+  id: string;
+  core: Address;
+  advanced: Address;
+  marketMaker?: Address;
+  liquidation?: Address;
+  portfolioLiquidation?: Address;
+  integrationLens?: Address;
+  oracle: Address;
+  portfolioMarketIndex?: number;
+}
+export interface OperatorManifest {
+  schemaVersion: 1;
+  chainId: number;
+  deploymentBlock: number;
+  collateral: { token: Address; decimals: number };
+  portfolio?: { coordinator: Address; policy: Address; vault: Address };
+  markets: OperatorMarketManifest[];
+}
+export interface SerializedIndexState {
+  pools: [string, { remainingLots: string; generation: number }][];
+  conditionals: [string, Omit<AdvancedState, "expiry"> & { expiry: string }][];
+  trailing: [string, Omit<AdvancedState, "expiry"> & { expiry: string }][];
+  managedQuotes: [string, { shares: string; generation: number }][];
+  portfolioLocks: [Address, { equity: string; requirement: string; lockedCollateral: string }][];
+  knownMakerKeys: [Address, string[]][];
+  activeConditionalIds: [Address, string[]][];
+  activeTrailingIds: [Address, string[]][];
+}
+export interface OperatorCheckpoint {
+  version: 1;
+  chainId: number;
+  deploymentBlock: number;
+  manifestIdentity: string;
+  head?: BlockRef;
+  state: SerializedIndexState;
+}
+export interface OperatorRpcAdapter {
+  getChainId(): Promise<number>;
+  getHeadBlockNumber(): Promise<number>;
+  getBlock(blockNumber: number): Promise<BlockRef>;
+  getEvents(block: BlockRef, manifest: OperatorManifest): Promise<readonly NormalizedEvent[]>;
+  getMarkTicks(manifest: OperatorManifest): Promise<Readonly<Record<string, number>>>;
+  getPortfolioHealth?(accounts: readonly Address[], manifest: OperatorManifest): Promise<Readonly<Record<Address, { equity: bigint; requirement: bigint }>>>;
+  getTimestamp?(): Promise<bigint>;
+}
+export interface KeeperExecutor {
+  simulate(task: KeeperTask): Promise<boolean>;
+  submit(task: KeeperTask): Promise<string>;
+}
+export interface OperatorSyncResult {
+  fromBlock: number;
+  toBlock: number;
+  appliedBlocks: number;
+  rolledBackTo?: number;
+  tasks: KeeperTask[];
+}
 export declare class ReferenceIndexer {
   readonly chainId: number;
   readonly state: IndexState;
   constructor(chainId: number, maxReorgDepth?: number);
   headBlock(): BlockRef | undefined;
+  retainedBlocks(): BlockRef[];
+  checkpoint(manifestInput: unknown): OperatorCheckpoint;
+  restoreCheckpoint(checkpoint: OperatorCheckpoint, manifestInput: unknown): void;
   applyBlock(block: BlockRef, events: readonly NormalizedEvent[]): void;
   rollbackTo(blockNumber: number): void;
   applyEvent(event: NormalizedEvent): void;
 }
 export declare function planKeeperTasks(state: IndexState, context: KeeperContext): KeeperTask[];
+export declare function operatorManifestIdentity(manifestInput: unknown): string;
+export declare function validateOperatorManifest(input: unknown): OperatorManifest;
+export declare function serializeState(state: IndexState): SerializedIndexState;
+export declare function deserializeState(state: SerializedIndexState): IndexState;
+export declare function knownOperatorAccounts(state: IndexState): Address[];
+export declare function syncOperatorOnce(manifestInput: unknown, indexer: ReferenceIndexer, adapter: OperatorRpcAdapter): Promise<OperatorSyncResult>;
+export declare function executeKeeperTasks(tasks: readonly KeeperTask[], executor: KeeperExecutor): Promise<{ task: KeeperTask; transactionId: string }[]>;

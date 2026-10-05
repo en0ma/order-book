@@ -76,6 +76,76 @@ export interface KeeperContext {
   portfolioHealth?: Readonly<Record<Address, { equity: bigint; requirement: bigint }>>;
 }
 
+export interface OperatorMarketManifest {
+  id: string;
+  core: Address;
+  advanced: Address;
+  marketMaker?: Address;
+  liquidation?: Address;
+  portfolioLiquidation?: Address;
+  integrationLens?: Address;
+  oracle: Address;
+  portfolioMarketIndex?: number;
+}
+
+export interface OperatorManifest {
+  schemaVersion: 1;
+  chainId: number;
+  deploymentBlock: number;
+  collateral: { token: Address; decimals: number };
+  portfolio?: { coordinator: Address; policy: Address; vault: Address };
+  markets: OperatorMarketManifest[];
+}
+
+export interface SerializedIndexState {
+  pools: [string, { remainingLots: string; generation: number }][];
+  conditionals: [string, Omit<AdvancedState, "expiry"> & { expiry: string }][];
+  trailing: [string, Omit<AdvancedState, "expiry"> & { expiry: string }][];
+  managedQuotes: [string, { shares: string; generation: number }][];
+  portfolioLocks: [Address, { equity: string; requirement: string; lockedCollateral: string }][];
+  knownMakerKeys: [Address, string[]][];
+  activeConditionalIds: [Address, string[]][];
+  activeTrailingIds: [Address, string[]][];
+}
+
+export interface OperatorCheckpoint {
+  version: 1;
+  chainId: number;
+  deploymentBlock: number;
+  manifestIdentity: string;
+  head?: BlockRef;
+  state: SerializedIndexState;
+}
+
+export interface OperatorRpcAdapter {
+  getChainId(): Promise<number>;
+  getHeadBlockNumber(): Promise<number>;
+  getBlock(blockNumber: number): Promise<BlockRef>;
+  getEvents(
+    block: BlockRef,
+    manifest: OperatorManifest,
+  ): Promise<readonly NormalizedEvent[]>;
+  getMarkTicks(manifest: OperatorManifest): Promise<Readonly<Record<string, number>>>;
+  getPortfolioHealth?(
+    accounts: readonly Address[],
+    manifest: OperatorManifest,
+  ): Promise<Readonly<Record<Address, { equity: bigint; requirement: bigint }>>>;
+  getTimestamp?(): Promise<bigint>;
+}
+
+export interface KeeperExecutor {
+  simulate(task: KeeperTask): Promise<boolean>;
+  submit(task: KeeperTask): Promise<string>;
+}
+
+export interface OperatorSyncResult {
+  fromBlock: number;
+  toBlock: number;
+  appliedBlocks: number;
+  rolledBackTo?: number;
+  tasks: KeeperTask[];
+}
+
 type Snapshot = {
   block: BlockRef;
   state: IndexState;
@@ -195,6 +265,50 @@ export class ReferenceIndexer {
 
   headBlock(): BlockRef | undefined {
     return this.head ? { ...this.head } : undefined;
+  }
+
+  retainedBlocks(): BlockRef[] {
+    return [...this.snapshots.values()]
+      .map((snapshot) => ({ ...snapshot.block }))
+      .sort((a, b) => a.number - b.number);
+  }
+
+  checkpoint(manifestInput: unknown): OperatorCheckpoint {
+    const manifest = validateOperatorManifest(manifestInput);
+    if (manifest.chainId !== this.chainId) {
+      throw new Error("manifest chainId does not match indexer");
+    }
+    return {
+      version: 1,
+      chainId: this.chainId,
+      deploymentBlock: manifest.deploymentBlock,
+      manifestIdentity: operatorManifestIdentity(manifest),
+      head: this.headBlock(),
+      state: serializeState(this.state),
+    };
+  }
+
+  restoreCheckpoint(checkpoint: OperatorCheckpoint, manifestInput: unknown): void {
+    const manifest = validateOperatorManifest(manifestInput);
+    if (
+      checkpoint.version !== 1
+      || checkpoint.chainId !== this.chainId
+      || checkpoint.chainId !== manifest.chainId
+      || checkpoint.deploymentBlock !== manifest.deploymentBlock
+      || checkpoint.manifestIdentity !== operatorManifestIdentity(manifest)
+    ) {
+      throw new Error("checkpoint does not match deployment manifest");
+    }
+    const restored = deserializeState(checkpoint.state);
+    this.restore(restored);
+    this.head = checkpoint.head ? { ...checkpoint.head } : undefined;
+    this.snapshots.clear();
+    if (this.head) {
+      this.snapshots.set(this.head.number, {
+        block: { ...this.head },
+        state: cloneState(this.state),
+      });
+    }
   }
 
   applyBlock(block: BlockRef, events: readonly NormalizedEvent[]): void {
@@ -551,4 +665,314 @@ export function planKeeperTasks(
   }
 
   return tasks;
+}
+
+
+function isAddress(value: unknown): value is Address {
+  return (
+    typeof value === "string"
+    && /^0x[0-9a-fA-F]{40}$/.test(value)
+    && !/^0x0{40}$/i.test(value)
+  );
+}
+
+function expectObject(value: unknown, field: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError(`${field} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function expectAddress(value: unknown, field: string): Address {
+  if (!isAddress(value)) throw new TypeError(`${field} must be an address`);
+  return value;
+}
+
+function expectSafeInteger(value: unknown, field: string, minimum = 0): number {
+  if (
+    typeof value !== "number"
+    || !Number.isSafeInteger(value)
+    || value < minimum
+  ) {
+    throw new TypeError(`${field} must be a safe integer >= ${minimum}`);
+  }
+  return value;
+}
+
+export function operatorManifestIdentity(manifestInput: unknown): string {
+  const manifest = validateOperatorManifest(manifestInput);
+  const marketIdentity = [...manifest.markets]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((market) => [
+      market.id,
+      market.core.toLowerCase(),
+      market.advanced.toLowerCase(),
+      market.marketMaker?.toLowerCase() ?? "",
+      market.liquidation?.toLowerCase() ?? "",
+      market.portfolioLiquidation?.toLowerCase() ?? "",
+      market.integrationLens?.toLowerCase() ?? "",
+      market.oracle.toLowerCase(),
+      market.portfolioMarketIndex ?? "",
+    ].join(":"))
+    .join("|");
+  const portfolioIdentity = manifest.portfolio
+    ? [
+        manifest.portfolio.coordinator.toLowerCase(),
+        manifest.portfolio.policy.toLowerCase(),
+        manifest.portfolio.vault.toLowerCase(),
+      ].join(":")
+    : "";
+  return [
+    manifest.schemaVersion,
+    manifest.chainId,
+    manifest.deploymentBlock,
+    manifest.collateral.token.toLowerCase(),
+    manifest.collateral.decimals,
+    portfolioIdentity,
+    marketIdentity,
+  ].join("/");
+}
+
+export function validateOperatorManifest(input: unknown): OperatorManifest {
+  const root = expectObject(input, "manifest");
+  if (root.schemaVersion !== 1) throw new TypeError("unsupported manifest schemaVersion");
+
+  const chainId = expectSafeInteger(root.chainId, "chainId", 1);
+  const deploymentBlock = expectSafeInteger(root.deploymentBlock, "deploymentBlock");
+  const collateralRaw = expectObject(root.collateral, "collateral");
+  const collateral = {
+    token: expectAddress(collateralRaw.token, "collateral.token"),
+    decimals: expectSafeInteger(collateralRaw.decimals, "collateral.decimals"),
+  };
+  if (collateral.decimals > 255) throw new RangeError("collateral.decimals out of range");
+
+  if (!Array.isArray(root.markets) || root.markets.length === 0) {
+    throw new TypeError("markets must be a non-empty array");
+  }
+
+  const ids = new Set<string>();
+  const markets = root.markets.map((entry, index): OperatorMarketManifest => {
+    const market = expectObject(entry, `markets[${index}]`);
+    if (typeof market.id !== "string" || market.id.length === 0) {
+      throw new TypeError(`markets[${index}].id must be non-empty`);
+    }
+    if (ids.has(market.id)) throw new TypeError("duplicate market id");
+    ids.add(market.id);
+
+    const result: OperatorMarketManifest = {
+      id: market.id,
+      core: expectAddress(market.core, `markets[${index}].core`),
+      advanced: expectAddress(market.advanced, `markets[${index}].advanced`),
+      oracle: expectAddress(market.oracle, `markets[${index}].oracle`),
+    };
+    for (const field of [
+      "marketMaker",
+      "liquidation",
+      "portfolioLiquidation",
+      "integrationLens",
+    ] as const) {
+      if (market[field] !== undefined) {
+        result[field] = expectAddress(market[field], `markets[${index}].${field}`);
+      }
+    }
+    if (market.portfolioMarketIndex !== undefined) {
+      result.portfolioMarketIndex = expectSafeInteger(
+        market.portfolioMarketIndex,
+        `markets[${index}].portfolioMarketIndex`,
+      );
+    }
+    return result;
+  });
+
+  let portfolio: OperatorManifest["portfolio"];
+  if (root.portfolio !== undefined) {
+    const raw = expectObject(root.portfolio, "portfolio");
+    portfolio = {
+      coordinator: expectAddress(raw.coordinator, "portfolio.coordinator"),
+      policy: expectAddress(raw.policy, "portfolio.policy"),
+      vault: expectAddress(raw.vault, "portfolio.vault"),
+    };
+    const indexes = new Set<number>();
+    for (const market of markets) {
+      if (market.portfolioMarketIndex === undefined) {
+        throw new TypeError("portfolio market missing portfolioMarketIndex");
+      }
+      if (indexes.has(market.portfolioMarketIndex)) {
+        throw new TypeError("duplicate portfolioMarketIndex");
+      }
+      indexes.add(market.portfolioMarketIndex);
+    }
+  } else if (markets.some((market) => market.portfolioMarketIndex !== undefined)) {
+    throw new TypeError("standalone manifest cannot include portfolioMarketIndex");
+  }
+
+  return {
+    schemaVersion: 1,
+    chainId,
+    deploymentBlock,
+    collateral,
+    ...(portfolio ? { portfolio } : {}),
+    markets,
+  };
+}
+
+export function serializeState(state: IndexState): SerializedIndexState {
+  const sets = (source: Map<Address, Set<string>>): [Address, string[]][] =>
+    [...source].map(([address, values]) => [address, [...values].sort()]);
+
+  return {
+    pools: [...state.pools].map(([key, value]) => [key, {
+      remainingLots: value.remainingLots.toString(),
+      generation: value.generation,
+    }]),
+    conditionals: [...state.conditionals].map(([key, value]) => [key, {
+      ...value,
+      expiry: value.expiry.toString(),
+    }]),
+    trailing: [...state.trailing].map(([key, value]) => [key, {
+      ...value,
+      expiry: value.expiry.toString(),
+    }]),
+    managedQuotes: [...state.managedQuotes].map(([key, value]) => [key, {
+      shares: value.shares.toString(),
+      generation: value.generation,
+    }]),
+    portfolioLocks: [...state.portfolioLocks].map(([key, value]) => [key, {
+      equity: value.equity.toString(),
+      requirement: value.requirement.toString(),
+      lockedCollateral: value.lockedCollateral.toString(),
+    }]),
+    knownMakerKeys: sets(state.knownMakerKeys),
+    activeConditionalIds: sets(state.activeConditionalIds),
+    activeTrailingIds: sets(state.activeTrailingIds),
+  };
+}
+
+export function deserializeState(state: SerializedIndexState): IndexState {
+  const setMap = (entries: [Address, string[]][]): Map<Address, Set<string>> =>
+    new Map(entries.map(([address, values]) => [address, new Set(values)]));
+
+  return {
+    pools: new Map(state.pools.map(([key, value]) => [key, {
+      remainingLots: BigInt(value.remainingLots),
+      generation: value.generation,
+    }])),
+    conditionals: new Map(state.conditionals.map(([key, value]) => [key, {
+      ...value,
+      expiry: BigInt(value.expiry),
+    }])),
+    trailing: new Map(state.trailing.map(([key, value]) => [key, {
+      ...value,
+      expiry: BigInt(value.expiry),
+    }])),
+    managedQuotes: new Map(state.managedQuotes.map(([key, value]) => [key, {
+      shares: BigInt(value.shares),
+      generation: value.generation,
+    }])),
+    portfolioLocks: new Map(state.portfolioLocks.map(([key, value]) => [key, {
+      equity: BigInt(value.equity),
+      requirement: BigInt(value.requirement),
+      lockedCollateral: BigInt(value.lockedCollateral),
+    }])),
+    knownMakerKeys: setMap(state.knownMakerKeys),
+    activeConditionalIds: setMap(state.activeConditionalIds),
+    activeTrailingIds: setMap(state.activeTrailingIds),
+  };
+}
+
+export function knownOperatorAccounts(state: IndexState): Address[] {
+  const accounts = new Set<Address>();
+  for (const account of state.knownMakerKeys.keys()) accounts.add(account);
+  for (const account of state.activeConditionalIds.keys()) accounts.add(account);
+  for (const account of state.activeTrailingIds.keys()) accounts.add(account);
+  for (const account of state.portfolioLocks.keys()) accounts.add(account);
+  return [...accounts].sort();
+}
+
+async function reconcileReorg(
+  indexer: ReferenceIndexer,
+  adapter: OperatorRpcAdapter,
+): Promise<number | undefined> {
+  const head = indexer.headBlock();
+  if (!head) return undefined;
+
+  const canonicalHead = await adapter.getBlock(head.number);
+  if (canonicalHead.hash === head.hash) return undefined;
+
+  const retained = indexer.retainedBlocks().sort((a, b) => b.number - a.number);
+  for (const candidate of retained) {
+    const canonical = await adapter.getBlock(candidate.number);
+    if (canonical.hash === candidate.hash) {
+      indexer.rollbackTo(candidate.number);
+      return candidate.number;
+    }
+  }
+  throw new Error("reorg exceeds retained operator history");
+}
+
+export async function syncOperatorOnce(
+  manifestInput: unknown,
+  indexer: ReferenceIndexer,
+  adapter: OperatorRpcAdapter,
+): Promise<OperatorSyncResult> {
+  const manifest = validateOperatorManifest(manifestInput);
+  if (manifest.chainId !== indexer.chainId) {
+    throw new Error("manifest chainId does not match indexer");
+  }
+  const rpcChainId = await adapter.getChainId();
+  if (rpcChainId !== manifest.chainId) {
+    throw new Error("RPC chainId does not match manifest");
+  }
+
+  const rolledBackTo = await reconcileReorg(indexer, adapter);
+  const remoteHead = await adapter.getHeadBlockNumber();
+  const first = indexer.headBlock()?.number !== undefined
+    ? indexer.headBlock()!.number + 1
+    : manifest.deploymentBlock;
+  let appliedBlocks = 0;
+
+  for (let number = first; number <= remoteHead; number += 1) {
+    const block = await adapter.getBlock(number);
+    const events = await adapter.getEvents(block, manifest);
+    indexer.applyBlock(block, events);
+    appliedBlocks += 1;
+  }
+
+  const now = adapter.getTimestamp
+    ? await adapter.getTimestamp()
+    : BigInt(Math.floor(Date.now() / 1000));
+  const markTicks = await adapter.getMarkTicks(manifest);
+  const accounts = knownOperatorAccounts(indexer.state);
+  if (manifest.portfolio && !adapter.getPortfolioHealth) {
+    throw new Error("portfolio operator requires getPortfolioHealth adapter support");
+  }
+  const portfolioHealth =
+    manifest.portfolio
+      ? await adapter.getPortfolioHealth!(accounts, manifest)
+      : undefined;
+  const tasks = planKeeperTasks(indexer.state, {
+    now,
+    markTicks,
+    ...(portfolioHealth ? { portfolioHealth } : {}),
+  });
+
+  return {
+    fromBlock: first,
+    toBlock: remoteHead,
+    appliedBlocks,
+    ...(rolledBackTo !== undefined ? { rolledBackTo } : {}),
+    tasks,
+  };
+}
+
+export async function executeKeeperTasks(
+  tasks: readonly KeeperTask[],
+  executor: KeeperExecutor,
+): Promise<{ task: KeeperTask; transactionId: string }[]> {
+  const submitted: { task: KeeperTask; transactionId: string }[] = [];
+  for (const task of tasks) {
+    if (!await executor.simulate(task)) continue;
+    submitted.push({ task, transactionId: await executor.submit(task) });
+  }
+  return submitted;
 }
