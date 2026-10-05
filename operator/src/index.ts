@@ -113,6 +113,7 @@ export interface OperatorCheckpoint {
   chainId: number;
   deploymentBlock: number;
   manifestIdentity: string;
+  branchEpoch?: number;
   head?: BlockRef;
   state: SerializedIndexState;
 }
@@ -275,6 +276,7 @@ export class ReferenceIndexer {
   private head?: BlockRef;
   private readonly snapshots = new Map<number, Snapshot>();
   private readonly maxReorgDepth: number;
+  private canonicalBranchEpoch = 0;
 
   constructor(chainId: number, maxReorgDepth = 64) {
     if (!Number.isInteger(chainId) || chainId <= 0) throw new RangeError("chainId must be positive");
@@ -288,6 +290,10 @@ export class ReferenceIndexer {
 
   headBlock(): BlockRef | undefined {
     return this.head ? { ...this.head } : undefined;
+  }
+
+  branchEpoch(): number {
+    return this.canonicalBranchEpoch;
   }
 
   retainedBlocks(): BlockRef[] {
@@ -306,6 +312,7 @@ export class ReferenceIndexer {
       chainId: this.chainId,
       deploymentBlock: manifest.deploymentBlock,
       manifestIdentity: operatorManifestIdentity(manifest),
+      branchEpoch: this.canonicalBranchEpoch,
       head: this.headBlock(),
       state: serializeState(this.state),
     };
@@ -325,6 +332,11 @@ export class ReferenceIndexer {
     const restored = deserializeState(checkpoint.state);
     this.restore(restored);
     this.head = checkpoint.head ? { ...checkpoint.head } : undefined;
+    const branchEpoch = checkpoint.branchEpoch ?? 0;
+    if (!Number.isSafeInteger(branchEpoch) || branchEpoch < 0) {
+      throw new Error("checkpoint branchEpoch is invalid");
+    }
+    this.canonicalBranchEpoch = branchEpoch;
     this.snapshots.clear();
     if (this.head) {
       this.snapshots.set(this.head.number, {
@@ -374,6 +386,7 @@ export class ReferenceIndexer {
       this.restore(emptyState());
       this.head = undefined;
       this.snapshots.clear();
+      this.canonicalBranchEpoch += 1;
       return;
     }
     const snapshot = this.snapshots.get(blockNumber);
@@ -383,6 +396,7 @@ export class ReferenceIndexer {
     for (const height of [...this.snapshots.keys()]) {
       if (height > blockNumber) this.snapshots.delete(height);
     }
+    this.canonicalBranchEpoch += 1;
   }
 
   applyEvent(event: NormalizedEvent): void {
@@ -964,9 +978,14 @@ export async function syncOperatorOnce(
   }
   const { confirmationDepth, maxBlocksPerSync } = validateSyncOptions(options);
 
-  const rolledBackTo = await reconcileReorg(indexer, adapter);
   const remoteHead = await adapter.getHeadBlockNumber();
   const safeHead = Math.max(-1, remoteHead - confirmationDepth);
+  const currentHead = indexer.headBlock();
+  if (currentHead && currentHead.number > safeHead) {
+    throw new Error("operator checkpoint is ahead of configured safe head");
+  }
+
+  const rolledBackTo = await reconcileReorg(indexer, adapter);
   const first = indexer.headBlock()?.number !== undefined
     ? indexer.headBlock()!.number + 1
     : manifest.deploymentBlock;
@@ -1040,23 +1059,25 @@ function keeperTaskPayload(task: KeeperTask): string {
 
 export function keeperTaskId(
   manifestInput: unknown,
-  head: BlockRef | undefined,
+  branchEpoch: number,
   task: KeeperTask,
 ): string {
   const manifest = validateOperatorManifest(manifestInput);
-  const headKey = head ? `${head.number}:${head.hash.toLowerCase()}` : "uninitialized";
-  return `${operatorManifestIdentity(manifest)}|${headKey}|${keeperTaskPayload(task)}`;
+  if (!Number.isSafeInteger(branchEpoch) || branchEpoch < 0) {
+    throw new RangeError("branchEpoch must be a non-negative safe integer");
+  }
+  return `${operatorManifestIdentity(manifest)}|branch:${branchEpoch}|${keeperTaskPayload(task)}`;
 }
 
 export async function executeKeeperTasksIdempotent(
   manifestInput: unknown,
-  head: BlockRef | undefined,
+  branchEpoch: number,
   tasks: readonly KeeperTask[],
   executor: IdempotentKeeperExecutor,
 ): Promise<{ task: KeeperTask; transactionId: string; idempotencyKey: string }[]> {
   const submitted: { task: KeeperTask; transactionId: string; idempotencyKey: string }[] = [];
   for (const task of tasks) {
-    const idempotencyKey = keeperTaskId(manifestInput, head, task);
+    const idempotencyKey = keeperTaskId(manifestInput, branchEpoch, task);
     if (await executor.alreadySubmitted(idempotencyKey)) continue;
     if (!await executor.simulate(task)) continue;
     submitted.push({
@@ -1094,7 +1115,7 @@ export async function runOperatorCycle(
   const submitted = executor
     ? await executeKeeperTasksIdempotent(
         manifest,
-        indexer.headBlock(),
+        indexer.branchEpoch(),
         result.tasks,
         executor,
       )
