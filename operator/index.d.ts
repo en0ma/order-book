@@ -68,6 +68,7 @@ export interface OperatorCheckpoint {
   chainId: number;
   deploymentBlock: number;
   manifestIdentity: string;
+  branchEpoch?: number;
   head?: BlockRef;
   state: SerializedIndexState;
 }
@@ -115,6 +116,7 @@ export declare class ReferenceIndexer {
   readonly state: IndexState;
   constructor(chainId: number, maxReorgDepth?: number);
   headBlock(): BlockRef | undefined;
+  branchEpoch(): number;
   retainedBlocks(): BlockRef[];
   checkpoint(manifestInput: unknown): OperatorCheckpoint;
   restoreCheckpoint(checkpoint: OperatorCheckpoint, manifestInput: unknown): void;
@@ -130,6 +132,6 @@ export declare function deserializeState(state: SerializedIndexState): IndexStat
 export declare function knownOperatorAccounts(state: IndexState): Address[];
 export declare function syncOperatorOnce(manifestInput: unknown, indexer: ReferenceIndexer, adapter: OperatorRpcAdapter, options?: OperatorSyncOptions): Promise<OperatorSyncResult>;
 export declare function executeKeeperTasks(tasks: readonly KeeperTask[], executor: KeeperExecutor): Promise<{ task: KeeperTask; transactionId: string }[]>;
-export declare function keeperTaskId(manifestInput: unknown, head: BlockRef | undefined, task: KeeperTask): string;
-export declare function executeKeeperTasksIdempotent(manifestInput: unknown, head: BlockRef | undefined, tasks: readonly KeeperTask[], executor: IdempotentKeeperExecutor): Promise<{ task: KeeperTask; transactionId: string; idempotencyKey: string }[]>;
+export declare function keeperTaskId(manifestInput: unknown, branchEpoch: number, task: KeeperTask): string;
+export declare function executeKeeperTasksIdempotent(manifestInput: unknown, branchEpoch: number, tasks: readonly KeeperTask[], executor: IdempotentKeeperExecutor): Promise<{ task: KeeperTask; transactionId: string; idempotencyKey: string }[]>;
 export declare function runOperatorCycle(manifestInput: unknown, indexer: ReferenceIndexer, adapter: OperatorRpcAdapter, store: OperatorCheckpointStore, executor?: IdempotentKeeperExecutor, options?: OperatorSyncOptions): Promise<OperatorCycleResult>;
