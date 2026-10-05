@@ -42,7 +42,7 @@ The adapter should fetch logs beginning at `manifest.deploymentBlock`. A fresh `
 
 ## Checkpoints and restart
 
-Persist `indexer.checkpoint()` at finalized block boundaries. The checkpoint is JSON-safe: bigint protocol values are stored as decimal strings.
+Persist `indexer.checkpoint()` at finalized block boundaries. The checkpoint is JSON-safe: bigint protocol values are stored as decimal strings. It also carries the bounded retained reorg window, so a restarted service can still roll back a short orphaned tip instead of losing recovery history at process restart.
 
 On restart:
 
@@ -115,4 +115,4 @@ const service = await ReferenceNodeService.create(
 await service.syncTo();
 ```
 
-On every sync the adapter verifies the connected chain. Before advancing, it rechecks the persisted head hash; if that head became orphaned, it finds a common ancestor inside the indexer's bounded retained window, rolls back, and replays the canonical replacement branch. A deeper reorg fails closed and requires restoration from a finalized checkpoint.
+On every sync the adapter re-queries the connected chain ID before touching replay state. Before advancing, it rechecks the persisted head hash; if that head became orphaned, it finds a common ancestor inside the checkpoint-restored bounded retained window, rolls back, and replays the canonical replacement branch. A deeper reorg fails closed and requires restoration from a finalized checkpoint.
