@@ -111,6 +111,8 @@ export interface SerializedIndexState {
 export interface OperatorCheckpoint {
   version: 1;
   chainId: number;
+  deploymentBlock: number;
+  manifestIdentity: string;
   head?: BlockRef;
   state: SerializedIndexState;
 }
@@ -271,18 +273,31 @@ export class ReferenceIndexer {
       .sort((a, b) => a.number - b.number);
   }
 
-  checkpoint(): OperatorCheckpoint {
+  checkpoint(manifestInput: unknown): OperatorCheckpoint {
+    const manifest = validateOperatorManifest(manifestInput);
+    if (manifest.chainId !== this.chainId) {
+      throw new Error("manifest chainId does not match indexer");
+    }
     return {
       version: 1,
       chainId: this.chainId,
+      deploymentBlock: manifest.deploymentBlock,
+      manifestIdentity: operatorManifestIdentity(manifest),
       head: this.headBlock(),
       state: serializeState(this.state),
     };
   }
 
-  restoreCheckpoint(checkpoint: OperatorCheckpoint): void {
-    if (checkpoint.version !== 1 || checkpoint.chainId !== this.chainId) {
-      throw new Error("checkpoint does not match indexer");
+  restoreCheckpoint(checkpoint: OperatorCheckpoint, manifestInput: unknown): void {
+    const manifest = validateOperatorManifest(manifestInput);
+    if (
+      checkpoint.version !== 1
+      || checkpoint.chainId !== this.chainId
+      || checkpoint.chainId !== manifest.chainId
+      || checkpoint.deploymentBlock !== manifest.deploymentBlock
+      || checkpoint.manifestIdentity !== operatorManifestIdentity(manifest)
+    ) {
+      throw new Error("checkpoint does not match deployment manifest");
     }
     const restored = deserializeState(checkpoint.state);
     this.restore(restored);
@@ -654,7 +669,11 @@ export function planKeeperTasks(
 
 
 function isAddress(value: unknown): value is Address {
-  return typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value);
+  return (
+    typeof value === "string"
+    && /^0x[0-9a-fA-F]{40}$/.test(value)
+    && !/^0x0{40}$/i.test(value)
+  );
 }
 
 function expectObject(value: unknown, field: string): Record<string, unknown> {
@@ -678,6 +697,40 @@ function expectSafeInteger(value: unknown, field: string, minimum = 0): number {
     throw new TypeError(`${field} must be a safe integer >= ${minimum}`);
   }
   return value;
+}
+
+export function operatorManifestIdentity(manifestInput: unknown): string {
+  const manifest = validateOperatorManifest(manifestInput);
+  const marketIdentity = [...manifest.markets]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((market) => [
+      market.id,
+      market.core.toLowerCase(),
+      market.advanced.toLowerCase(),
+      market.marketMaker?.toLowerCase() ?? "",
+      market.liquidation?.toLowerCase() ?? "",
+      market.portfolioLiquidation?.toLowerCase() ?? "",
+      market.integrationLens?.toLowerCase() ?? "",
+      market.oracle.toLowerCase(),
+      market.portfolioMarketIndex ?? "",
+    ].join(":"))
+    .join("|");
+  const portfolioIdentity = manifest.portfolio
+    ? [
+        manifest.portfolio.coordinator.toLowerCase(),
+        manifest.portfolio.policy.toLowerCase(),
+        manifest.portfolio.vault.toLowerCase(),
+      ].join(":")
+    : "";
+  return [
+    manifest.schemaVersion,
+    manifest.chainId,
+    manifest.deploymentBlock,
+    manifest.collateral.token.toLowerCase(),
+    manifest.collateral.decimals,
+    portfolioIdentity,
+    marketIdentity,
+  ].join("/");
 }
 
 export function validateOperatorManifest(input: unknown): OperatorManifest {
@@ -890,9 +943,12 @@ export async function syncOperatorOnce(
     : BigInt(Math.floor(Date.now() / 1000));
   const markTicks = await adapter.getMarkTicks(manifest);
   const accounts = knownOperatorAccounts(indexer.state);
+  if (manifest.portfolio && !adapter.getPortfolioHealth) {
+    throw new Error("portfolio operator requires getPortfolioHealth adapter support");
+  }
   const portfolioHealth =
-    manifest.portfolio && adapter.getPortfolioHealth
-      ? await adapter.getPortfolioHealth(accounts, manifest)
+    manifest.portfolio
+      ? await adapter.getPortfolioHealth!(accounts, manifest)
       : undefined;
   const tasks = planKeeperTasks(indexer.state, {
     now,
