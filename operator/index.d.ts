@@ -66,6 +66,8 @@ export interface SerializedIndexState {
 export interface OperatorCheckpoint {
   version: 1;
   chainId: number;
+  deploymentBlock: number;
+  manifestIdentity: string;
   head?: BlockRef;
   state: SerializedIndexState;
 }
@@ -95,13 +97,14 @@ export declare class ReferenceIndexer {
   constructor(chainId: number, maxReorgDepth?: number);
   headBlock(): BlockRef | undefined;
   retainedBlocks(): BlockRef[];
-  checkpoint(): OperatorCheckpoint;
-  restoreCheckpoint(checkpoint: OperatorCheckpoint): void;
+  checkpoint(manifestInput: unknown): OperatorCheckpoint;
+  restoreCheckpoint(checkpoint: OperatorCheckpoint, manifestInput: unknown): void;
   applyBlock(block: BlockRef, events: readonly NormalizedEvent[]): void;
   rollbackTo(blockNumber: number): void;
   applyEvent(event: NormalizedEvent): void;
 }
 export declare function planKeeperTasks(state: IndexState, context: KeeperContext): KeeperTask[];
+export declare function operatorManifestIdentity(manifestInput: unknown): string;
 export declare function validateOperatorManifest(input: unknown): OperatorManifest;
 export declare function serializeState(state: IndexState): SerializedIndexState;
 export declare function deserializeState(state: SerializedIndexState): IndexState;
