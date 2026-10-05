@@ -284,6 +284,13 @@ export class ReferenceNodeService {
   }
 
   async syncTo(targetBlock?: number): Promise<BlockCursor | undefined> {
+    const chainId = await this.rpc.chainId();
+    if (chainId !== this.manifest.chainId) {
+      throw new Error(
+        `RPC chainId ${chainId} does not match manifest chainId ${this.manifest.chainId}`,
+      );
+    }
+
     await this.reconcileCanonicalHead();
 
     const target = targetBlock ?? await this.rpc.blockNumber();
