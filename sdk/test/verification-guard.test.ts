@@ -75,3 +75,26 @@ test("verifyDeploymentOrThrow returns only fully verified deployments", async ()
     DeploymentVerificationError,
   );
 });
+
+
+test("verifyDeploymentOrThrow requires chain and bytecode preflights", async () => {
+  await assert.rejects(
+    () => verifyDeploymentOrThrow(manifest, {
+      async read(plan) { return plan.expected; },
+    }),
+    (error: unknown) =>
+      error instanceof DeploymentVerificationError
+      && error.result.readErrors.some((entry) => entry.id === "preflight.chainId")
+      && error.result.readErrors.some((entry) => entry.id === "preflight.getCode"),
+  );
+
+  await assert.rejects(
+    () => verifyDeploymentOrThrow(manifest, {
+      async chainId() { return manifest.chainId; },
+      async read(plan) { return plan.expected; },
+    }),
+    (error: unknown) =>
+      error instanceof DeploymentVerificationError
+      && error.result.readErrors.some((entry) => entry.id === "preflight.getCode"),
+  );
+});
