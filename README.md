@@ -60,6 +60,7 @@ See docs/SELF_HOSTED_DEPLOYMENT.md for the clone/fork, deploy, administer, list-
 See sdk/README.md and deployments/schema/v1.json for the dependency-free TypeScript integration SDK and versioned deployment manifest.
 See reference/indexer/README.md for the transport-neutral reference indexer, checkpoint and reorg-recovery core.
 See operator/README.md for dependency-free keeper/liquidator planning primitives and replay registries for self-hosted operators.
+See docs/OPERATOR_RUNBOOK.md for production startup verification, checkpoint persistence, finality, reorg recovery, keeper idempotency, and failure policy.
 
 The deployable architecture is production-bound, but production deployment still requires completed independent security audits and deployment-specific operational review.
 

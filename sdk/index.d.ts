@@ -169,6 +169,10 @@ export interface DeploymentManifestMetadata {
 }
 
 export declare class ManifestError extends Error {}
+export declare class DeploymentVerificationError extends Error {
+  readonly result: LiveVerificationResult;
+  constructor(result: LiveVerificationResult);
+}
 
 export declare function validateManifest(
   manifest: DeploymentManifest,
@@ -321,6 +325,15 @@ export declare function verifyDeploymentResults(
   plans: readonly ReadPlan[],
   results: Readonly<Record<string, unknown>>,
 ): VerificationResult;
+
+export declare function assertDeploymentVerified(
+  result: LiveVerificationResult,
+): asserts result is LiveVerificationResult & { ok: true };
+
+export declare function verifyDeploymentOrThrow(
+  manifest: DeploymentManifest,
+  adapter: DeploymentVerificationAdapter,
+): Promise<LiveVerificationResult & { ok: true }>;
 
 export declare function executeDeploymentVerification(
   manifest: DeploymentManifest,

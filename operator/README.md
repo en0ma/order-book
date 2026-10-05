@@ -86,3 +86,18 @@ A typical self-hosted loop is therefore:
 6. repeat according to the team's own polling/subscription policy.
 
 No hosted registry, signer, database, RPC provider, or operator service is required by this repository.
+
+
+## Production runtime controls
+
+The runtime adapter supports bounded and finality-aware catch-up:
+
+- `confirmationDepth` withholds the newest N blocks from canonical processing;
+- `maxBlocksPerSync` bounds catch-up work per cycle;
+- `runOperatorCycle` restores/saves checkpoints around a sync cycle;
+- `keeperTaskId` binds keeper work to deployment identity + canonical head;
+- `executeKeeperTasksIdempotent` requires durable duplicate suppression in addition to pre-submit simulation.
+
+For Node deployments, `@en0ma/order-book-operator/node` exports `JsonFileCheckpointStore`, which persists manifest-bound JSON checkpoints with atomic write/rename semantics.
+
+See `docs/OPERATOR_RUNBOOK.md` for startup verification, finality, persistence, reorg recovery, idempotency and failure policy.

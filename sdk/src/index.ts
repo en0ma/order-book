@@ -1184,6 +1184,57 @@ function deploymentAddresses(manifest: DeploymentManifest): { id: string; addres
   return entries;
 }
 
+export class DeploymentVerificationError extends Error {
+  readonly result: LiveVerificationResult;
+
+  constructor(result: LiveVerificationResult) {
+    const failures =
+      result.mismatches.length
+      + result.readErrors.length
+      + result.missingCode.length
+      + (result.chainIdMismatch ? 1 : 0);
+    super(`deployment verification failed with ${failures} issue(s)`);
+    this.result = result;
+  }
+}
+
+export function assertDeploymentVerified(
+  result: LiveVerificationResult,
+): asserts result is LiveVerificationResult & { ok: true } {
+  if (!result.ok) throw new DeploymentVerificationError(result);
+}
+
+export async function verifyDeploymentOrThrow(
+  manifest: DeploymentManifest,
+  adapter: DeploymentVerificationAdapter,
+): Promise<LiveVerificationResult & { ok: true }> {
+  const readErrors: VerificationReadError[] = [];
+  if (!adapter.chainId) {
+    readErrors.push({
+      id: "preflight.chainId",
+      error: "chainId preflight is required for fail-closed verification",
+    });
+  }
+  if (!adapter.getCode) {
+    readErrors.push({
+      id: "preflight.getCode",
+      error: "getCode preflight is required for fail-closed verification",
+    });
+  }
+  if (readErrors.length !== 0) {
+    throw new DeploymentVerificationError({
+      ok: false,
+      mismatches: [],
+      readErrors,
+      missingCode: [],
+    });
+  }
+
+  const result = await executeDeploymentVerification(manifest, adapter);
+  assertDeploymentVerified(result);
+  return result;
+}
+
 export async function executeDeploymentVerification(
   manifest: DeploymentManifest,
   adapter: DeploymentVerificationAdapter,

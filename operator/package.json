@@ -15,11 +15,17 @@
       "types": "./index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./node.d.ts",
+      "import": "./dist/node.js",
+      "default": "./dist/node.js"
     }
   },
   "files": [
     "dist",
     "index.d.ts",
+    "node.d.ts",
     "README.md"
   ]
 }
