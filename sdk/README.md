@@ -67,3 +67,12 @@ A deployment pipeline should require a fully green verification result before pu
 - bits 113..127: zero.
 
 Updates must be strictly sorted by side/tick, matching the contract requirement.
+
+
+## Fail-closed deployment verification
+
+Before starting a DEX backend or operator against a deployment, execute the manifest verification reads against the target RPC.
+
+`verifyDeploymentOrThrow(manifest, adapter)` checks the live verification report and throws `DeploymentVerificationError` when any chain, bytecode, wiring, authority, parameter, or RPC-read check fails. The error retains the full structured report for logging/alerting.
+
+This is the recommended production startup boundary: do not silently continue after a verification mismatch.
