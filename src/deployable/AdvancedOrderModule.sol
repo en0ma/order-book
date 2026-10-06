@@ -111,7 +111,6 @@ contract AdvancedOrderModule {
     error MarketMakerModuleAlreadyConfigured();
     error LiquidationModuleAlreadyConfigured();
     error PortfolioControllerAlreadyConfigured();
-    error ExecutionStrategyModuleAlreadyConfigured();
 
     IOrderBookCore public immutable core;
     IExtremaOracle internal immutable extremaOracle;
@@ -284,10 +283,10 @@ contract AdvancedOrderModule {
     }
 
     function configureExecutionStrategyModule(address module_) external {
-        if (msg.sender != owner || module_ == address(0)) revert Unauthorized();
-        if (executionStrategyModule != address(0)) {
-            revert ExecutionStrategyModuleAlreadyConfigured();
-        }
+        if (
+            msg.sender != owner || module_ == address(0)
+                || executionStrategyModule != address(0)
+        ) revert Unauthorized();
         executionStrategyModule = module_;
     }
 
@@ -340,9 +339,9 @@ contract AdvancedOrderModule {
 
     function activeAdvancedOrders(address account) external view returns (uint32 count) {
         count = activeAdvancedCount[account];
-        address strategy = executionStrategyModule;
-        if (strategy != address(0)) {
-            count += IExecutionStrategyRegistry(strategy).activeStrategyCount(account);
+        if (executionStrategyModule != address(0)) {
+            count += IExecutionStrategyRegistry(executionStrategyModule)
+                .activeStrategyCount(account);
         }
     }
 
