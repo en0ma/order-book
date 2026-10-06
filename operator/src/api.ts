@@ -50,10 +50,20 @@ export function serializeKeeperTask(task: KeeperTask): Record<string, unknown> {
   return { ...task, orderId: task.orderId.toString() };
 }
 
+function assertChainPairing(
+  manifest: OperatorManifest,
+  indexer: ReferenceIndexer,
+): void {
+  if (manifest.chainId !== indexer.chainId) {
+    throw new Error("manifest chainId does not match indexer");
+  }
+}
+
 export function buildApiSnapshot(
   manifest: OperatorManifest,
   indexer: ReferenceIndexer,
 ): ApiSnapshot {
+  assertChainPairing(manifest, indexer);
   const state = indexer.state;
   const head = indexer.headBlock();
   return {
@@ -118,6 +128,7 @@ export function snapshotEnvelope(
   manifest: OperatorManifest,
   indexer: ReferenceIndexer,
 ): OperatorStreamEnvelope {
+  assertChainPairing(manifest, indexer);
   return {
     type: "snapshot",
     chainId: manifest.chainId,
@@ -131,6 +142,7 @@ export function diagnosticsEnvelope(
   indexer: ReferenceIndexer,
   sync: OperatorSyncResult,
 ): OperatorStreamEnvelope {
+  assertChainPairing(manifest, indexer);
   return {
     type: "diagnostics",
     chainId: manifest.chainId,
@@ -144,6 +156,7 @@ export function tasksEnvelope(
   indexer: ReferenceIndexer,
   tasks: readonly KeeperTask[],
 ): OperatorStreamEnvelope {
+  assertChainPairing(manifest, indexer);
   return {
     type: "tasks",
     chainId: manifest.chainId,
