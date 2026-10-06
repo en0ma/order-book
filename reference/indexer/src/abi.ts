@@ -1,5 +1,5 @@
 import { IndexerError, type Address, type DecodedProtocolEvent, type DeploymentManifest } from "./index.js";
-import type { Hex, RawRpcLog } from "./node.js";
+import type { RawRpcLog } from "./node.js";
 
 type Decoder = (log: RawRpcLog) => DecodedProtocolEvent;
 
@@ -186,8 +186,8 @@ const DECODERS = new Map<string, Decoder>([
     requireShape(log, 3, 1);
     return {
       name: "OTOActivated",
-      parentOrderId: topicUint(log, 1),
-      childOrderId: topicUint(log, 2),
+      parentOrderId: orderId(log, 1),
+      childOrderId: orderId(log, 2),
       lots: uintValue(dataUint(log, 0), "lots", (1n << 96n) - 1n),
     };
   }],
@@ -257,8 +257,8 @@ const DECODERS = new Map<string, Decoder>([
     requireShape(log, 2, 1);
     return {
       name: "TrailingExpirySet",
-      orderId: topicUint(log, 1),
-      expiry: dataUint(log, 0),
+      orderId: orderId(log),
+      expiry: uintValue(dataUint(log, 0), "expiry", (1n << 64n) - 1n),
     };
   }],
   [TOPICS.TrailingOrderExpired, (log) => ({
