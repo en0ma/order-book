@@ -115,7 +115,26 @@ test("normalizer rejects wrong-chain and unexpected emitters", () => {
       address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       event: { name: "Trade", taker: ALICE, takerSide: 0, tick: 100, lots: 1n },
     }),
-    /outside manifest/,
+    /core event came from unexpected address/,
+  );
+  assert.throws(
+    () => normalizeCanonicalEvent(manifest, {
+      chainId: 1,
+      blockNumber: 100,
+      blockHash: "0x100",
+      transactionIndex: 0,
+      logIndex: 1,
+      address: CORE,
+      event: {
+        name: "ConditionalOrderPlaced",
+        orderId: 1n,
+        owner: ALICE,
+        side: 0,
+        triggerTick: 100,
+        triggerAboveOrEqual: true,
+      },
+    }),
+    /advanced event came from unexpected address/,
   );
 });
 
