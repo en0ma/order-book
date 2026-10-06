@@ -166,7 +166,7 @@ contract ExecutionStrategyModule {
         _requireExclusive(strategyId, s);
 
         newlyFilledLots = gateway.strategySettle(s.owner, s.side, s.limitTick);
-        _consumeFilled(s, newlyFilledLots);
+        _consumeFilled(strategyId, s, newlyFilledLots);
         if (!s.active) return (newlyFilledLots, 0);
 
         (uint128 shares, uint96 claimLots, uint32 generation) =
@@ -307,7 +307,7 @@ contract ExecutionStrategyModule {
 
         uint16 previousTick = slice.tick;
         newlyFilledLots = gateway.strategySettle(s.owner, s.side, previousTick);
-        _consumeFilled(s, newlyFilledLots);
+        _consumeFilled(strategyId, s, newlyFilledLots);
         if (!s.active) return (newlyFilledLots, previousTick);
 
         nextTick = _peggedTick(s.side, s.pegOffsetTicks, s.limitTick);
@@ -403,12 +403,18 @@ contract ExecutionStrategyModule {
             RestingSlice({shares: shares, generation: generation, tick: tick});
     }
 
-    function _consumeFilled(Strategy storage s, uint96 filledLots) internal {
+    function _consumeFilled(
+        uint64 strategyId,
+        Strategy storage s,
+        uint96 filledLots
+    ) internal {
         if (filledLots > s.remainingLots) revert QuoteContaminated();
         s.remainingLots -= filledLots;
         if (s.remainingLots == 0) {
+            delete restingSlices[strategyId];
             s.active = false;
             activeStrategyCount[s.owner] -= 1;
+            emit StrategyCompleted(strategyId);
         }
     }
 
