@@ -1,6 +1,8 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import { decodeProtocolLog } from "./abi.js";
+
 import {
   IndexerError,
   ReferenceIndexer,
@@ -256,6 +258,21 @@ export class ReferenceNodeService {
       checkpoint,
       maxReorgDepth: options.maxReorgDepth,
     });
+  }
+
+  static async createCanonical(
+    manifest: DeploymentManifest,
+    rpc: HttpJsonRpcClient,
+    checkpointStore: JsonFileCheckpointStore,
+    options: ReferenceNodeServiceOptions = {},
+  ): Promise<ReferenceNodeService> {
+    return ReferenceNodeService.create(
+      manifest,
+      rpc,
+      decodeProtocolLog,
+      checkpointStore,
+      options,
+    );
   }
 
   static async create(
