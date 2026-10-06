@@ -43,6 +43,11 @@ interface IPortfolioAdmissionGateway {
     ) external returns (uint128 mintedShares);
 }
 
+interface IExecutionStrategyRegistry {
+    function activeStrategyCount(address account) external view returns (uint32);
+    function liquidationCleanup(address account, uint64[] calldata strategyIds) external;
+}
+
 interface IMarketMakerLiquidationCleanup {
     function liquidationForgetManagedQuote(
         address maker,
@@ -364,8 +369,12 @@ contract AdvancedOrderModule {
         liquidationModule = module_;
     }
 
-    function activeAdvancedOrders(address account) external view returns (uint32) {
-        return activeAdvancedCount[account];
+    function activeAdvancedOrders(address account) external view returns (uint32 count) {
+        count = activeAdvancedCount[account];
+        address strategy = executionStrategyModule;
+        if (strategy != address(0)) {
+            count += IExecutionStrategyRegistry(strategy).activeStrategyCount(account);
+        }
     }
 
     function trailingOrderState(uint64 orderId)
@@ -426,6 +435,21 @@ contract AdvancedOrderModule {
         }
 
         if (activeAdvancedCount[account] != 0) revert UnsettledAdvancedOrders();
+    }
+
+    function liquidationCleanupStrategies(
+        address account,
+        uint64[] calldata strategyIds
+    ) external onlyLiquidationModule {
+        address strategy = executionStrategyModule;
+        if (strategy == address(0)) {
+            if (strategyIds.length != 0) revert UnsettledAdvancedOrders();
+            return;
+        }
+        IExecutionStrategyRegistry(strategy).liquidationCleanup(account, strategyIds);
+        if (IExecutionStrategyRegistry(strategy).activeStrategyCount(account) != 0) {
+            revert UnsettledAdvancedOrders();
+        }
     }
 
     function liquidationForceCancelQuote(
