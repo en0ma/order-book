@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {OrderBookCore} from "../src/deployable/OrderBookCore.sol";
 import {AdvancedOrderModule} from "../src/deployable/AdvancedOrderModule.sol";
+import {ExecutionStrategyModule} from "../src/deployable/ExecutionStrategyModule.sol";
 import {MarketMakerModule} from "../src/deployable/MarketMakerModule.sol";
 import {LiquidationModule} from "../src/deployable/LiquidationModule.sol";
 import {IntegrationLens} from "../src/deployable/IntegrationLens.sol";
@@ -40,6 +41,7 @@ contract DeployStandalone {
     struct Deployment {
         OrderBookCore core;
         AdvancedOrderModule advanced;
+        ExecutionStrategyModule strategy;
         MarketMakerModule marketMaker;
         LiquidationModule liquidation;
         IntegrationLens lens;
@@ -49,6 +51,7 @@ contract DeployStandalone {
         address indexed core,
         address indexed advanced,
         address indexed marketMaker,
+        address strategy,
         address liquidation,
         address lens,
         address collateralToken,
@@ -95,6 +98,9 @@ contract DeployStandalone {
         );
         deployment.advanced =
             new AdvancedOrderModule(address(deployment.core), config.oracle);
+        deployment.strategy = new ExecutionStrategyModule(
+            address(deployment.core), address(deployment.advanced)
+        );
         deployment.marketMaker = new MarketMakerModule(
             address(deployment.core), address(deployment.advanced)
         );
@@ -113,6 +119,9 @@ contract DeployStandalone {
         deployment.advanced.configureMarketMakerModule(
             address(deployment.marketMaker)
         );
+        deployment.advanced.configureExecutionStrategyModule(
+            address(deployment.strategy)
+        );
         deployment.advanced.configureLiquidationModule(
             address(deployment.liquidation)
         );
@@ -129,6 +138,7 @@ contract DeployStandalone {
             address(deployment.core),
             address(deployment.advanced),
             address(deployment.marketMaker),
+            address(deployment.strategy),
             address(deployment.liquidation),
             address(deployment.lens),
             config.collateralToken,
