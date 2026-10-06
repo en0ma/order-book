@@ -18,6 +18,7 @@ contract ExecutionStrategyModuleTest is TestBase {
 
     address internal constant ALICE = address(0xA11CE);
     address internal constant BOB = address(0xB0B);
+    address internal constant CAROL = address(0xCA401);
 
     function setUp() public {
         token = new MockERC20();
@@ -38,6 +39,7 @@ contract ExecutionStrategyModuleTest is TestBase {
 
         _fund(ALICE, 1_000_000);
         _fund(BOB, 1_000_000);
+        _fund(CAROL, 1_000_000);
     }
 
     function _fund(address account, uint256 amount) internal {
@@ -177,6 +179,70 @@ contract ExecutionStrategyModuleTest is TestBase {
         assertEq(newRemaining, 20, "new peg tick not populated");
     }
 
+    function testPeggedRepriceAccountsBurnAttributedFill() public {
+        vm.prank(ALICE);
+        uint64 id = strategy.placePegged(
+            IOrderBookCore.Side.Bid,
+            -1,
+            110,
+            1
+        );
+
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 99, 2);
+
+        vm.prank(CAROL);
+        core.take(
+            IOrderBookCore.Side.Ask,
+            99,
+            1,
+            IOrderBookCore.FillPolicy.IOC
+        );
+
+        oracle.record(103);
+        (uint96 newlyFilled, uint16 nextTick) = strategy.syncPegged(id);
+
+        assertEq(newlyFilled, 1, "burn-attributed fill not counted");
+        assertEq(uint256(nextTick), 102, "wrong repriced tick");
+        assertEq(int256(_position(ALICE)), 1, "maker fill not materialized");
+
+        (, uint96 replacementLots,) =
+            core.pools(IOrderBookCore.Side.Bid, 102);
+        assertEq(replacementLots, 0, "completed peg was recreated");
+
+        ExecutionStrategyModule.Strategy memory state = strategy.strategyState(id);
+        assertEq(state.remainingLots, 0, "completed peg retained quantity");
+        assertTrue(!state.active, "completed peg remained active");
+    }
+
+    function testLiquidationCleanupCanForceCancelContaminatedStrategyQuote() public {
+        vm.prank(ALICE);
+        uint64 id = strategy.placeIceberg(
+            IOrderBookCore.Side.Bid,
+            95,
+            20,
+            10
+        );
+
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 95, 5);
+
+        uint64[] memory ids = new uint64[](1);
+        ids[0] = id;
+
+        vm.prank(address(advanced));
+        strategy.liquidationCleanup(ALICE, ids);
+
+        assertEq(
+            advanced.activeAdvancedOrders(ALICE),
+            0,
+            "contaminated strategy survived liquidation cleanup"
+        );
+        (, uint96 remaining,) =
+            core.pools(IOrderBookCore.Side.Bid, 95);
+        assertEq(remaining, 0, "force cleanup left contaminated quote");
+    }
+
     function testPeggedBidHonorsMaximumPriceBound() public {
         oracle.record(120);
 
@@ -191,5 +257,9 @@ contract ExecutionStrategyModuleTest is TestBase {
         (, uint96 atBound,) =
             core.pools(IOrderBookCore.Side.Bid, 110);
         assertEq(atBound, 7, "bid peg exceeded price bound");
+    }
+
+    function _position(address account) internal view returns (int80 settled) {
+        (settled,,) = core.accountRisk(account);
     }
 }
