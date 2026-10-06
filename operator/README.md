@@ -101,3 +101,39 @@ The runtime adapter supports bounded and finality-aware catch-up:
 For Node deployments, `@en0ma/order-book-operator/node` exports `JsonFileCheckpointStore`, which persists manifest-bound JSON checkpoints with atomic write/rename semantics.
 
 See `docs/OPERATOR_RUNBOOK.md` for startup verification, finality, persistence, reorg recovery, idempotency and failure policy.
+
+
+## Canonical integration bridge
+
+The `./integration` subpath converts canonical decoded protocol events into the richer `NormalizedEvent` shape consumed by the keeper/liquidator runtime.
+
+This is the intended bridge when pairing the operator with `@en0ma/order-book-reference-indexer/abi`:
+
+1. decode a raw RPC log with the canonical ABI decoder;
+2. wrap block/log metadata;
+3. call `normalizeCanonicalEvent(manifest, envelope)`;
+4. feed the result into the operator indexer/runtime.
+
+The bridge validates chain identity and emitter membership against the deployment manifest. It preserves maker/owner identity and trigger metadata required for liquidation registries and conditional keeper planning.
+
+## API / WebSocket response surfaces
+
+The `./api` subpath provides JSON-safe integration views:
+
+- `buildApiSnapshot`: deterministic pools, advanced-order state, MM quote state and portfolio locks;
+- `buildOperatorDiagnostics`: canonical/safe-head lag, catch-up status, reorg marker and queue counts;
+- `snapshotEnvelope`, `diagnosticsEnvelope`, and `tasksEnvelope`: versioned response envelopes suitable for HTTP or WebSocket publication.
+
+Bigint protocol values are emitted as decimal strings so responses can be serialized without custom JSON replacers.
+
+## Durable audit trail
+
+The Node subpath also exports `JsonlOperatorAuditJournal`, an append-only JSONL sink for cycle, submission and error records.
+
+This is not a replacement for a production database, but it gives self-hosted deployments a dependency-free durable audit trail for:
+- canonical/safe-head progress;
+- keeper submission idempotency keys;
+- transaction identifiers;
+- operator failures and recovery actions.
+
+Production deployments can replace it with Postgres/ClickHouse/log shipping while retaining the same record shape.

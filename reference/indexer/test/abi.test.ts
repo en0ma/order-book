@@ -55,6 +55,7 @@ test("decodes canonical core liquidity and trade events", () => {
     ),
     {
       name: "LiquidityAdded",
+      maker: MAKER,
       side: 1,
       tick: 105,
       lots: 40n,
@@ -76,6 +77,7 @@ test("decodes canonical core liquidity and trade events", () => {
     ),
     {
       name: "Trade",
+      taker: ACCOUNT,
       takerSide: 0,
       tick: 105,
       lots: 11n,

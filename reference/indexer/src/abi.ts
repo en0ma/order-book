@@ -97,11 +97,12 @@ function topicAddress(log: RawRpcLog, index: number): Address {
 
 function decodeLiquidityAdded(log: RawRpcLog): DecodedProtocolEvent {
   requireShape(log, 4, 3);
-  topicAddress(log, 1);
+  const maker = topicAddress(log, 1);
   const lots = uintValue(dataUint(log, 0), "lots", (1n << 96n) - 1n);
   uintValue(dataUint(log, 1), "shares", (1n << 128n) - 1n);
   return {
     name: "LiquidityAdded",
+    maker,
     side: side(topicUint(log, 2)),
     tick: uintNumber(topicUint(log, 3), "tick", 0xffffn),
     lots,
@@ -111,11 +112,12 @@ function decodeLiquidityAdded(log: RawRpcLog): DecodedProtocolEvent {
 
 function decodeLiquidityRemoved(log: RawRpcLog): DecodedProtocolEvent {
   requireShape(log, 4, 3);
-  topicAddress(log, 1);
+  const maker = topicAddress(log, 1);
   const lots = uintValue(dataUint(log, 0), "lots", (1n << 96n) - 1n);
   uintValue(dataUint(log, 1), "shares", (1n << 128n) - 1n);
   return {
     name: "LiquidityRemoved",
+    maker,
     side: side(topicUint(log, 2)),
     tick: uintNumber(topicUint(log, 3), "tick", 0xffffn),
     lots,
@@ -125,9 +127,10 @@ function decodeLiquidityRemoved(log: RawRpcLog): DecodedProtocolEvent {
 
 function decodeTrade(log: RawRpcLog): DecodedProtocolEvent {
   requireShape(log, 4, 1);
-  topicAddress(log, 1);
+  const taker = topicAddress(log, 1);
   return {
     name: "Trade",
+    taker,
     takerSide: side(topicUint(log, 2)),
     tick: uintNumber(topicUint(log, 3), "tick", 0xffffn),
     lots: uintValue(dataUint(log, 0), "lots", (1n << 96n) - 1n),
@@ -146,15 +149,22 @@ const DECODERS = new Map<string, Decoder>([
   [TOPICS.ConditionalOrderPlaced, (log) => {
     requireShape(log, 3, 7);
     const id = orderId(log);
-    topicAddress(log, 2);
-    side(dataUint(log, 0));
-    uintValue(dataUint(log, 1), "triggerTick", 0xffffn);
+    const owner = topicAddress(log, 2);
+    const orderSide = side(dataUint(log, 0));
+    const triggerTick = uintNumber(dataUint(log, 1), "triggerTick", 0xffffn);
     uintValue(dataUint(log, 2), "limitTick", 0xffffn);
     uintValue(dataUint(log, 3), "lots", (1n << 96n) - 1n);
-    boolValue(dataUint(log, 4), "triggerAboveOrEqual");
+    const triggerAboveOrEqual = boolValue(dataUint(log, 4), "triggerAboveOrEqual");
     boolValue(dataUint(log, 5), "reduceOnly");
     boolValue(dataUint(log, 6), "triggeredLimit");
-    return { name: "ConditionalOrderPlaced", orderId: id };
+    return {
+      name: "ConditionalOrderPlaced",
+      orderId: id,
+      owner,
+      side: orderSide,
+      triggerTick,
+      triggerAboveOrEqual,
+    };
   }],
   [TOPICS.ConditionalOrderCancelled, (log) => ({
     name: "ConditionalOrderCancelled",
@@ -240,14 +250,14 @@ const DECODERS = new Map<string, Decoder>([
   [TOPICS.TrailingOrderPlaced, (log) => {
     requireShape(log, 3, 6);
     const id = orderId(log);
-    topicAddress(log, 2);
-    side(dataUint(log, 0));
+    const owner = topicAddress(log, 2);
+    const orderSide = side(dataUint(log, 0));
     uintValue(dataUint(log, 1), "observationId", (1n << 64n) - 1n);
     uintValue(dataUint(log, 2), "trailTicks", 0xffffn);
     uintValue(dataUint(log, 3), "limitTick", 0xffffn);
     uintValue(dataUint(log, 4), "lots", (1n << 96n) - 1n);
     boolValue(dataUint(log, 5), "reduceOnly");
-    return { name: "TrailingOrderPlaced", orderId: id };
+    return { name: "TrailingOrderPlaced", orderId: id, owner, side: orderSide };
   }],
   [TOPICS.TrailingOrderCancelled, (log) => ({
     name: "TrailingOrderCancelled",

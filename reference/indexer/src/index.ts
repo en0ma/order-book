@@ -55,10 +55,10 @@ export interface ProtocolLog {
 }
 
 export type DecodedProtocolEvent =
-  | { name: "LiquidityAdded"; side: Side; tick: number; lots: bigint; generation: number }
-  | { name: "LiquidityRemoved"; side: Side; tick: number; lots: bigint; generation: number }
-  | { name: "Trade"; takerSide: Side; tick: number; lots: bigint }
-  | { name: "ConditionalOrderPlaced"; orderId: bigint }
+  | { name: "LiquidityAdded"; maker: Address; side: Side; tick: number; lots: bigint; generation: number }
+  | { name: "LiquidityRemoved"; maker: Address; side: Side; tick: number; lots: bigint; generation: number }
+  | { name: "Trade"; taker: Address; takerSide: Side; tick: number; lots: bigint }
+  | { name: "ConditionalOrderPlaced"; orderId: bigint; owner: Address; side: Side; triggerTick: number; triggerAboveOrEqual: boolean }
   | { name: "ConditionalExpirySet"; orderId: bigint; expiry: bigint }
   | { name: "ConditionalOrderCancelled"; orderId: bigint }
   | { name: "ConditionalOrderExpired"; orderId: bigint }
@@ -66,7 +66,7 @@ export type DecodedProtocolEvent =
   | { name: "RestingOrderLinked"; orderId: bigint }
   | { name: "RestingOrderSynced"; orderId: bigint; remainingLots: bigint }
   | { name: "RestingOrderCancelled"; orderId: bigint }
-  | { name: "TrailingOrderPlaced"; orderId: bigint }
+  | { name: "TrailingOrderPlaced"; orderId: bigint; owner: Address; side: Side }
   | { name: "TrailingExpirySet"; orderId: bigint; expiry: bigint }
   | { name: "TrailingOrderCancelled"; orderId: bigint }
   | { name: "TrailingOrderExpired"; orderId: bigint }

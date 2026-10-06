@@ -20,12 +20,24 @@
       "types": "./node.d.ts",
       "import": "./dist/node.js",
       "default": "./dist/node.js"
+    },
+    "./integration": {
+      "types": "./integration.d.ts",
+      "import": "./dist/integration.js",
+      "default": "./dist/integration.js"
+    },
+    "./api": {
+      "types": "./api.d.ts",
+      "import": "./dist/api.js",
+      "default": "./dist/api.js"
     }
   },
   "files": [
     "dist",
     "index.d.ts",
     "node.d.ts",
-    "README.md"
+    "README.md",
+    "integration.d.ts",
+    "api.d.ts"
   ]
 }
