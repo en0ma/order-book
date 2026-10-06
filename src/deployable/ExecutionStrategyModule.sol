@@ -173,8 +173,13 @@ contract ExecutionStrategyModule {
             core.quotes(s.owner, s.side, s.limitTick);
         RestingSlice storage slice = restingSlices[strategyId];
 
-        if (shares != slice.shares) revert QuoteContaminated();
-        slice.generation = generation;
+        if (shares == 0) {
+            slice.shares = 0;
+            slice.generation = 0;
+        } else {
+            if (shares != slice.shares) revert QuoteContaminated();
+            slice.generation = generation;
+        }
 
         uint96 targetVisible = _min(s.sliceLots, s.remainingLots);
         if (claimLots > targetVisible) revert QuoteContaminated();
