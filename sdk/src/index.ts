@@ -25,6 +25,7 @@ export interface MarketManifest {
   id: string;
   core: Address;
   advanced: Address;
+  executionStrategy?: Address;
   marketMaker?: Address;
   liquidation?: Address;
   portfolioLiquidation?: Address;
@@ -150,6 +151,7 @@ export interface MarketDeploymentAddresses {
   id: string;
   core: Address;
   advanced: Address;
+  executionStrategy: Address;
   marketMaker: Address;
   liquidation?: Address;
   integrationLens: Address;
@@ -325,6 +327,7 @@ export function buildDeploymentManifest(
     if (!deployed) throw new ManifestError(`missing deployed addresses for ${market.id}`);
     assertAddress(deployed.core, `${market.id}.core`);
     assertAddress(deployed.advanced, `${market.id}.advanced`);
+    assertAddress(deployed.executionStrategy, `${market.id}.executionStrategy`);
     assertAddress(deployed.marketMaker, `${market.id}.marketMaker`);
     assertAddress(deployed.integrationLens, `${market.id}.integrationLens`);
     if (spec.mode === "standalone") {
@@ -338,6 +341,7 @@ export function buildDeploymentManifest(
       id: market.id,
       core: deployed.core,
       advanced: deployed.advanced,
+      executionStrategy: deployed.executionStrategy,
       marketMaker: deployed.marketMaker,
       liquidation: spec.mode === "standalone" ? deployed.liquidation : undefined,
       portfolioLiquidation: spec.mode === "portfolio" ? portfolio?.liquidation : undefined,
@@ -435,6 +439,7 @@ export function validateManifest(manifest: DeploymentManifest): DeploymentManife
     ids.add(market.id);
     assertAddress(market.core, `${prefix}.core`);
     assertAddress(market.advanced, `${prefix}.advanced`);
+    if (market.executionStrategy) assertAddress(market.executionStrategy, `${prefix}.executionStrategy`);
     assertAddress(market.oracle, `${prefix}.oracle`);
     assertAddress(market.fundingUpdater, `${prefix}.fundingUpdater`);
     if (market.marketMaker) assertAddress(market.marketMaker, `${prefix}.marketMaker`);
@@ -608,6 +613,13 @@ export class OrderBookSDK {
           expected: market.core,
         },
         {
+          id: `${prefix}:advanced.executionStrategyModule`,
+          target: market.advanced,
+          functionName: "executionStrategyModule",
+          args: [],
+          expected: market.executionStrategy ?? zero,
+        },
+        {
           id: `${prefix}:advanced.marketMakerModule`,
           target: market.advanced,
           functionName: "marketMakerModule",
@@ -658,6 +670,25 @@ export class OrderBookSDK {
               BigInt(market.parameters.portfolioMarginBps!),
               BigInt(market.parameters.hedgeCreditBps!),
             ],
+          },
+        );
+      }
+
+      if (market.executionStrategy) {
+        plans.push(
+          {
+            id: `${prefix}:strategy.core`,
+            target: market.executionStrategy,
+            functionName: "core",
+            args: [],
+            expected: market.core,
+          },
+          {
+            id: `${prefix}:strategy.gateway`,
+            target: market.executionStrategy,
+            functionName: "gateway",
+            args: [],
+            expected: market.advanced,
           },
         );
       }
@@ -1067,6 +1098,81 @@ export class OrderBookSDK {
     };
   }
 
+  placeIceberg(
+    marketId: string,
+    side: Side,
+    tick: number,
+    totalLots: bigint,
+    displayLots: bigint,
+  ): TransactionPlan {
+    const market = this.market(marketId);
+    if (!market.executionStrategy) throw new ManifestError(`${marketId} has no executionStrategy module`);
+    return {
+      target: market.executionStrategy,
+      functionName: "placeIceberg",
+      args: [side, tick, totalLots, displayLots],
+    };
+  }
+
+  refreshIceberg(marketId: string, strategyId: bigint): TransactionPlan {
+    const market = this.market(marketId);
+    if (!market.executionStrategy) throw new ManifestError(`${marketId} has no executionStrategy module`);
+    return { target: market.executionStrategy, functionName: "refreshIceberg", args: [strategyId] };
+  }
+
+  placeTWAP(
+    marketId: string,
+    side: Side,
+    limitTick: number,
+    totalLots: bigint,
+    sliceLots: bigint,
+    startTime: bigint,
+    interval: bigint,
+    deadline: bigint,
+  ): TransactionPlan {
+    const market = this.market(marketId);
+    if (!market.executionStrategy) throw new ManifestError(`${marketId} has no executionStrategy module`);
+    return {
+      target: market.executionStrategy,
+      functionName: "placeTWAP",
+      args: [side, limitTick, totalLots, sliceLots, startTime, interval, deadline],
+    };
+  }
+
+  executeTWAPSlice(marketId: string, strategyId: bigint): TransactionPlan {
+    const market = this.market(marketId);
+    if (!market.executionStrategy) throw new ManifestError(`${marketId} has no executionStrategy module`);
+    return { target: market.executionStrategy, functionName: "executeTWAPSlice", args: [strategyId] };
+  }
+
+  placePegged(
+    marketId: string,
+    side: Side,
+    offsetTicks: number,
+    priceBoundTick: number,
+    lots: bigint,
+  ): TransactionPlan {
+    const market = this.market(marketId);
+    if (!market.executionStrategy) throw new ManifestError(`${marketId} has no executionStrategy module`);
+    return {
+      target: market.executionStrategy,
+      functionName: "placePegged",
+      args: [side, offsetTicks, priceBoundTick, lots],
+    };
+  }
+
+  syncPegged(marketId: string, strategyId: bigint): TransactionPlan {
+    const market = this.market(marketId);
+    if (!market.executionStrategy) throw new ManifestError(`${marketId} has no executionStrategy module`);
+    return { target: market.executionStrategy, functionName: "syncPegged", args: [strategyId] };
+  }
+
+  cancelStrategy(marketId: string, strategyId: bigint): TransactionPlan {
+    const market = this.market(marketId);
+    if (!market.executionStrategy) throw new ManifestError(`${marketId} has no executionStrategy module`);
+    return { target: market.executionStrategy, functionName: "cancelStrategy", args: [strategyId] };
+  }
+
   replaceQuotesPacked(marketId: string, updates: readonly QuoteUpdate[]): TransactionPlan {
     const market = this.market(marketId);
     if (!market.marketMaker) throw new ManifestError(`${marketId} has no marketMaker module`);
@@ -1175,6 +1281,7 @@ function deploymentAddresses(manifest: DeploymentManifest): { id: string; addres
     const prefix = `market:${market.id}`;
     push(`${prefix}.core`, market.core);
     push(`${prefix}.advanced`, market.advanced);
+    push(`${prefix}.executionStrategy`, market.executionStrategy);
     push(`${prefix}.marketMaker`, market.marketMaker);
     push(`${prefix}.liquidation`, market.liquidation);
     push(`${prefix}.portfolioLiquidation`, market.portfolioLiquidation);
