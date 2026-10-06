@@ -462,7 +462,7 @@ Invariant:
 6. Publish TypeScript SDK and deployment manifest schema. **Implemented.**
 7. Publish reference indexer. **Implemented: `reference/indexer` provides manifest-bound replay, checkpoints, duplicate protection and bounded reorg rollback.**
 8. Publish reference keeper/liquidator planning primitives. **Implemented: `operator` provides deterministic replay registries and transport-neutral keeper task planning.**
-9. Add RPC/storage adapters and WebSocket/API examples on top of the reference packages.
+9. Add RPC/storage adapters and WebSocket/API examples on top of the reference packages. **Partially implemented: Node JSON-RPC/checkpoint adapters and the dependency-free canonical protocol event decoder are now included; production database and API/WebSocket examples remain.**
 
 ## Non-goals
 
