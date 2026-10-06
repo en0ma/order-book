@@ -115,3 +115,30 @@ RPC timeouts and rate limits should retry at the adapter layer. Do not convert m
 ## CI
 
 Repository CI is pull-request-only. The gate runs SDK, reference indexer and operator tests plus Solidity unit/fuzz, mainnet-fork, size and gas checks. Pushes do not independently start the full workflow.
+
+
+## Diagnostics and alerting
+
+Every operator cycle should export or log at least:
+
+- remote head;
+- configured safe head;
+- indexed head;
+- safe-head lag;
+- blocks applied in the last cycle;
+- whether a rollback/reorg occurred;
+- active conditional/trailing/MM/portfolio registry counts;
+- keeper task counts by kind;
+- simulated/submitted/skipped transaction counts.
+
+The reference `buildOperatorDiagnostics` helper computes the protocol-specific portion of this health record. Treat persistent non-zero safe-head lag with zero applied blocks as stalled and page the operator.
+
+## API publication
+
+Backends may publish `snapshotEnvelope`, `diagnosticsEnvelope`, and `tasksEnvelope` over HTTP or WebSocket. These payloads are intentionally JSON-safe and versioned.
+
+Public APIs should expose finalized/safe state by default. If provisional state is also served, mark it explicitly and never use provisional API state as the sole source for liquidation submission.
+
+## Audit journal
+
+For dependency-free deployments, `JsonlOperatorAuditJournal` can persist cycle/submission/error records with restrictive file permissions. Production teams should ship or ingest these records into their standard logging/database stack and retain idempotency keys alongside transaction hashes for incident reconstruction.
