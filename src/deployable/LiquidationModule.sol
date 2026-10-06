@@ -108,8 +108,16 @@ contract LiquidationModule {
         uint64[] calldata trailingIds,
         uint64[] calldata strategyIds
     ) external returns (uint96 closedLots) {
-        _cleanupOrders(account, makerSides, makerTicks, conditionalIds, trailingIds);
+        if (makerSides.length != makerTicks.length) revert UnsettledOrders();
+
+        gateway.liquidationCleanupAdvanced(account, conditionalIds, trailingIds);
         gateway.liquidationCleanupStrategies(account, strategyIds);
+        for (uint256 i; i < makerTicks.length; ++i) {
+            gateway.liquidationForceCancelQuote(
+                account, makerSides[i], makerTicks[i]
+            );
+        }
+
         closedLots = _liquidatePosition(account, msg.sender);
     }
 
