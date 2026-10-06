@@ -28,18 +28,6 @@ interface IAdvancedStrategyGateway {
         uint32 generation,
         uint128 shares
     ) external returns (uint96 removedLots);
-    function strategyRemoveLockedShares(
-        address account,
-        IOrderBookCore.Side side,
-        uint16 tick,
-        uint32 generation,
-        uint128 shares
-    ) external returns (uint96 removedLots, uint96 crystallizedFillLots);
-    function strategyLiquidationForceCancelQuote(
-        address account,
-        IOrderBookCore.Side side,
-        uint16 tick
-    ) external returns (uint96 removedLots, uint96 crystallizedFillLots);
 }
 
 /// @title ExecutionStrategyModule
@@ -343,9 +331,12 @@ contract ExecutionStrategyModule {
             revert QuoteContaminated();
         }
         if (shares != 0) {
-            (, uint96 burnFill) = gateway.strategyRemoveLockedShares(
+            (int80 beforePosition,,) = core.accountRisk(s.owner);
+            gateway.marketMakerRemoveLockedShares(
                 s.owner, s.side, previousTick, generation, shares
             );
+            (int80 afterPosition,,) = core.accountRisk(s.owner);
+            uint96 burnFill = _positionDelta(beforePosition, afterPosition);
             if (burnFill > s.remainingLots) revert QuoteContaminated();
             s.remainingLots -= burnFill;
             newlyFilledLots += burnFill;
@@ -389,11 +380,18 @@ contract ExecutionStrategyModule {
 
             RestingSlice memory slice = restingSlices[strategyId];
             if (slice.shares != 0) {
-                (, uint96 fillLots) = gateway.strategyLiquidationForceCancelQuote(
-                    s.owner, s.side, slice.tick
-                );
-                s.remainingLots =
-                    fillLots >= s.remainingLots ? 0 : s.remainingLots - fillLots;
+                (uint128 liveShares,, uint32 generation) =
+                    core.quotes(s.owner, s.side, slice.tick);
+                if (liveShares == slice.shares && generation == slice.generation) {
+                    (int80 beforePosition,,) = core.accountRisk(s.owner);
+                    gateway.marketMakerRemoveLockedShares(
+                        s.owner, s.side, slice.tick, generation, liveShares
+                    );
+                    (int80 afterPosition,,) = core.accountRisk(s.owner);
+                    uint96 fillLots = _positionDelta(beforePosition, afterPosition);
+                    s.remainingLots =
+                        fillLots >= s.remainingLots ? 0 : s.remainingLots - fillLots;
+                }
                 delete restingSlices[strategyId];
             }
 
@@ -517,6 +515,17 @@ contract ExecutionStrategyModule {
         } else if (tick < priceBoundTick) {
             tick = priceBoundTick;
         }
+    }
+
+    function _positionDelta(int80 beforePosition, int80 afterPosition)
+        internal
+        pure
+        returns (uint96 deltaLots)
+    {
+        int256 delta = int256(afterPosition) - int256(beforePosition);
+        if (delta < 0) delta = -delta;
+        if (delta > int256(uint256(type(uint96).max))) revert QuoteContaminated();
+        deltaLots = uint96(uint256(delta));
     }
 
     function _min(uint96 a, uint96 b) internal pure returns (uint96) {
