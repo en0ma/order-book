@@ -196,6 +196,30 @@ test("ignores unknown events but fails closed on malformed known events", () => 
       ),
     /non-zero ABI padding/,
   );
+
+  assert.throws(
+    () =>
+      decodeProtocolLog(
+        raw(
+          CANONICAL_EVENT_TOPICS.ConditionalOrderPlaced,
+          [`0x${word(1)}`, addressTopic(ACCOUNT)],
+          [word(0), word(100), word(100), word(1), word(2), word(0), word(0)],
+        ),
+      ),
+    /canonical ABI bool/,
+  );
+
+  assert.throws(
+    () =>
+      decodeProtocolLog(
+        raw(
+          CANONICAL_EVENT_TOPICS.Trade,
+          [addressTopic(ACCOUNT), `0x${word(0)}`, `0x${word(100)}`],
+          [word(1n << 96n)],
+        ),
+      ),
+    /lots is out of range/,
+  );
 });
 
 test("Node service exposes the canonical decoder path without custom glue", async () => {
