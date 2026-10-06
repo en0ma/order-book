@@ -14,10 +14,8 @@ interface ILiquidationGateway {
         uint64[] calldata trailingIds
     ) external;
 
-    function liquidationCleanupStrategies(
-        address account,
-        uint64[] calldata strategyIds
-    ) external;
+    function executionStrategyModule() external view returns (address);
+    function liquidationModule() external view returns (address);
 
     function liquidationForceCancelQuote(
         address account,
