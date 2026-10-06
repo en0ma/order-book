@@ -222,6 +222,86 @@ test("ignores unknown events but fails closed on malformed known events", () => 
   );
 });
 
+test("canonical Node service decodes raw RPC logs into replay state", async () => {
+  const core = "0x5555555555555555555555555555555555555555";
+  const manifest = {
+    schemaVersion: 1,
+    chainId: 1,
+    deploymentBlock: 100,
+    packageVersion: "0.1.0",
+    collateral: {
+      token: "0x4444444444444444444444444444444444444444",
+      decimals: 18,
+    },
+    markets: [
+      {
+        id: "ETH-PERP",
+        core,
+        advanced: "0x6666666666666666666666666666666666666666",
+        oracle: "0x7777777777777777777777777777777777777777",
+        scales: { collateralUnitsPerLotTick: "1" },
+        parameters: {
+          executionBandTicks: 40,
+          initialMarginBps: 1000,
+          takerFeeBps: 5,
+          makerRebateBps: 2,
+        },
+      },
+    ],
+  };
+
+  let saved;
+  const rpc = {
+    async chainId() {
+      return 1;
+    },
+    async blockNumber() {
+      return 100;
+    },
+    async blockHeader(number) {
+      assert.equal(number, 100);
+      return { number: "0x64", hash: "0xblock100", parentHash: "0xblock99" };
+    },
+    async logs(number, addresses) {
+      assert.equal(number, 100);
+      assert.ok(addresses.includes(core));
+      return [
+        {
+          ...raw(
+            CANONICAL_EVENT_TOPICS.LiquidityAdded,
+            [addressTopic(MAKER), `0x${word(1)}`, `0x${word(105)}`],
+            [word(40), word(40), word(7)],
+          ),
+          address: core,
+          blockHash: "0xblock100",
+        },
+      ];
+    },
+  };
+  const store = {
+    async load() {
+      return undefined;
+    },
+    async save(checkpoint) {
+      saved = checkpoint;
+    },
+  };
+
+  const service = await ReferenceNodeService.createCanonical(
+    manifest,
+    rpc,
+    store,
+  );
+  await service.syncTo(100);
+
+  assert.deepEqual(service.indexer.snapshotState().pools["ETH-PERP:1:105"], {
+    remainingLots: "40",
+    generation: 7,
+  });
+  assert.equal(saved.cursor.number, 100);
+  assert.equal(saved.cursor.hash, "0xblock100");
+});
+
 test("Node service exposes the canonical decoder path without custom glue", async () => {
   const manifest = {
     schemaVersion: 1,
