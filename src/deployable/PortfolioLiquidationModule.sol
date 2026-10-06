@@ -170,6 +170,27 @@ contract PortfolioLiquidationModule {
         );
     }
 
+    function liquidateWithStrategies(
+        address account,
+        CleanupInput[] calldata cleanups,
+        uint64[][] calldata strategyIds
+    ) external returns (uint96 totalFilledLots) {
+        uint256 length = markets.length;
+        if (cleanups.length != length || strategyIds.length != length) {
+            revert CleanupLengthMismatch();
+        }
+        if (!policy.isUnderMargined(account)) revert NotLiquidatable();
+
+        for (uint256 i; i < length; ++i) {
+            markets[i].gateway.liquidationCleanupStrategies(
+                account,
+                strategyIds[i]
+            );
+        }
+
+        totalFilledLots = this.liquidate(account, cleanups);
+    }
+
     function _cleanupMarket(
         address account,
         MarketConfig storage market,
