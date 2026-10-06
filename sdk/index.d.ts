@@ -25,6 +25,7 @@ export interface MarketManifest {
   id: string;
   core: Address;
   advanced: Address;
+  executionStrategy?: Address;
   marketMaker?: Address;
   liquidation?: Address;
   portfolioLiquidation?: Address;
@@ -150,6 +151,7 @@ export interface MarketDeploymentAddresses {
   id: string;
   core: Address;
   advanced: Address;
+  executionStrategy?: Address;
   marketMaker: Address;
   liquidation?: Address;
   integrationLens: Address;
@@ -310,6 +312,29 @@ export declare class OrderBookSDK {
   ): TransactionPlan;
 
   cancelTrailing(marketId: string, orderId: bigint): TransactionPlan;
+
+  placeIceberg(marketId: string, side: Side, tick: number, totalLots: bigint, displayLots: bigint): TransactionPlan;
+  refreshIceberg(marketId: string, strategyId: bigint): TransactionPlan;
+  placeTWAP(
+    marketId: string,
+    side: Side,
+    limitTick: number,
+    totalLots: bigint,
+    sliceLots: bigint,
+    startTime: bigint,
+    interval: bigint,
+    deadline: bigint,
+  ): TransactionPlan;
+  executeTWAPSlice(marketId: string, strategyId: bigint): TransactionPlan;
+  placePegged(
+    marketId: string,
+    side: Side,
+    offsetTicks: number,
+    priceBoundTick: number,
+    lots: bigint,
+  ): TransactionPlan;
+  syncPegged(marketId: string, strategyId: bigint): TransactionPlan;
+  cancelStrategy(marketId: string, strategyId: bigint): TransactionPlan;
 
   replaceQuotesPacked(
     marketId: string,
