@@ -50,18 +50,33 @@ function marketFor(
   eventName: string,
 ): string | undefined {
   const key = lower(address);
+
   if (eventName === "PortfolioLockSynchronized") {
     if (manifest.portfolio && lower(manifest.portfolio.coordinator) === key) return undefined;
     throw new Error("portfolio event came from unexpected address");
   }
+
+  const role =
+    eventName === "LiquidityAdded"
+      || eventName === "LiquidityRemoved"
+      || eventName === "Trade"
+      ? "core"
+      : eventName === "ManagedQuoteUpdated"
+        || eventName === "ManagedQuoteRemoved"
+        ? "marketMaker"
+        : "advanced";
+
   for (const market of manifest.markets) {
-    if (
-      lower(market.core) === key
-      || lower(market.advanced) === key
-      || (market.marketMaker && lower(market.marketMaker) === key)
-    ) return market.id;
+    const expected =
+      role === "core"
+        ? market.core
+        : role === "advanced"
+          ? market.advanced
+          : market.marketMaker;
+    if (expected && lower(expected) === key) return market.id;
   }
-  throw new Error("protocol event came from address outside manifest");
+
+  throw new Error(`${role} event came from unexpected address`);
 }
 
 export function normalizeCanonicalEvent(
