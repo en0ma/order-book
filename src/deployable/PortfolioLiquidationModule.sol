@@ -36,6 +36,7 @@ contract PortfolioLiquidationModule {
         uint16[] makerTicks;
         uint64[] conditionalIds;
         uint64[] trailingIds;
+        uint64[] strategyIds;
     }
 
     error InvalidPortfolioLiquidationConfig();
@@ -178,33 +179,6 @@ contract PortfolioLiquidationModule {
         );
     }
 
-    function liquidateWithStrategies(
-        address account,
-        CleanupInput[] calldata cleanups,
-        uint64[][] calldata strategyIds
-    ) external returns (uint96 totalFilledLots) {
-        uint256 length = markets.length;
-        if (cleanups.length != length || strategyIds.length != length) {
-            revert CleanupLengthMismatch();
-        }
-        if (!policy.isUnderMargined(account)) revert NotLiquidatable();
-
-        for (uint256 i; i < length; ++i) {
-            address strategy = IPortfolioStrategyGatewayDiscovery(
-                address(markets[i].gateway)
-            ).executionStrategyModule();
-            if (strategy == address(0)) {
-                if (strategyIds[i].length != 0) revert UnsettledOrders();
-            } else {
-                IPortfolioStrategyCleanup(strategy).liquidationCleanup(
-                    account,
-                    strategyIds[i]
-                );
-            }
-        }
-
-        totalFilledLots = this.liquidate(account, cleanups);
-    }
 
     function _cleanupMarket(
         address account,
@@ -220,6 +194,18 @@ contract PortfolioLiquidationModule {
             cleanup.conditionalIds,
             cleanup.trailingIds
         );
+
+        address strategy = IPortfolioStrategyGatewayDiscovery(
+            address(market.gateway)
+        ).executionStrategyModule();
+        if (strategy == address(0)) {
+            if (cleanup.strategyIds.length != 0) revert UnsettledOrders();
+        } else {
+            IPortfolioStrategyCleanup(strategy).liquidationCleanup(
+                account,
+                cleanup.strategyIds
+            );
+        }
 
         for (uint256 i; i < cleanup.makerTicks.length; ++i) {
             market.gateway.liquidationForceCancelQuote(
