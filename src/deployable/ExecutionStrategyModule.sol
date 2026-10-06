@@ -63,14 +63,13 @@ contract ExecutionStrategyModule {
     error TooEarly();
     error StrategyExpired();
     error QuoteContaminated();
-    error NothingToDo();
 
     IOrderBookCore public immutable core;
     IAdvancedStrategyGateway public immutable gateway;
     uint64 public nextStrategyId = 1;
 
-    mapping(uint64 => Strategy) public strategies;
-    mapping(uint64 => RestingSlice) public restingSlices;
+    mapping(uint64 => Strategy) internal strategies;
+    mapping(uint64 => RestingSlice) internal restingSlices;
     mapping(address => uint32) public activeStrategyCount;
 
     event IcebergPlaced(
