@@ -145,7 +145,16 @@ const DECODERS = new Map<string, Decoder>([
   [TOPICS.Trade, decodeTrade],
   [TOPICS.ConditionalOrderPlaced, (log) => {
     requireShape(log, 3, 7);
-    return { name: "ConditionalOrderPlaced", orderId: topicUint(log, 1) };
+    const id = orderId(log);
+    topicAddress(log, 2);
+    side(dataUint(log, 0));
+    uintValue(dataUint(log, 1), "triggerTick", 0xffffn);
+    uintValue(dataUint(log, 2), "limitTick", 0xffffn);
+    uintValue(dataUint(log, 3), "lots", (1n << 96n) - 1n);
+    boolValue(dataUint(log, 4), "triggerAboveOrEqual");
+    boolValue(dataUint(log, 5), "reduceOnly");
+    boolValue(dataUint(log, 6), "triggeredLimit");
+    return { name: "ConditionalOrderPlaced", orderId: id };
   }],
   [TOPICS.ConditionalOrderCancelled, (log) => ({
     name: "ConditionalOrderCancelled",
@@ -153,22 +162,24 @@ const DECODERS = new Map<string, Decoder>([
   })],
   [TOPICS.ConditionalOrderExecuted, (log) => {
     requireShape(log, 2, 1);
-    return { name: "ConditionalOrderExecuted", orderId: topicUint(log, 1) };
+    const id = orderId(log);
+    uintValue(dataUint(log, 0), "filledLots", (1n << 96n) - 1n);
+    return { name: "ConditionalOrderExecuted", orderId: id };
   }],
   [TOPICS.OCOLinked, (log) => {
     requireShape(log, 3, 0);
     return {
       name: "OCOLinked",
-      firstOrderId: topicUint(log, 1),
-      secondOrderId: topicUint(log, 2),
+      firstOrderId: orderId(log, 1),
+      secondOrderId: orderId(log, 2),
     };
   }],
   [TOPICS.OTOLinked, (log) => {
     requireShape(log, 3, 0);
     return {
       name: "OTOLinked",
-      parentOrderId: topicUint(log, 1),
-      childOrderId: topicUint(log, 2),
+      parentOrderId: orderId(log, 1),
+      childOrderId: orderId(log, 2),
     };
   }],
   [TOPICS.OTOActivated, (log) => {
@@ -177,7 +188,7 @@ const DECODERS = new Map<string, Decoder>([
       name: "OTOActivated",
       parentOrderId: topicUint(log, 1),
       childOrderId: topicUint(log, 2),
-      lots: dataUint(log, 0),
+      lots: uintValue(dataUint(log, 0), "lots", (1n << 96n) - 1n),
     };
   }],
   [TOPICS.OTOResized, (log) => {
@@ -186,31 +197,40 @@ const DECODERS = new Map<string, Decoder>([
       name: "OTOResized",
       parentOrderId: topicUint(log, 1),
       childOrderId: topicUint(log, 2),
-      lots: dataUint(log, 0),
+      lots: uintValue(dataUint(log, 0), "lots", (1n << 96n) - 1n),
     };
   }],
   [TOPICS.RestingOrderLinked, (log) => {
     requireShape(log, 2, 3);
-    return { name: "RestingOrderLinked", orderId: topicUint(log, 1) };
+    const id = orderId(log);
+    uintValue(dataUint(log, 0), "shares", (1n << 128n) - 1n);
+    uintValue(dataUint(log, 1), "remainingLots", (1n << 96n) - 1n);
+    uintValue(dataUint(log, 2), "cumulativeFilledLots", (1n << 96n) - 1n);
+    return { name: "RestingOrderLinked", orderId: id };
   }],
   [TOPICS.RestingOrderSynced, (log) => {
     requireShape(log, 2, 3);
+    const id = orderId(log);
+    uintValue(dataUint(log, 0), "newlyFilledLots", (1n << 96n) - 1n);
+    uintValue(dataUint(log, 1), "cumulativeFilledLots", (1n << 96n) - 1n);
     return {
       name: "RestingOrderSynced",
-      orderId: topicUint(log, 1),
-      remainingLots: dataUint(log, 2),
+      orderId: id,
+      remainingLots: uintValue(dataUint(log, 2), "remainingLots", (1n << 96n) - 1n),
     };
   }],
   [TOPICS.RestingOrderCancelled, (log) => {
     requireShape(log, 2, 1);
-    return { name: "RestingOrderCancelled", orderId: topicUint(log, 1) };
+    const id = orderId(log);
+    uintValue(dataUint(log, 0), "removedLots", (1n << 96n) - 1n);
+    return { name: "RestingOrderCancelled", orderId: id };
   }],
   [TOPICS.ConditionalExpirySet, (log) => {
     requireShape(log, 2, 1);
     return {
       name: "ConditionalExpirySet",
-      orderId: topicUint(log, 1),
-      expiry: dataUint(log, 0),
+      orderId: orderId(log),
+      expiry: uintValue(dataUint(log, 0), "expiry", (1n << 64n) - 1n),
     };
   }],
   [TOPICS.ConditionalOrderExpired, (log) => ({
@@ -219,7 +239,15 @@ const DECODERS = new Map<string, Decoder>([
   })],
   [TOPICS.TrailingOrderPlaced, (log) => {
     requireShape(log, 3, 6);
-    return { name: "TrailingOrderPlaced", orderId: topicUint(log, 1) };
+    const id = orderId(log);
+    topicAddress(log, 2);
+    side(dataUint(log, 0));
+    uintValue(dataUint(log, 1), "observationId", (1n << 64n) - 1n);
+    uintValue(dataUint(log, 2), "trailTicks", 0xffffn);
+    uintValue(dataUint(log, 3), "limitTick", 0xffffn);
+    uintValue(dataUint(log, 4), "lots", (1n << 96n) - 1n);
+    boolValue(dataUint(log, 5), "reduceOnly");
+    return { name: "TrailingOrderPlaced", orderId: id };
   }],
   [TOPICS.TrailingOrderCancelled, (log) => ({
     name: "TrailingOrderCancelled",
@@ -239,7 +267,11 @@ const DECODERS = new Map<string, Decoder>([
   })],
   [TOPICS.TrailingOrderExecuted, (log) => {
     requireShape(log, 2, 3);
-    return { name: "TrailingOrderExecuted", orderId: topicUint(log, 1) };
+    const id = orderId(log);
+    uintValue(dataUint(log, 0), "filledLots", (1n << 96n) - 1n);
+    uintValue(dataUint(log, 1), "highTick", 0xffffn);
+    uintValue(dataUint(log, 2), "lowTick", 0xffffn);
+    return { name: "TrailingOrderExecuted", orderId: id };
   }],
   [TOPICS.ManagedQuoteUpdated, (log) => {
     requireShape(log, 4, 2);
@@ -248,12 +280,14 @@ const DECODERS = new Map<string, Decoder>([
       maker: topicAddress(log, 1),
       side: side(topicUint(log, 2)),
       tick: uintNumber(topicUint(log, 3), "tick", 0xffffn),
-      shares: dataUint(log, 0),
+      shares: uintValue(dataUint(log, 0), "shares", (1n << 128n) - 1n),
       generation: uintNumber(dataUint(log, 1), "generation", 0xffffffffn),
     };
   }],
   [TOPICS.ManagedQuoteRemoved, (log) => {
     requireShape(log, 4, 2);
+    uintValue(dataUint(log, 0), "shares", (1n << 128n) - 1n);
+    uintValue(dataUint(log, 1), "generation", 0xffffffffn);
     return {
       name: "ManagedQuoteRemoved",
       maker: topicAddress(log, 1),
