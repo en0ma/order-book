@@ -5,6 +5,10 @@ import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {ILiquidationGateway} from "./ILiquidationGateway.sol";
 import {LiquidationPolicy} from "./LiquidationPolicy.sol";
 
+interface IStrategyLiquidationCleanup {
+    function liquidationCleanup(address account, uint64[] calldata strategyIds) external;
+}
+
 /// @title LiquidationModule
 /// @notice Maintenance-health policy and liquidation orchestration.
 /// @dev Advanced-order storage cleanup is delegated back to AdvancedOrderModule.
@@ -111,7 +115,14 @@ contract LiquidationModule {
         if (makerSides.length != makerTicks.length) revert UnsettledOrders();
 
         gateway.liquidationCleanupAdvanced(account, conditionalIds, trailingIds);
-        gateway.liquidationCleanupStrategies(account, strategyIds);
+        address strategy = gateway.executionStrategyModule();
+        if (strategy == address(0)) {
+            if (strategyIds.length != 0) revert UnsettledOrders();
+        } else {
+            IStrategyLiquidationCleanup(strategy).liquidationCleanup(
+                account, strategyIds
+            );
+        }
         for (uint256 i; i < makerTicks.length; ++i) {
             gateway.liquidationForceCancelQuote(
                 account, makerSides[i], makerTicks[i]
