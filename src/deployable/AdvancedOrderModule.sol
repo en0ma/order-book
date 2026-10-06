@@ -212,8 +212,11 @@ contract AdvancedOrderModule {
         emit OwnershipTransferred(previousOwner, nextOwner);
     }
 
-    modifier onlyMarketMakerModule() {
-        if (msg.sender != marketMakerModule || msg.sender == address(0)) revert Unauthorized();
+    modifier onlyMakerExecutionModule() {
+        if (
+            msg.sender == address(0)
+                || (msg.sender != marketMakerModule && msg.sender != executionStrategyModule)
+        ) revert Unauthorized();
         _;
     }
 
@@ -241,7 +244,7 @@ contract AdvancedOrderModule {
         address maker,
         IOrderBookCore.Side side,
         uint96 lots
-    ) external onlyMarketMakerModule returns (uint16 riskCeilingTick) {
+    ) external onlyMakerExecutionModule returns (uint16 riskCeilingTick) {
         riskCeilingTick = _reserveExposure(maker, side, lots);
     }
 
@@ -251,7 +254,7 @@ contract AdvancedOrderModule {
         uint16 tick,
         uint96 lots,
         uint16 riskCeilingTick
-    ) external onlyMarketMakerModule returns (uint128 shares) {
+    ) external onlyMakerExecutionModule returns (uint128 shares) {
         shares = _addLiquidity(maker, side, tick, lots, riskCeilingTick);
     }
 
@@ -261,7 +264,7 @@ contract AdvancedOrderModule {
         uint16 tick,
         uint32 generation,
         uint128 shares
-    ) external onlyMarketMakerModule returns (uint96 removedLots) {
+    ) external onlyMakerExecutionModule returns (uint96 removedLots) {
         removedLots =
             core.moduleRemoveLockedShares(maker, side, tick, generation, shares);
     }
@@ -272,7 +275,7 @@ contract AdvancedOrderModule {
         uint16 tick,
         uint32 generation,
         uint128 shares
-    ) external onlyMarketMakerModule {
+    ) external onlyMakerExecutionModule {
         core.moduleUnlockShares(maker, side, tick, generation, shares);
     }
 
@@ -289,29 +292,15 @@ contract AdvancedOrderModule {
         executionStrategyModule = module_;
     }
 
-    function strategyReserveExposure(
-        address account,
-        IOrderBookCore.Side side,
-        uint96 lots
-    ) external onlyExecutionStrategyModule returns (uint16 riskCeilingTick) {
-        riskCeilingTick = _reserveExposure(account, side, lots);
-    }
 
-    function strategyReleaseExposure(
-        address account,
-        IOrderBookCore.Side side,
-        uint96 lots
-    ) external onlyExecutionStrategyModule {
-        _releaseExposure(account, side, lots);
-    }
 
     function strategyTake(
         address account,
         IOrderBookCore.Side side,
         uint16 limitTick,
-        uint96 lots,
-        bool preReserved
+        uint96 lots
     ) external onlyExecutionStrategyModule returns (uint96 filledLots) {
+        _reserveExposure(account, side, lots);
         filledLots = _take(
             account,
             side,
@@ -319,19 +308,13 @@ contract AdvancedOrderModule {
             lots,
             IOrderBookCore.FillPolicy.IOC,
             false,
-            preReserved
+            true
         );
+        if (filledLots < lots) {
+            _releaseExposure(account, side, lots - filledLots);
+        }
     }
 
-    function strategyAddLiquidity(
-        address account,
-        IOrderBookCore.Side side,
-        uint16 tick,
-        uint96 lots,
-        uint16 riskCeilingTick
-    ) external onlyExecutionStrategyModule returns (uint128 shares) {
-        shares = _addLiquidity(account, side, tick, lots, riskCeilingTick);
-    }
 
     function strategySettle(
         address account,
@@ -341,21 +324,6 @@ contract AdvancedOrderModule {
         filledLots = core.moduleSettle(account, side, tick);
     }
 
-    function strategyRemoveLockedShares(
-        address account,
-        IOrderBookCore.Side side,
-        uint16 tick,
-        uint32 generation,
-        uint128 shares
-    ) external onlyExecutionStrategyModule returns (uint96 removedLots) {
-        removedLots = core.moduleRemoveLockedShares(
-            account,
-            side,
-            tick,
-            generation,
-            shares
-        );
-    }
 
     modifier onlyLiquidationModule() {
         if (msg.sender != liquidationModule || msg.sender == address(0)) revert Unauthorized();
