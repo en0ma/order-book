@@ -151,7 +151,7 @@ export interface MarketDeploymentAddresses {
   id: string;
   core: Address;
   advanced: Address;
-  executionStrategy: Address;
+  executionStrategy?: Address;
   marketMaker: Address;
   liquidation?: Address;
   integrationLens: Address;
@@ -327,7 +327,7 @@ export function buildDeploymentManifest(
     if (!deployed) throw new ManifestError(`missing deployed addresses for ${market.id}`);
     assertAddress(deployed.core, `${market.id}.core`);
     assertAddress(deployed.advanced, `${market.id}.advanced`);
-    assertAddress(deployed.executionStrategy, `${market.id}.executionStrategy`);
+    if (deployed.executionStrategy) assertAddress(deployed.executionStrategy, `${market.id}.executionStrategy`);
     assertAddress(deployed.marketMaker, `${market.id}.marketMaker`);
     assertAddress(deployed.integrationLens, `${market.id}.integrationLens`);
     if (spec.mode === "standalone") {
