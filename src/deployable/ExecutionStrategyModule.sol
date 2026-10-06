@@ -28,6 +28,18 @@ interface IAdvancedStrategyGateway {
         uint32 generation,
         uint128 shares
     ) external returns (uint96 removedLots);
+    function strategyRemoveLockedShares(
+        address account,
+        IOrderBookCore.Side side,
+        uint16 tick,
+        uint32 generation,
+        uint128 shares
+    ) external returns (uint96 removedLots, uint96 crystallizedFillLots);
+    function strategyLiquidationForceCancelQuote(
+        address account,
+        IOrderBookCore.Side side,
+        uint16 tick
+    ) external returns (uint96 removedLots, uint96 crystallizedFillLots);
 }
 
 /// @title ExecutionStrategyModule
@@ -331,9 +343,24 @@ contract ExecutionStrategyModule {
             revert QuoteContaminated();
         }
         if (shares != 0) {
-            gateway.marketMakerRemoveLockedShares(
+            (, uint96 burnFill) = gateway.strategyRemoveLockedShares(
                 s.owner, s.side, previousTick, generation, shares
             );
+            if (burnFill > s.remainingLots) revert QuoteContaminated();
+            s.remainingLots -= burnFill;
+            newlyFilledLots += burnFill;
+            if (s.remainingLots == 0) {
+                delete restingSlices[strategyId];
+                _complete(strategyId, s);
+                emit PeggedRepriced(
+                    strategyId,
+                    previousTick,
+                    nextTick,
+                    newlyFilledLots,
+                    0
+                );
+                return (newlyFilledLots, nextTick);
+            }
         }
         delete restingSlices[strategyId];
         _requireCleanQuote(s.owner, s.side, nextTick);
@@ -356,8 +383,23 @@ contract ExecutionStrategyModule {
     {
         if (msg.sender != address(gateway)) revert Unauthorized();
         for (uint256 i; i < strategyIds.length; ++i) {
-            Strategy storage s = strategies[strategyIds[i]];
-            if (s.owner == account && s.active) _cancel(strategyIds[i], s);
+            uint64 strategyId = strategyIds[i];
+            Strategy storage s = strategies[strategyId];
+            if (s.owner != account || !s.active) continue;
+
+            RestingSlice memory slice = restingSlices[strategyId];
+            if (slice.shares != 0) {
+                (, uint96 fillLots) = gateway.strategyLiquidationForceCancelQuote(
+                    s.owner, s.side, slice.tick
+                );
+                if (fillLots > s.remainingLots) revert QuoteContaminated();
+                s.remainingLots -= fillLots;
+                delete restingSlices[strategyId];
+            }
+
+            s.active = false;
+            activeStrategyCount[s.owner] -= 1;
+            emit StrategyCancelled(strategyId, s.remainingLots);
         }
     }
 
