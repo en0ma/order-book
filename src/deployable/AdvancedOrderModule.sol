@@ -45,7 +45,6 @@ interface IPortfolioAdmissionGateway {
 
 interface IExecutionStrategyRegistry {
     function activeStrategyCount(address account) external view returns (uint32);
-    function liquidationCleanup(address account, uint64[] calldata strategyIds) external;
 }
 
 interface IMarketMakerLiquidationCleanup {
@@ -407,20 +406,6 @@ contract AdvancedOrderModule {
         if (activeAdvancedCount[account] != 0) revert UnsettledAdvancedOrders();
     }
 
-    function liquidationCleanupStrategies(
-        address account,
-        uint64[] calldata strategyIds
-    ) external onlyLiquidationModule {
-        address strategy = executionStrategyModule;
-        if (strategy == address(0)) {
-            if (strategyIds.length != 0) revert UnsettledAdvancedOrders();
-            return;
-        }
-        IExecutionStrategyRegistry(strategy).liquidationCleanup(account, strategyIds);
-        if (IExecutionStrategyRegistry(strategy).activeStrategyCount(account) != 0) {
-            revert UnsettledAdvancedOrders();
-        }
-    }
 
     function liquidationForceCancelQuote(
         address account,
