@@ -392,8 +392,8 @@ contract ExecutionStrategyModule {
                 (, uint96 fillLots) = gateway.strategyLiquidationForceCancelQuote(
                     s.owner, s.side, slice.tick
                 );
-                if (fillLots > s.remainingLots) revert QuoteContaminated();
-                s.remainingLots -= fillLots;
+                s.remainingLots =
+                    fillLots >= s.remainingLots ? 0 : s.remainingLots - fillLots;
                 delete restingSlices[strategyId];
             }
 
