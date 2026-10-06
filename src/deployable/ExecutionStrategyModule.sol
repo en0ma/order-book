@@ -4,18 +4,15 @@ pragma solidity ^0.8.24;
 import {IOrderBookCore} from "./IOrderBookCore.sol";
 
 interface IAdvancedStrategyGateway {
-    function strategyReserveExposure(address account, IOrderBookCore.Side side, uint96 lots)
+    function marketMakerReserveExposure(address account, IOrderBookCore.Side side, uint96 lots)
         external returns (uint16 riskCeilingTick);
-    function strategyReleaseExposure(address account, IOrderBookCore.Side side, uint96 lots)
-        external;
     function strategyTake(
         address account,
         IOrderBookCore.Side side,
         uint16 limitTick,
-        uint96 lots,
-        bool preReserved
+        uint96 lots
     ) external returns (uint96 filledLots);
-    function strategyAddLiquidity(
+    function marketMakerAddLiquidity(
         address account,
         IOrderBookCore.Side side,
         uint16 tick,
@@ -24,7 +21,7 @@ interface IAdvancedStrategyGateway {
     ) external returns (uint128 shares);
     function strategySettle(address account, IOrderBookCore.Side side, uint16 tick)
         external returns (uint96 filledLots);
-    function strategyRemoveLockedShares(
+    function marketMakerRemoveLockedShares(
         address account,
         IOrderBookCore.Side side,
         uint16 tick,
@@ -186,9 +183,9 @@ contract ExecutionStrategyModule {
 
         uint96 addLots = targetVisible - claimLots;
         if (addLots != 0) {
-            uint16 ceiling = gateway.strategyReserveExposure(s.owner, s.side, addLots);
+            uint16 ceiling = gateway.marketMakerReserveExposure(s.owner, s.side, addLots);
             uint128 minted =
-                gateway.strategyAddLiquidity(s.owner, s.side, s.limitTick, addLots, ceiling);
+                gateway.marketMakerAddLiquidity(s.owner, s.side, s.limitTick, addLots, ceiling);
             slice.shares += minted;
             (, visibleLots, slice.generation) = core.quotes(s.owner, s.side, s.limitTick);
         } else {
@@ -250,16 +247,9 @@ contract ExecutionStrategyModule {
         if (block.timestamp > s.deadline) revert StrategyExpired();
 
         uint96 requested = _min(s.sliceLots, s.remainingLots);
-        uint16 ceiling = gateway.strategyReserveExposure(s.owner, s.side, requested);
-        ceiling;
         filledLots = gateway.strategyTake(
-            s.owner, s.side, s.limitTick, requested, true
+            s.owner, s.side, s.limitTick, requested
         );
-        if (filledLots < requested) {
-            gateway.strategyReleaseExposure(
-                s.owner, s.side, requested - filledLots
-            );
-        }
 
         s.remainingLots -= filledLots;
         uint64 next = s.nextExecution + s.interval;
@@ -333,7 +323,7 @@ contract ExecutionStrategyModule {
             revert QuoteContaminated();
         }
         if (shares != 0) {
-            gateway.strategyRemoveLockedShares(
+            gateway.marketMakerRemoveLockedShares(
                 s.owner, s.side, previousTick, generation, shares
             );
         }
@@ -378,7 +368,7 @@ contract ExecutionStrategyModule {
                 if (shares != slice.shares || generation != slice.generation) {
                     revert QuoteContaminated();
                 }
-                gateway.strategyRemoveLockedShares(
+                gateway.marketMakerRemoveLockedShares(
                     s.owner, s.side, slice.tick, generation, shares
                 );
             }
@@ -397,9 +387,9 @@ contract ExecutionStrategyModule {
         uint96 lots,
         uint16 tick
     ) internal {
-        uint16 ceiling = gateway.strategyReserveExposure(s.owner, s.side, lots);
+        uint16 ceiling = gateway.marketMakerReserveExposure(s.owner, s.side, lots);
         uint128 shares =
-            gateway.strategyAddLiquidity(s.owner, s.side, tick, lots, ceiling);
+            gateway.marketMakerAddLiquidity(s.owner, s.side, tick, lots, ceiling);
         (uint128 totalShares,, uint32 generation) =
             core.quotes(s.owner, s.side, tick);
         if (totalShares != shares) revert QuoteContaminated();
