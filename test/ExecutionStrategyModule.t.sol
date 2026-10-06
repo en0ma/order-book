@@ -238,9 +238,23 @@ contract ExecutionStrategyModuleTest is TestBase {
             0,
             "contaminated strategy survived liquidation cleanup"
         );
+
+        (, uint96 contaminatedRemaining,) =
+            core.pools(IOrderBookCore.Side.Bid, 95);
+        assertEq(
+            contaminatedRemaining,
+            15,
+            "strategy cleanup should leave contaminated quote to liquidator"
+        );
+
+        advanced.configureLiquidationModule(address(this));
+        advanced.liquidationForceCancelQuote(
+            ALICE, IOrderBookCore.Side.Bid, 95
+        );
+
         (, uint96 remaining,) =
             core.pools(IOrderBookCore.Side.Bid, 95);
-        assertEq(remaining, 0, "force cleanup left contaminated quote");
+        assertEq(remaining, 0, "generic liquidation cleanup could not clear quote");
     }
 
     function testPeggedBidHonorsMaximumPriceBound() public {
