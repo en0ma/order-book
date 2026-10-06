@@ -107,12 +107,14 @@ contract AdvancedOrderModule {
     error MarketMakerModuleAlreadyConfigured();
     error LiquidationModuleAlreadyConfigured();
     error PortfolioControllerAlreadyConfigured();
+    error ExecutionStrategyModuleAlreadyConfigured();
 
     IOrderBookCore public immutable core;
     IExtremaOracle internal immutable extremaOracle;
     address public owner;
     address public marketMakerModule;
     address public liquidationModule;
+    address public executionStrategyModule;
     IPortfolioAdmissionGateway public portfolioController;
     uint8 public portfolioMarketIndex;
 
@@ -267,6 +269,87 @@ contract AdvancedOrderModule {
         uint128 shares
     ) external onlyMarketMakerModule {
         core.moduleUnlockShares(maker, side, tick, generation, shares);
+    }
+
+    modifier onlyExecutionStrategyModule() {
+        if (msg.sender != executionStrategyModule || msg.sender == address(0)) revert Unauthorized();
+        _;
+    }
+
+    function configureExecutionStrategyModule(address module_) external {
+        if (msg.sender != owner || module_ == address(0)) revert Unauthorized();
+        if (executionStrategyModule != address(0)) {
+            revert ExecutionStrategyModuleAlreadyConfigured();
+        }
+        executionStrategyModule = module_;
+    }
+
+    function strategyReserveExposure(
+        address account,
+        IOrderBookCore.Side side,
+        uint96 lots
+    ) external onlyExecutionStrategyModule returns (uint16 riskCeilingTick) {
+        riskCeilingTick = _reserveExposure(account, side, lots);
+    }
+
+    function strategyReleaseExposure(
+        address account,
+        IOrderBookCore.Side side,
+        uint96 lots
+    ) external onlyExecutionStrategyModule {
+        _releaseExposure(account, side, lots);
+    }
+
+    function strategyTake(
+        address account,
+        IOrderBookCore.Side side,
+        uint16 limitTick,
+        uint96 lots,
+        bool preReserved
+    ) external onlyExecutionStrategyModule returns (uint96 filledLots) {
+        filledLots = _take(
+            account,
+            side,
+            limitTick,
+            lots,
+            IOrderBookCore.FillPolicy.IOC,
+            false,
+            preReserved
+        );
+    }
+
+    function strategyAddLiquidity(
+        address account,
+        IOrderBookCore.Side side,
+        uint16 tick,
+        uint96 lots,
+        uint16 riskCeilingTick
+    ) external onlyExecutionStrategyModule returns (uint128 shares) {
+        shares = _addLiquidity(account, side, tick, lots, riskCeilingTick);
+    }
+
+    function strategySettle(
+        address account,
+        IOrderBookCore.Side side,
+        uint16 tick
+    ) external onlyExecutionStrategyModule returns (uint96 filledLots) {
+        filledLots = core.moduleSettle(account, side, tick);
+    }
+
+    function strategyRemoveLockedShares(
+        address account,
+        IOrderBookCore.Side side,
+        uint16 tick,
+        uint32 generation,
+        uint128 shares
+    ) external onlyExecutionStrategyModule returns (uint96 removedLots) {
+        removedLots = core.moduleRemoveLockedShares(
+            account,
+            side,
+            tick,
+            generation,
+            shares
+        );
     }
 
     modifier onlyLiquidationModule() {
