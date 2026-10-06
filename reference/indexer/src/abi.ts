@@ -195,8 +195,8 @@ const DECODERS = new Map<string, Decoder>([
     requireShape(log, 3, 1);
     return {
       name: "OTOResized",
-      parentOrderId: topicUint(log, 1),
-      childOrderId: topicUint(log, 2),
+      parentOrderId: orderId(log, 1),
+      childOrderId: orderId(log, 2),
       lots: uintValue(dataUint(log, 0), "lots", (1n << 96n) - 1n),
     };
   }],
