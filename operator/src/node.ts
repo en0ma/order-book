@@ -48,6 +48,18 @@ export class JsonFileCheckpointStore implements OperatorCheckpointStore {
 }
 
 
+function jsonSafe(value: unknown): unknown {
+  if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) return value.map(jsonSafe);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .map(([key, item]) => [key, jsonSafe(item)]),
+    );
+  }
+  return value;
+}
+
 export interface OperatorAuditRecord {
   timestamp: string;
   manifestIdentity: string;
@@ -69,7 +81,7 @@ export class JsonlOperatorAuditJournal {
       throw new TypeError("timestamp must be ISO-8601");
     }
     await mkdir(dirname(this.path), { recursive: true });
-    await appendFile(this.path, JSON.stringify(record) + "\n", {
+    await appendFile(this.path, JSON.stringify(jsonSafe(record)) + "\n", {
       encoding: "utf8",
       mode: 0o600,
     });
