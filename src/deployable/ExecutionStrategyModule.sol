@@ -129,6 +129,14 @@ contract ExecutionStrategyModule {
         gateway = IAdvancedStrategyGateway(gateway_);
     }
 
+    function strategyState(uint64 strategyId)
+        external
+        view
+        returns (Strategy memory)
+    {
+        return strategies[strategyId];
+    }
+
     function placeIceberg(
         IOrderBookCore.Side side,
         uint16 tick,
