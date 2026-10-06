@@ -14,9 +14,6 @@ interface ILiquidationGateway {
         uint64[] calldata trailingIds
     ) external;
 
-    function executionStrategyModule() external view returns (address);
-    function liquidationModule() external view returns (address);
-
     function liquidationForceCancelQuote(
         address account,
         IOrderBookCore.Side side,
