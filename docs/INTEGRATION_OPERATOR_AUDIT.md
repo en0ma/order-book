@@ -89,9 +89,9 @@ Status:
 - deterministic replay/checkpoint/reorg test model: implemented.
 
 Remaining:
-1. Add a canonical ABI decoder adapter and production database adapter around the reference packages.
-2. Add API/WebSocket examples on top of the reference indexer.
-3. Add production runbook/metrics guidance for keeper and liquidator services.
+1. Production database adapter around the reference packages remains; canonical ABI decoding and decoder-to-operator normalization are implemented.
+2. API/WebSocket response schemas and versioned snapshot/diagnostic/task envelopes are implemented; a full example server remains optional integration glue.
+3. Production runbook/metrics guidance plus dependency-free audit journaling are implemented; teams should bind them to their observability stack.
 
 Implemented:
 - Node JSON-RPC ingestion + atomic filesystem checkpoint adapter in `reference/indexer/node`;
@@ -102,10 +102,10 @@ Implemented:
 
 ### P2: operator quality
 
-1. Add health/diagnostic views for oracle freshness, configured module addresses and deployment parameters.
+1. Add health/diagnostic views for oracle freshness, configured module addresses and deployment parameters. Operator head/queue diagnostics are implemented; oracle/module diagnostics still need adapter reads.
 2. Add integration state-machine tests for replay, restart, reorg and keeper downtime.
-3. Add reference API/WebSocket response schemas.
-4. Add metrics/runbook guidance for keepers, liquidators and market makers.
+3. Reference API/WebSocket response schemas are implemented.
+4. Metrics/runbook guidance and append-only audit journaling are implemented; deployment-specific alert thresholds remain operator policy.
 
 ## 1. Indexer audit
 
