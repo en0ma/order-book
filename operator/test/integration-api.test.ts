@@ -214,3 +214,41 @@ test("append-only operator audit journal persists JSONL records", async () => {
   assert.equal(lines[0].kind, "cycle");
   assert.equal(lines[1].payload.idempotencyKey, "abc");
 });
+
+
+test("API surfaces reject manifest/indexer chain mismatch", () => {
+  const wrongChainIndexer = new ReferenceIndexer(2);
+  assert.throws(
+    () => buildApiSnapshot(manifest, wrongChainIndexer),
+    /manifest chainId does not match indexer/,
+  );
+  assert.throws(
+    () => tasksEnvelope(manifest, wrongChainIndexer, []),
+    /manifest chainId does not match indexer/,
+  );
+});
+
+test("audit journal recursively serializes bigint payloads", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "order-book-operator-bigint-"));
+  const path = join(dir, "audit.jsonl");
+  const journal = new JsonlOperatorAuditJournal(path);
+
+  await journal.append({
+    timestamp: "2026-10-06T12:00:02.000Z",
+    manifestIdentity: "chain:1|deployment:100",
+    kind: "submission",
+    payload: {
+      task: {
+        kind: "liquidationCandidate",
+        orderId: 7n,
+        conditionalIds: [1n, 2n],
+        nested: { trailingIds: [3n] },
+      },
+    },
+  });
+
+  const [record] = (await readFile(path, "utf8")).trim().split("\n").map(JSON.parse);
+  assert.equal(record.payload.task.orderId, "7");
+  assert.deepEqual(record.payload.task.conditionalIds, ["1", "2"]);
+  assert.deepEqual(record.payload.task.nested.trailingIds, ["3"]);
+});
