@@ -9,6 +9,10 @@ interface IStrategyLiquidationCleanup {
     function liquidationCleanup(address account, uint64[] calldata strategyIds) external;
 }
 
+interface IStrategyGatewayDiscovery {
+    function executionStrategyModule() external view returns (address);
+}
+
 /// @title LiquidationModule
 /// @notice Maintenance-health policy and liquidation orchestration.
 /// @dev Advanced-order storage cleanup is delegated back to AdvancedOrderModule.
@@ -115,7 +119,8 @@ contract LiquidationModule {
         if (makerSides.length != makerTicks.length) revert UnsettledOrders();
 
         gateway.liquidationCleanupAdvanced(account, conditionalIds, trailingIds);
-        address strategy = gateway.executionStrategyModule();
+        address strategy =
+            IStrategyGatewayDiscovery(address(gateway)).executionStrategyModule();
         if (strategy == address(0)) {
             if (strategyIds.length != 0) revert UnsettledOrders();
         } else {
