@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {IOrderBookCore} from "./IOrderBookCore.sol";
 
 interface IAdvancedStrategyGateway {
+    function liquidationModule() external view returns (address);
     function marketMakerReserveExposure(address account, IOrderBookCore.Side side, uint96 lots)
         external returns (uint16 riskCeilingTick);
     function strategyTake(
@@ -372,7 +373,10 @@ contract ExecutionStrategyModule {
     function liquidationCleanup(address account, uint64[] calldata strategyIds)
         external
     {
-        if (msg.sender != address(gateway)) revert Unauthorized();
+        if (
+            msg.sender != address(gateway)
+                && msg.sender != gateway.liquidationModule()
+        ) revert Unauthorized();
         for (uint256 i; i < strategyIds.length; ++i) {
             uint64 strategyId = strategyIds[i];
             Strategy storage s = strategies[strategyId];
