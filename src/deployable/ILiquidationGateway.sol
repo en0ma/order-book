@@ -14,6 +14,11 @@ interface ILiquidationGateway {
         uint64[] calldata trailingIds
     ) external;
 
+    function liquidationCleanupStrategies(
+        address account,
+        uint64[] calldata strategyIds
+    ) external;
+
     function liquidationForceCancelQuote(
         address account,
         IOrderBookCore.Side side,
