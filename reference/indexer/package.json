@@ -19,6 +19,11 @@
       "types": "./src/node.ts",
       "import": "./dist/node.js",
       "default": "./dist/node.js"
+    },
+    "./abi": {
+      "types": "./src/abi.ts",
+      "import": "./dist/abi.js",
+      "default": "./dist/abi.js"
     }
   },
   "files": [

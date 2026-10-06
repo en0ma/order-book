@@ -2,7 +2,7 @@
 
 This package is a dependency-free reference state/recovery core for teams operating their own deployment of the order-book engine.
 
-It does **not** own RPC transport, ABI decoding, a database, or a hosted service. A DEX team should connect its preferred stack (for example viem/ethers + Postgres/SQLite) and feed decoded protocol logs into `ReferenceIndexer`.
+It does **not** own a hosted RPC service or database. The core remains transport-neutral, while the package now includes an optional dependency-free canonical ABI decoder and Node JSON-RPC adapter so teams do not need to rewrite protocol event decoding before they can run the reference service.
 
 ## Responsibilities
 
@@ -92,7 +92,7 @@ It provides:
 - `JsonFileCheckpointStore` with atomic temporary-file + rename persistence;
 - `ReferenceNodeService` for deployment-block startup, restart from persisted checkpoints, sequential canonical replay and retained-window reorg reconciliation.
 
-The service intentionally accepts a `ProtocolLogDecoder` callback instead of forcing an ABI/runtime dependency. A DEX team can bind viem, ethers or its own generated ABI decoder while retaining the repository's canonical replay, chain validation and persistence logic.
+The Node service still accepts a custom `ProtocolLogDecoder` for teams that use generated viem/ethers bindings, but the package also ships the canonical dependency-free decoder under `@en0ma/order-book-reference-indexer/abi`. `ReferenceNodeService.createCanonical(...)` wires that decoder automatically. Known protocol event topics are decoded strictly and malformed known events fail closed; unrelated/supplemental events are ignored.
 
 Example:
 
@@ -105,10 +105,9 @@ import {
 
 const rpc = new HttpJsonRpcClient(process.env.RPC_URL!);
 const checkpoints = new JsonFileCheckpointStore("./data/indexer-checkpoint.json");
-const service = await ReferenceNodeService.create(
+const service = await ReferenceNodeService.createCanonical(
   manifest,
   rpc,
-  decodeProtocolLog,
   checkpoints,
 );
 
@@ -116,3 +115,15 @@ await service.syncTo();
 ```
 
 On every sync the adapter re-queries the connected chain ID before touching replay state. Before advancing, it rechecks the persisted head hash; if that head became orphaned, it finds a common ancestor inside the checkpoint-restored bounded retained window, rolls back, and replays the canonical replacement branch. A deeper reorg fails closed and requires restoration from a finalized checkpoint.
+
+
+## Canonical ABI decoder
+
+The `./abi` subpath exports:
+
+- `decodeProtocolLog` / `canonicalProtocolLogDecoder`;
+- `CANONICAL_EVENT_TOPICS` for the indexed Core, Advanced, MarketMaker and portfolio-coordinator lifecycle events consumed by the reference replay model.
+
+The decoder is dependency-free and supports the protocol events required by the reference state model: aggregate liquidity/trades, conditional and trailing lifecycle, OCO/OTO/resting transitions, managed MM quote recovery, and portfolio lock synchronization.
+
+It validates ABI word/topic shape, enum/tick/generation bounds, indexed-address padding, and signed `int256` portfolio equity. A malformed recognized event throws rather than being silently skipped.

@@ -8,7 +8,7 @@ const outputDir = resolve(here, "dist");
 
 await mkdir(outputDir, { recursive: true });
 
-for (const name of ["index", "node"]) {
+for (const name of ["index", "abi", "node"]) {
   const sourcePath = resolve(here, `src/${name}.ts`);
   const outputPath = resolve(outputDir, `${name}.js`);
   const source = await readFile(sourcePath, "utf8");
