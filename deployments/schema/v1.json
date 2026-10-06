@@ -53,6 +53,7 @@
         "id": { "type": "string", "minLength": 1 },
         "core": { "$ref": "#/$defs/address" },
         "advanced": { "$ref": "#/$defs/address" },
+        "executionStrategy": { "$ref": "#/$defs/address" },
         "marketMaker": { "$ref": "#/$defs/address" },
         "liquidation": { "$ref": "#/$defs/address" },
         "portfolioLiquidation": { "$ref": "#/$defs/address" },
