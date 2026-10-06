@@ -324,53 +324,7 @@ contract AdvancedOrderModule {
         filledLots = core.moduleSettle(account, side, tick);
     }
 
-    function strategyRemoveLockedShares(
-        address account,
-        IOrderBookCore.Side side,
-        uint16 tick,
-        uint32 generation,
-        uint128 shares
-    )
-        external
-        onlyExecutionStrategyModule
-        returns (uint96 removedLots, uint96 crystallizedFillLots)
-    {
-        (int80 beforePosition,,) = core.accountRisk(account);
-        removedLots =
-            core.moduleRemoveLockedShares(account, side, tick, generation, shares);
-        (int80 afterPosition,,) = core.accountRisk(account);
 
-        int256 delta = int256(afterPosition) - int256(beforePosition);
-        if (delta < 0) delta = -delta;
-        if (delta > int256(uint256(type(uint96).max))) revert Unauthorized();
-        crystallizedFillLots = uint96(uint256(delta));
-    }
-
-    function strategyLiquidationForceCancelQuote(
-        address account,
-        IOrderBookCore.Side side,
-        uint16 tick
-    )
-        external
-        onlyExecutionStrategyModule
-        returns (uint96 removedLots, uint96 crystallizedFillLots)
-    {
-        address mm = marketMakerModule;
-        if (mm != address(0)) {
-            IMarketMakerLiquidationCleanup(mm).liquidationForgetManagedQuote(
-                account, side, tick
-            );
-        }
-
-        (int80 beforePosition,,) = core.accountRisk(account);
-        removedLots = core.moduleForceCancelQuote(account, side, tick);
-        (int80 afterPosition,,) = core.accountRisk(account);
-
-        int256 delta = int256(afterPosition) - int256(beforePosition);
-        if (delta < 0) delta = -delta;
-        if (delta > int256(uint256(type(uint96).max))) revert Unauthorized();
-        crystallizedFillLots = uint96(uint256(delta));
-    }
 
 
     modifier onlyLiquidationModule() {
