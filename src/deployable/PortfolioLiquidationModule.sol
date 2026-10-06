@@ -9,6 +9,10 @@ interface IPortfolioStrategyCleanup {
     function liquidationCleanup(address account, uint64[] calldata strategyIds) external;
 }
 
+interface IPortfolioStrategyGatewayDiscovery {
+    function executionStrategyModule() external view returns (address);
+}
+
 /// @title PortfolioLiquidationModule
 /// @notice Cross-market liquidation orchestration over a PortfolioMarginPolicy.
 /// @dev This module intentionally does not provide cross-market collateral transfer or
@@ -186,7 +190,9 @@ contract PortfolioLiquidationModule {
         if (!policy.isUnderMargined(account)) revert NotLiquidatable();
 
         for (uint256 i; i < length; ++i) {
-            address strategy = markets[i].gateway.executionStrategyModule();
+            address strategy = IPortfolioStrategyGatewayDiscovery(
+                address(markets[i].gateway)
+            ).executionStrategyModule();
             if (strategy == address(0)) {
                 if (strategyIds[i].length != 0) revert UnsettledOrders();
             } else {
