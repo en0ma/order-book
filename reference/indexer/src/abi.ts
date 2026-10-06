@@ -27,7 +27,7 @@ const TOPICS = {
   ManagedQuoteUpdated: "0xad27c166ac1272b346030388fc9e334bf7a0dea2a784740aa2e42bf48c1ed1e7",
   ManagedQuoteRemoved: "0x79422a4e5b30e6b1b54a72aec21e1b5ea1f753f154b5a98aed93b2386e606616",
   PortfolioLockSynchronized: "0xcec4da35887e0ef4131ced31e477e7f049b273c199470103deca293d6651f2de",
-} as const satisfies Record<string, Hex>;
+} as const;
 
 export const CANONICAL_EVENT_TOPICS = Object.freeze({ ...TOPICS });
 
@@ -63,9 +63,23 @@ function dataInt(log: RawRpcLog, index: number): bigint {
   return raw >= (1n << 255n) ? raw - (1n << 256n) : raw;
 }
 
-function uintNumber(value: bigint, field: string, max: bigint): number {
+function uintValue(value: bigint, field: string, max: bigint): bigint {
   if (value < 0n || value > max) throw new IndexerError(`${field} is out of range`);
-  return Number(value);
+  return value;
+}
+
+function uintNumber(value: bigint, field: string, max: bigint): number {
+  return Number(uintValue(value, field, max));
+}
+
+function boolValue(value: bigint, field: string): boolean {
+  if (value === 0n) return false;
+  if (value === 1n) return true;
+  throw new IndexerError(`${field} is not a canonical ABI bool`);
+}
+
+function orderId(log: RawRpcLog, topicIndex = 1): bigint {
+  return uintValue(topicUint(log, topicIndex), "orderId", (1n << 64n) - 1n);
 }
 
 function side(value: bigint): 0 | 1 {
@@ -83,39 +97,46 @@ function topicAddress(log: RawRpcLog, index: number): Address {
 
 function decodeLiquidityAdded(log: RawRpcLog): DecodedProtocolEvent {
   requireShape(log, 4, 3);
+  topicAddress(log, 1);
+  const lots = uintValue(dataUint(log, 0), "lots", (1n << 96n) - 1n);
+  uintValue(dataUint(log, 1), "shares", (1n << 128n) - 1n);
   return {
     name: "LiquidityAdded",
     side: side(topicUint(log, 2)),
     tick: uintNumber(topicUint(log, 3), "tick", 0xffffn),
-    lots: dataUint(log, 0),
+    lots,
     generation: uintNumber(dataUint(log, 2), "generation", 0xffffffffn),
   };
 }
 
 function decodeLiquidityRemoved(log: RawRpcLog): DecodedProtocolEvent {
   requireShape(log, 4, 3);
+  topicAddress(log, 1);
+  const lots = uintValue(dataUint(log, 0), "lots", (1n << 96n) - 1n);
+  uintValue(dataUint(log, 1), "shares", (1n << 128n) - 1n);
   return {
     name: "LiquidityRemoved",
     side: side(topicUint(log, 2)),
     tick: uintNumber(topicUint(log, 3), "tick", 0xffffn),
-    lots: dataUint(log, 0),
+    lots,
     generation: uintNumber(dataUint(log, 2), "generation", 0xffffffffn),
   };
 }
 
 function decodeTrade(log: RawRpcLog): DecodedProtocolEvent {
   requireShape(log, 4, 1);
+  topicAddress(log, 1);
   return {
     name: "Trade",
     takerSide: side(topicUint(log, 2)),
     tick: uintNumber(topicUint(log, 3), "tick", 0xffffn),
-    lots: dataUint(log, 0),
+    lots: uintValue(dataUint(log, 0), "lots", (1n << 96n) - 1n),
   };
 }
 
-function indexedOrder(log: RawRpcLog, name: DecodedProtocolEvent["name"]): bigint {
+function indexedOrder(log: RawRpcLog): bigint {
   requireShape(log, 2, 0);
-  return topicUint(log, 1);
+  return orderId(log);
 }
 
 const DECODERS = new Map<string, Decoder>([
@@ -128,7 +149,7 @@ const DECODERS = new Map<string, Decoder>([
   }],
   [TOPICS.ConditionalOrderCancelled, (log) => ({
     name: "ConditionalOrderCancelled",
-    orderId: indexedOrder(log, "ConditionalOrderCancelled"),
+    orderId: indexedOrder(log),
   })],
   [TOPICS.ConditionalOrderExecuted, (log) => {
     requireShape(log, 2, 1);
@@ -194,7 +215,7 @@ const DECODERS = new Map<string, Decoder>([
   }],
   [TOPICS.ConditionalOrderExpired, (log) => ({
     name: "ConditionalOrderExpired",
-    orderId: indexedOrder(log, "ConditionalOrderExpired"),
+    orderId: indexedOrder(log),
   })],
   [TOPICS.TrailingOrderPlaced, (log) => {
     requireShape(log, 3, 6);
@@ -202,7 +223,7 @@ const DECODERS = new Map<string, Decoder>([
   }],
   [TOPICS.TrailingOrderCancelled, (log) => ({
     name: "TrailingOrderCancelled",
-    orderId: indexedOrder(log, "TrailingOrderCancelled"),
+    orderId: indexedOrder(log),
   })],
   [TOPICS.TrailingExpirySet, (log) => {
     requireShape(log, 2, 1);
@@ -214,7 +235,7 @@ const DECODERS = new Map<string, Decoder>([
   }],
   [TOPICS.TrailingOrderExpired, (log) => ({
     name: "TrailingOrderExpired",
-    orderId: indexedOrder(log, "TrailingOrderExpired"),
+    orderId: indexedOrder(log),
   })],
   [TOPICS.TrailingOrderExecuted, (log) => {
     requireShape(log, 2, 3);
