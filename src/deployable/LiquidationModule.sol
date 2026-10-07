@@ -9,10 +9,6 @@ interface IStrategyLiquidationCleanup {
     function liquidationCleanup(address account, uint64[] calldata strategyIds) external;
 }
 
-interface IStrategyGatewayDiscovery {
-    function executionStrategyModule() external view returns (address);
-}
-
 /// @title LiquidationModule
 /// @notice Maintenance-health policy and liquidation orchestration.
 /// @dev Advanced-order storage cleanup is delegated back to AdvancedOrderModule.
@@ -26,6 +22,7 @@ contract LiquidationModule {
     LiquidationPolicy public immutable policy;
     uint16 public immutable maintenanceMarginBps;
     address public owner;
+    address internal immutable strategyModule;
     uint16 public liquidatorRewardBps;
     bool internal _liquidatorRewardConfigured;
 
@@ -48,7 +45,12 @@ contract LiquidationModule {
     event LiquidatorRewardConfigured(uint16 rewardBps);
     event LiquidatorRewardPaid(address indexed liquidator, uint256 amount);
 
-    constructor(address core_, address gateway_, uint16 maintenanceBps_) {
+    constructor(
+        address core_,
+        address gateway_,
+        address strategyModule_,
+        uint16 maintenanceBps_
+    ) {
         if (
             core_ == address(0) || gateway_ == address(0) || maintenanceBps_ == 0
                 || maintenanceBps_ > 10_000
@@ -61,6 +63,7 @@ contract LiquidationModule {
 
         core = coreRef;
         gateway = ILiquidationGateway(gateway_);
+        strategyModule = strategyModule_;
         policy = new LiquidationPolicy(core_, gateway_, maintenanceBps_);
         maintenanceMarginBps = maintenanceBps_;
         owner = msg.sender;
@@ -109,11 +112,9 @@ contract LiquidationModule {
 
         gateway.liquidationCleanupAdvanced(account, conditionalIds, trailingIds);
 
-        address strategy =
-            IStrategyGatewayDiscovery(address(gateway)).executionStrategyModule();
-        if (strategy == address(0)) {
-            if (strategyIds.length != 0) revert UnsettledOrders();
-        } else if (strategyIds.length != 0) {
+        address strategy = strategyModule;
+        if (strategyIds.length != 0) {
+            if (strategy == address(0)) revert UnsettledOrders();
             IStrategyLiquidationCleanup(strategy).liquidationCleanup(
                 account, strategyIds
             );
