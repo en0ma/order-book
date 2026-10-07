@@ -40,10 +40,14 @@ contract LiquidationPolicy {
                 || gateway.activeAdvancedOrders(account) != 0
         ) return true;
 
-        address strategy =
-            IStrategyGatewayDiscovery(address(gateway)).executionStrategyModule();
-        return strategy != address(0)
-            && IStrategyOrderRegistry(strategy).activeStrategyCount(account) != 0;
+        try IStrategyGatewayDiscovery(address(gateway)).executionStrategyModule()
+            returns (address strategy)
+        {
+            return strategy != address(0)
+                && IStrategyOrderRegistry(strategy).activeStrategyCount(account) != 0;
+        } catch {
+            return false;
+        }
     }
 
     function maintenanceRequirement(address account) external view returns (uint256) {
