@@ -7,6 +7,7 @@ import {PortfolioMarginPolicy} from "./PortfolioMarginPolicy.sol";
 
 interface IPortfolioStrategyCleanup {
     function liquidationCleanup(address account, uint64[] calldata strategyIds) external;
+    function activeStrategyCount(address account) external view returns (uint32);
 }
 
 interface IPortfolioStrategyGatewayDiscovery {
@@ -104,9 +105,15 @@ contract PortfolioLiquidationModule {
             if (
                 market.core.activeQuoteCount(account) != 0
                     || market.gateway.activeAdvancedOrders(account) != 0
-            ) {
-                return true;
-            }
+            ) return true;
+
+            address strategy = IPortfolioStrategyGatewayDiscovery(
+                address(market.gateway)
+            ).executionStrategyModule();
+            if (
+                strategy != address(0)
+                    && IPortfolioStrategyCleanup(strategy).activeStrategyCount(account) != 0
+            ) return true;
         }
         return false;
     }
