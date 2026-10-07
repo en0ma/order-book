@@ -75,7 +75,8 @@ contract CustodyReserveBackingInvariantTest is TestBase {
             sides,
             ticks,
             conditionalIds,
-            trailingIds
+            trailingIds,
+            new uint64[](0)
         );
         assertEq(closed, 100, "liquidation did not fully close");
 
