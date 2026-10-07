@@ -277,11 +277,6 @@ contract AdvancedOrderModule {
         core.moduleUnlockShares(maker, side, tick, generation, shares);
     }
 
-    modifier onlyExecutionStrategyModule() {
-        if (msg.sender != executionStrategyModule || msg.sender == address(0)) revert Unauthorized();
-        _;
-    }
-
     function configureExecutionStrategyModule(address module_) external {
         if (
             msg.sender != owner || module_ == address(0)
@@ -297,7 +292,10 @@ contract AdvancedOrderModule {
         IOrderBookCore.Side side,
         uint16 limitTick,
         uint96 lots
-    ) external onlyExecutionStrategyModule returns (uint96 filledLots) {
+    ) external returns (uint96 filledLots) {
+        if (msg.sender != executionStrategyModule || msg.sender == address(0)) {
+            revert Unauthorized();
+        }
         _reserveExposure(account, side, lots);
         filledLots = _take(
             account,
@@ -318,7 +316,7 @@ contract AdvancedOrderModule {
         address account,
         IOrderBookCore.Side side,
         uint16 tick
-    ) external onlyExecutionStrategyModule returns (uint96 filledLots) {
+    ) external onlyMakerExecutionModule returns (uint96 filledLots) {
         filledLots = core.moduleSettle(account, side, tick);
     }
 
