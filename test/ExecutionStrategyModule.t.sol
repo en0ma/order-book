@@ -212,9 +212,9 @@ contract ExecutionStrategyModuleTest is TestBase {
             core.pools(IOrderBookCore.Side.Bid, 102);
         assertEq(replacementLots, 0, "completed peg was recreated");
 
-        ExecutionStrategyModule.Strategy memory state = strategy.strategyState(id);
-        assertEq(state.remainingLots, 0, "completed peg retained quantity");
-        assertTrue(!state.active, "completed peg remained active");
+        (uint96 remainingLots,, bool active) = strategy.strategyStatus(id);
+        assertEq(remainingLots, 0, "completed peg retained quantity");
+        assertTrue(!active, "completed peg remained active");
     }
 
     function testLiquidationCleanupCanForceCancelContaminatedStrategyQuote() public {
