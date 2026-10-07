@@ -1224,7 +1224,7 @@ contract AdvancedOrderModuleTest is TestBase {
         uint64[] memory conditionals = new uint64[](0);
         uint64[] memory trailings = new uint64[](0);
 
-        liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+        liquidation.liquidate(trader, sides, ticks, conditionals, trailings, new uint64[](0));
 
         _fund(trader, 5_000);
 
@@ -1269,7 +1269,7 @@ contract AdvancedOrderModuleTest is TestBase {
         trailings[0] = trailingId;
 
         uint96 closed =
-            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings, new uint64[](0));
 
         assertEq(closed, 100, "module liquidation close");
         assertEq(int256(_corePosition(trader)), 0, "module liquidation position");
@@ -1300,7 +1300,7 @@ contract AdvancedOrderModuleTest is TestBase {
         uint64[] memory trailings = new uint64[](0);
 
         uint96 closed =
-            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings, new uint64[](0));
 
         assertEq(closed, 100, "bad-debt liquidation did not fully close");
         assertEq(int256(_corePosition(trader)), 0, "bad-debt account left position");
@@ -1340,7 +1340,7 @@ contract AdvancedOrderModuleTest is TestBase {
         uint64[] memory trailings = new uint64[](0);
 
         uint96 closed =
-            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings, new uint64[](0));
 
         assertEq(closed, 100, "insured liquidation did not fully close");
         assertEq(int256(_corePosition(trader)), 0, "insured account left position");
@@ -1395,7 +1395,7 @@ contract AdvancedOrderModuleTest is TestBase {
 
         vm.prank(liquidator);
         uint96 closed =
-            feeLiquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            feeLiquidation.liquidate(trader, sides, ticks, conditionals, trailings, new uint64[](0));
 
         assertEq(closed, 100, "rewarded liquidation did not fully close");
         assertEq(feeToken.balanceOf(liquidator), 70, "liquidator reward mismatch");
@@ -1482,7 +1482,7 @@ contract AdvancedOrderModuleTest is TestBase {
         uint64[] memory trailings = new uint64[](0);
 
         uint96 firstClosed =
-            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings, new uint64[](0));
 
         assertEq(firstClosed, 40, "partial liquidation fill mismatch");
         assertEq(int256(_corePosition(trader)), 60, "partial liquidation position mismatch");
@@ -1493,7 +1493,7 @@ contract AdvancedOrderModuleTest is TestBase {
         core.addLiquidity(IOrderBookCore.Side.Bid, 10, 60);
 
         uint96 secondClosed =
-            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings, new uint64[](0));
 
         assertEq(secondClosed, 60, "second liquidation fill mismatch");
         assertEq(int256(_corePosition(trader)), 0, "second liquidation did not flatten account");
@@ -2268,7 +2268,8 @@ contract AdvancedOrderModuleTest is TestBase {
             sides,
             ticks,
             conditionals,
-            trailings
+            trailings,
+            new uint64[](0)
         );
     }
 
@@ -2332,7 +2333,7 @@ contract AdvancedOrderModuleTest is TestBase {
         uint64[] memory trailings = new uint64[](0);
 
         uint96 closed =
-            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings, new uint64[](0));
 
         assertEq(
             closed,
@@ -2397,7 +2398,7 @@ contract AdvancedOrderModuleTest is TestBase {
         uint64[] memory trailings = new uint64[](0);
 
         uint96 closed =
-            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings, new uint64[](0));
 
         assertEq(closed, 100, "liquidation close size included reserved exposure");
         assertEq(module.activeAdvancedOrders(trader), 0, "advanced reservation survived liquidation");
@@ -2437,7 +2438,7 @@ contract AdvancedOrderModuleTest is TestBase {
         uint64[] memory trailings = new uint64[](0);
 
         uint96 closed =
-            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings, new uint64[](0));
 
         assertEq(closed, 100, "lower band boundary was not executable");
         assertEq(int256(_corePosition(trader)), 0, "boundary liquidation did not flatten");
@@ -2469,7 +2470,7 @@ contract AdvancedOrderModuleTest is TestBase {
         uint64[] memory trailings = new uint64[](0);
 
         uint96 closed =
-            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings, new uint64[](0));
 
         assertEq(closed, 0, "liquidation crossed below execution band");
         assertEq(int256(_corePosition(trader)), 100, "out-of-band liquidity changed position");
@@ -2506,7 +2507,7 @@ contract AdvancedOrderModuleTest is TestBase {
         uint64[] memory trailings = new uint64[](0);
 
         uint96 closed =
-            liquidation.liquidate(trader, sides, ticks, conditionals, trailings);
+            liquidation.liquidate(trader, sides, ticks, conditionals, trailings, new uint64[](0));
 
         assertEq(closed, 40, "liquidation did not stop at band boundary");
         assertEq(int256(_corePosition(trader)), 60, "partial liquidation residual mismatch");
@@ -2587,7 +2588,7 @@ contract AdvancedOrderModuleTest is TestBase {
 
         vm.prank(liquidator);
         closed =
-            target.liquidate(trader, sides, ticks, conditionals, trailings);
+            target.liquidate(trader, sides, ticks, conditionals, trailings, new uint64[](0));
     }
 
     function _zeroCloseState(
