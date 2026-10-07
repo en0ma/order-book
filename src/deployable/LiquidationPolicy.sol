@@ -5,6 +5,14 @@ import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {ILiquidationGateway} from "./ILiquidationGateway.sol";
 import {OrderBookMath} from "./OrderBookMath.sol";
 
+interface IStrategyGatewayDiscovery {
+    function executionStrategyModule() external view returns (address);
+}
+
+interface IStrategyOrderRegistry {
+    function activeStrategyCount(address account) external view returns (uint32);
+}
+
 /// @title LiquidationPolicy
 /// @notice Reusable liquidation health and bad-debt policy for CLOB integrations.
 /// @dev Keeps read-side risk policy separate from liquidation execution/orchestration.
@@ -27,8 +35,15 @@ contract LiquidationPolicy {
     }
 
     function hasOpenOrders(address account) public view returns (bool) {
-        return core.activeQuoteCount(account) != 0
-            || gateway.activeAdvancedOrders(account) != 0;
+        if (
+            core.activeQuoteCount(account) != 0
+                || gateway.activeAdvancedOrders(account) != 0
+        ) return true;
+
+        address strategy =
+            IStrategyGatewayDiscovery(address(gateway)).executionStrategyModule();
+        return strategy != address(0)
+            && IStrategyOrderRegistry(strategy).activeStrategyCount(account) != 0;
     }
 
     function maintenanceRequirement(address account) external view returns (uint256) {
