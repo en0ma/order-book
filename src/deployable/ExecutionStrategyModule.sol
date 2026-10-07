@@ -20,8 +20,6 @@ interface IAdvancedStrategyGateway {
         uint96 lots,
         uint16 riskCeilingTick
     ) external returns (uint128 shares);
-    function strategySettle(address account, IOrderBookCore.Side side, uint16 tick)
-        external returns (uint96 filledLots);
     function marketMakerRemoveLockedShares(
         address account,
         IOrderBookCore.Side side,
@@ -150,7 +148,7 @@ contract ExecutionStrategyModule {
         Strategy storage s = _active(strategyId, Kind.Iceberg);
         _requireExclusive(strategyId, s);
 
-        newlyFilledLots = gateway.strategySettle(s.owner, s.side, s.limitTick);
+        newlyFilledLots = gateway.marketMakerRemoveLockedShares(s.owner, s.side, s.limitTick, 0, 0);
         _consumeFilled(strategyId, s, newlyFilledLots);
         if (!s.active) return (newlyFilledLots, 0);
 
@@ -281,7 +279,7 @@ contract ExecutionStrategyModule {
         _requireExclusive(strategyId, s);
 
         uint16 previousTick = slice.tick;
-        newlyFilledLots = gateway.strategySettle(s.owner, s.side, previousTick);
+        newlyFilledLots = gateway.marketMakerRemoveLockedShares(s.owner, s.side, previousTick, 0, 0);
         _consumeFilled(strategyId, s, newlyFilledLots);
         if (!s.active) return (newlyFilledLots, previousTick);
 
@@ -361,7 +359,7 @@ contract ExecutionStrategyModule {
         RestingSlice memory slice = restingSlices[strategyId];
         if (slice.shares != 0) {
             _requireExclusive(strategyId, s);
-            uint96 filled = gateway.strategySettle(s.owner, s.side, slice.tick);
+            uint96 filled = gateway.marketMakerRemoveLockedShares(s.owner, s.side, slice.tick, 0, 0);
             if (filled > s.remainingLots) revert QuoteContaminated();
             s.remainingLots -= filled;
             (uint128 shares,, uint32 generation) =
