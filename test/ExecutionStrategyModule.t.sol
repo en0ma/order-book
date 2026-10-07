@@ -84,9 +84,9 @@ contract ExecutionStrategyModuleTest is TestBase {
             core.pools(IOrderBookCore.Side.Bid, 95);
         assertEq(poolVisible, 10, "replenished slice missing");
 
-        ExecutionStrategyModule.Strategy memory state = strategy.strategyState(id);
-        assertEq(state.remainingLots, 40, "hidden remaining mismatch");
-        assertTrue(state.active, "iceberg completed too early");
+        (uint96 remainingLots,, bool active) = strategy.strategyStatus(id);
+        assertEq(remainingLots, 40, "hidden remaining mismatch");
+        assertTrue(active, "iceberg completed too early");
     }
 
     function testIcebergCancelClearsVisibleQuoteAndAdvancedCount() public {
@@ -130,9 +130,10 @@ contract ExecutionStrategyModuleTest is TestBase {
 
         uint96 first = strategy.executeTWAPSlice(id);
         assertEq(first, 10, "first TWAP slice");
-        ExecutionStrategyModule.Strategy memory afterFirst = strategy.strategyState(id);
-        assertEq(afterFirst.remainingLots, 20, "TWAP remaining after first");
-        assertEq(uint256(afterFirst.nextExecution), 1_060, "TWAP next execution");
+        (uint96 remainingAfterFirst, uint64 nextExecution,) =
+            strategy.strategyStatus(id);
+        assertEq(remainingAfterFirst, 20, "TWAP remaining after first");
+        assertEq(uint256(nextExecution), 1_060, "TWAP next execution");
 
         (bool earlyOk,) = address(strategy).call(
             abi.encodeCall(strategy.executeTWAPSlice, (id))
@@ -147,9 +148,10 @@ contract ExecutionStrategyModuleTest is TestBase {
         uint96 third = strategy.executeTWAPSlice(id);
         assertEq(third, 5, "third TWAP slice should respect available liquidity");
 
-        ExecutionStrategyModule.Strategy memory afterThird = strategy.strategyState(id);
-        assertEq(afterThird.remainingLots, 5, "unfilled TWAP remainder lost");
-        assertTrue(afterThird.active, "partially filled TWAP completed");
+        (uint96 remainingAfterThird,, bool activeAfterThird) =
+            strategy.strategyStatus(id);
+        assertEq(remainingAfterThird, 5, "unfilled TWAP remainder lost");
+        assertTrue(activeAfterThird, "partially filled TWAP completed");
     }
 
     function testPeggedOrderRepricesWithoutChangingRemainingSize() public {
