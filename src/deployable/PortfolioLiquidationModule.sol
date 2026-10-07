@@ -195,12 +195,12 @@ contract PortfolioLiquidationModule {
             cleanup.trailingIds
         );
 
-        address strategy = IPortfolioStrategyGatewayDiscovery(
-            address(market.gateway)
-        ).executionStrategyModule();
-        if (strategy == address(0)) {
-            if (cleanup.strategyIds.length != 0) revert UnsettledOrders();
-        } else {
+        if (cleanup.strategyIds.length != 0) {
+            address strategy = IPortfolioStrategyGatewayDiscovery(
+                address(market.gateway)
+            ).executionStrategyModule();
+            if (strategy == address(0)) revert UnsettledOrders();
+
             IPortfolioStrategyCleanup(strategy).liquidationCleanup(
                 account,
                 cleanup.strategyIds
