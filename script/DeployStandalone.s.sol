@@ -107,6 +107,7 @@ contract DeployStandalone {
         deployment.liquidation = new LiquidationModule(
             address(deployment.core),
             address(deployment.advanced),
+            address(deployment.strategy),
             config.maintenanceMarginBps
         );
         deployment.lens =
