@@ -102,26 +102,6 @@ contract LiquidationModule {
         IOrderBookCore.Side[] calldata makerSides,
         uint16[] calldata makerTicks,
         uint64[] calldata conditionalIds,
-        uint64[] calldata trailingIds
-    ) external returns (uint96 closedLots) {
-        if (makerSides.length != makerTicks.length) revert UnsettledOrders();
-
-        gateway.liquidationCleanupAdvanced(account, conditionalIds, trailingIds);
-
-        for (uint256 i; i < makerTicks.length; ++i) {
-            gateway.liquidationForceCancelQuote(
-                account, makerSides[i], makerTicks[i]
-            );
-        }
-
-        closedLots = _liquidatePosition(account, msg.sender);
-    }
-
-    function liquidateWithStrategies(
-        address account,
-        IOrderBookCore.Side[] calldata makerSides,
-        uint16[] calldata makerTicks,
-        uint64[] calldata conditionalIds,
         uint64[] calldata trailingIds,
         uint64[] calldata strategyIds
     ) external returns (uint96 closedLots) {
@@ -133,7 +113,7 @@ contract LiquidationModule {
             IStrategyGatewayDiscovery(address(gateway)).executionStrategyModule();
         if (strategy == address(0)) {
             if (strategyIds.length != 0) revert UnsettledOrders();
-        } else {
+        } else if (strategyIds.length != 0) {
             IStrategyLiquidationCleanup(strategy).liquidationCleanup(
                 account, strategyIds
             );
@@ -147,7 +127,6 @@ contract LiquidationModule {
 
         closedLots = _liquidatePosition(account, msg.sender);
     }
-
 
     function _liquidatePosition(address account, address liquidator)
         internal
