@@ -117,7 +117,7 @@ contract LiquidationModule {
         closedLots = _liquidatePosition(account, msg.sender);
     }
 
-    function liquidate(
+    function liquidateWithStrategies(
         address account,
         IOrderBookCore.Side[] calldata makerSides,
         uint16[] calldata makerTicks,
