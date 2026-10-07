@@ -43,10 +43,6 @@ interface IPortfolioAdmissionGateway {
     ) external returns (uint128 mintedShares);
 }
 
-interface IExecutionStrategyRegistry {
-    function activeStrategyCount(address account) external view returns (uint32);
-}
-
 interface IMarketMakerLiquidationCleanup {
     function liquidationForgetManagedQuote(
         address maker,
@@ -335,12 +331,8 @@ contract AdvancedOrderModule {
         liquidationModule = module_;
     }
 
-    function activeAdvancedOrders(address account) external view returns (uint32 count) {
-        count = activeAdvancedCount[account];
-        if (executionStrategyModule != address(0)) {
-            count += IExecutionStrategyRegistry(executionStrategyModule)
-                .activeStrategyCount(account);
-        }
+    function activeAdvancedOrders(address account) external view returns (uint32) {
+        return activeAdvancedCount[account];
     }
 
     function trailingOrderState(uint64 orderId)
