@@ -129,7 +129,7 @@ contract ExecutionStrategyModule {
         }
         _requireCleanQuote(msg.sender, side, tick);
 
-        strategyId = nextStrategyId++;
+        strategyId = _openStrategy(msg.sender);
         Strategy storage s = strategies[strategyId];
         s.owner = msg.sender;
         s.remainingLots = totalLots;
@@ -138,7 +138,6 @@ contract ExecutionStrategyModule {
         s.side = side;
         s.kind = Kind.Iceberg;
         s.active = true;
-        activeStrategyCount[msg.sender] += 1;
 
         _addRestingSlice(strategyId, s, _min(displayLots, totalLots), tick);
         emit IcebergPlaced(strategyId, msg.sender, side, tick, totalLots, displayLots);
@@ -197,7 +196,7 @@ contract ExecutionStrategyModule {
                 || deadline <= startTime
         ) revert InvalidStrategy();
 
-        strategyId = nextStrategyId++;
+        strategyId = _openStrategy(msg.sender);
         Strategy storage s = strategies[strategyId];
         s.owner = msg.sender;
         s.remainingLots = totalLots;
@@ -209,7 +208,6 @@ contract ExecutionStrategyModule {
         s.side = side;
         s.kind = Kind.TWAP;
         s.active = true;
-        activeStrategyCount[msg.sender] += 1;
 
         emit TWAPPlaced(
             strategyId,
@@ -257,7 +255,7 @@ contract ExecutionStrategyModule {
         uint16 tick = _peggedTick(side, offsetTicks, priceBoundTick);
         _requireCleanQuote(msg.sender, side, tick);
 
-        strategyId = nextStrategyId++;
+        strategyId = _openStrategy(msg.sender);
         Strategy storage s = strategies[strategyId];
         s.owner = msg.sender;
         s.remainingLots = lots;
@@ -267,7 +265,6 @@ contract ExecutionStrategyModule {
         s.side = side;
         s.kind = Kind.Pegged;
         s.active = true;
-        activeStrategyCount[msg.sender] += 1;
 
         _addRestingSlice(strategyId, s, lots, tick);
         emit PeggedPlaced(
@@ -353,8 +350,7 @@ contract ExecutionStrategyModule {
                 delete restingSlices[strategyId];
             }
 
-            s.active = false;
-            activeStrategyCount[s.owner] -= 1;
+            _deactivate(s);
             emit StrategyCancelled(strategyId, s.remainingLots);
         }
     }
@@ -382,8 +378,7 @@ contract ExecutionStrategyModule {
         }
 
         uint96 remaining = s.remainingLots;
-        s.active = false;
-        activeStrategyCount[s.owner] -= 1;
+        _deactivate(s);
         emit StrategyCancelled(strategyId, remaining);
     }
 
@@ -413,17 +408,33 @@ contract ExecutionStrategyModule {
         s.remainingLots -= filledLots;
         if (s.remainingLots == 0) {
             delete restingSlices[strategyId];
-            s.active = false;
-            activeStrategyCount[s.owner] -= 1;
+            _deactivate(s);
             emit StrategyCompleted(strategyId);
         }
     }
 
     function _complete(uint64 strategyId, Strategy storage s) internal {
         if (!s.active) return;
-        s.active = false;
-        activeStrategyCount[s.owner] -= 1;
+        _deactivate(s);
         emit StrategyCompleted(strategyId);
+    }
+
+    function _openStrategy(address owner)
+        internal
+        returns (uint64 strategyId)
+    {
+        strategyId = nextStrategyId;
+        unchecked {
+            nextStrategyId = strategyId + 1;
+            ++activeStrategyCount[owner];
+        }
+    }
+
+    function _deactivate(Strategy storage s) internal {
+        s.active = false;
+        unchecked {
+            --activeStrategyCount[s.owner];
+        }
     }
 
     function _active(uint64 strategyId, Kind kind)
