@@ -133,16 +133,10 @@ contract LiquidationModule {
         internal
         returns (uint96 closedLots)
     {
-        if (policy.hasOpenOrders(account)) revert UnsettledOrders();
+        if (!policy.isLiquidatable(account)) revert NotLiquidatable();
 
         int256 equityBefore = core.accountEquity(account);
         (int80 position,,) = core.accountRisk(account);
-        if (
-            equityBefore
-                >= int256(policy.maintenanceRequirementForPosition(position))
-        ) {
-            revert NotLiquidatable();
-        }
 
         if (position > 0) {
             closedLots = gateway.liquidationTake(
