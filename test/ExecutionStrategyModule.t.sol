@@ -232,7 +232,7 @@ contract ExecutionStrategyModuleTest is TestBase {
         uint64[] memory ids = new uint64[](1);
         ids[0] = id;
 
-        vm.prank(address(advanced));
+        advanced.configureLiquidationModule(address(this));
         strategy.liquidationCleanup(ALICE, ids);
 
         assertEq(
@@ -249,7 +249,6 @@ contract ExecutionStrategyModuleTest is TestBase {
             "strategy cleanup should leave contaminated quote to liquidator"
         );
 
-        advanced.configureLiquidationModule(address(this));
         advanced.liquidationForceCancelQuote(
             ALICE, IOrderBookCore.Side.Bid, 95
         );
