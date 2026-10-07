@@ -80,12 +80,6 @@ contract ExecutionStrategyModule {
         uint96 totalLots,
         uint96 displayLots
     );
-    event IcebergRefreshed(
-        uint64 indexed strategyId,
-        uint96 newlyFilledLots,
-        uint96 visibleLots,
-        uint96 remainingLots
-    );
     event TWAPPlaced(
         uint64 indexed strategyId,
         address indexed owner,
@@ -97,13 +91,6 @@ contract ExecutionStrategyModule {
         uint64 interval,
         uint64 deadline
     );
-    event TWAPSliceExecuted(
-        uint64 indexed strategyId,
-        uint96 requestedLots,
-        uint96 filledLots,
-        uint96 remainingLots,
-        uint64 nextExecution
-    );
     event PeggedPlaced(
         uint64 indexed strategyId,
         address indexed owner,
@@ -112,13 +99,6 @@ contract ExecutionStrategyModule {
         uint16 priceBoundTick,
         uint96 lots,
         uint16 initialTick
-    );
-    event PeggedRepriced(
-        uint64 indexed strategyId,
-        uint16 previousTick,
-        uint16 nextTick,
-        uint96 newlyFilledLots,
-        uint96 remainingLots
     );
     event StrategyCancelled(uint64 indexed strategyId, uint96 remainingLots);
     event StrategyCompleted(uint64 indexed strategyId);
@@ -129,12 +109,13 @@ contract ExecutionStrategyModule {
         gateway = IAdvancedStrategyGateway(gateway_);
     }
 
-    function strategyState(uint64 strategyId)
+    function strategyStatus(uint64 strategyId)
         external
         view
-        returns (Strategy memory)
+        returns (uint96 remainingLots, uint64 nextExecution, bool active)
     {
-        return strategies[strategyId];
+        Strategy storage s = strategies[strategyId];
+        return (s.remainingLots, s.nextExecution, s.active);
     }
 
     function placeIceberg(
@@ -200,9 +181,6 @@ contract ExecutionStrategyModule {
             visibleLots = claimLots;
         }
 
-        emit IcebergRefreshed(
-            strategyId, newlyFilledLots, visibleLots, s.remainingLots
-        );
     }
 
     function placeTWAP(
@@ -267,9 +245,6 @@ contract ExecutionStrategyModule {
         s.nextExecution = next;
 
         if (s.remainingLots == 0) _complete(strategyId, s);
-        emit TWAPSliceExecuted(
-            strategyId, requested, filledLots, s.remainingLots, s.nextExecution
-        );
     }
 
     function placePegged(
@@ -315,13 +290,6 @@ contract ExecutionStrategyModule {
 
         nextTick = _peggedTick(s.side, s.pegOffsetTicks, s.limitTick);
         if (nextTick == previousTick) {
-            emit PeggedRepriced(
-                strategyId,
-                previousTick,
-                nextTick,
-                newlyFilledLots,
-                s.remainingLots
-            );
             return (newlyFilledLots, nextTick);
         }
 
@@ -343,13 +311,6 @@ contract ExecutionStrategyModule {
             if (s.remainingLots == 0) {
                 delete restingSlices[strategyId];
                 _complete(strategyId, s);
-                emit PeggedRepriced(
-                    strategyId,
-                    previousTick,
-                    nextTick,
-                    newlyFilledLots,
-                    0
-                );
                 return (newlyFilledLots, nextTick);
             }
         }
@@ -357,9 +318,6 @@ contract ExecutionStrategyModule {
         _requireCleanQuote(s.owner, s.side, nextTick);
         _addRestingSlice(strategyId, s, s.remainingLots, nextTick);
 
-        emit PeggedRepriced(
-            strategyId, previousTick, nextTick, newlyFilledLots, s.remainingLots
-        );
     }
 
     function cancelStrategy(uint64 strategyId) external {
@@ -372,10 +330,7 @@ contract ExecutionStrategyModule {
     function liquidationCleanup(address account, uint64[] calldata strategyIds)
         external
     {
-        if (
-            msg.sender != address(gateway)
-                && msg.sender != gateway.liquidationModule()
-        ) revert Unauthorized();
+        if (msg.sender != gateway.liquidationModule()) revert Unauthorized();
         for (uint256 i; i < strategyIds.length; ++i) {
             uint64 strategyId = strategyIds[i];
             Strategy storage s = strategies[strategyId];
@@ -527,7 +482,6 @@ contract ExecutionStrategyModule {
     {
         int256 delta = int256(afterPosition) - int256(beforePosition);
         if (delta < 0) delta = -delta;
-        if (delta > int256(uint256(type(uint96).max))) revert QuoteContaminated();
         deltaLots = uint96(uint256(delta));
     }
 
