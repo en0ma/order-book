@@ -2106,7 +2106,7 @@ contract AdvancedOrderModuleTest is TestBase {
         (ok,) = address(liquidation).call(
             abi.encodeCall(
                 liquidation.liquidate,
-                (trader, sides, ticks, conditionals, trailings)
+                (trader, sides, ticks, conditionals, trailings, new uint64[](0))
             )
         );
     }
@@ -2171,7 +2171,7 @@ contract AdvancedOrderModuleTest is TestBase {
         (bool ok,) = address(liquidation).call(
             abi.encodeCall(
                 liquidation.liquidate,
-                (trader, sides, ticks, conditionals, trailings)
+                (trader, sides, ticks, conditionals, trailings, new uint64[](0))
             )
         );
         assertTrue(!ok, "healthy account was liquidated");
