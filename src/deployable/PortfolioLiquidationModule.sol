@@ -107,13 +107,15 @@ contract PortfolioLiquidationModule {
                     || market.gateway.activeAdvancedOrders(account) != 0
             ) return true;
 
-            address strategy = IPortfolioStrategyGatewayDiscovery(
-                address(market.gateway)
-            ).executionStrategyModule();
-            if (
-                strategy != address(0)
-                    && IPortfolioStrategyCleanup(strategy).activeStrategyCount(account) != 0
-            ) return true;
+            try IPortfolioStrategyGatewayDiscovery(address(market.gateway))
+                .executionStrategyModule() returns (address strategy)
+            {
+                if (
+                    strategy != address(0)
+                        && IPortfolioStrategyCleanup(strategy)
+                            .activeStrategyCount(account) != 0
+                ) return true;
+            } catch {}
         }
         return false;
     }
