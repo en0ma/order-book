@@ -181,7 +181,7 @@ contract DeploymentBootstrapTest is TestBase {
             new AdvancedOrderModule(address(core), address(oracle));
 
         bool directAccepted;
-        try new LiquidationModule(address(core), address(advanced), 1_000)
+        try new LiquidationModule(address(core), address(advanced), address(0), 1_000)
             returns (LiquidationModule)
         {
             directAccepted = true;
