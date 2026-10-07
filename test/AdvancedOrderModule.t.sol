@@ -31,7 +31,7 @@ contract AdvancedOrderModuleTest is TestBase {
             new OrderBookCoreHarness(address(token), address(oracle), 40, 1_000, 0, 0);
         module = new AdvancedOrderModule(address(core), address(oracle));
         marketMaker = new MarketMakerModule(address(core), address(module));
-        liquidation = new LiquidationModule(address(core), address(module), 500);
+        liquidation = new LiquidationModule(address(core), address(module), address(0), 500);
 
         core.configureAdvancedModule(address(module));
         module.configureMarketMakerModule(address(marketMaker));
@@ -1358,7 +1358,7 @@ contract AdvancedOrderModuleTest is TestBase {
         AdvancedOrderModule feeModule =
             new AdvancedOrderModule(address(feeCore), address(feeOracle));
         LiquidationModule feeLiquidation =
-            new LiquidationModule(address(feeCore), address(feeModule), 500);
+            new LiquidationModule(address(feeCore), address(feeModule), address(0), 500);
 
         feeCore.configureAdvancedModule(address(feeModule));
         feeModule.configureLiquidationModule(address(feeLiquidation));
@@ -1427,7 +1427,7 @@ contract AdvancedOrderModuleTest is TestBase {
         AdvancedOrderModule unitModule =
             new AdvancedOrderModule(address(unitCore), address(unitOracle));
         LiquidationModule unitLiquidation =
-            new LiquidationModule(address(unitCore), address(unitModule), 500);
+            new LiquidationModule(address(unitCore), address(unitModule), address(0), 500);
 
         unitCore.configureAccountingUnitScale(1_000);
         unitCore.configureAdvancedModule(address(unitModule));
@@ -2531,7 +2531,7 @@ contract AdvancedOrderModuleTest is TestBase {
         AdvancedOrderModule feeModule =
             new AdvancedOrderModule(address(feeCore), address(feeOracle));
         LiquidationModule feeLiquidation =
-            new LiquidationModule(address(feeCore), address(feeModule), 500);
+            new LiquidationModule(address(feeCore), address(feeModule), address(0), 500);
 
         feeCore.configureAdvancedModule(address(feeModule));
         feeModule.configureLiquidationModule(address(feeLiquidation));
@@ -2616,7 +2616,7 @@ contract AdvancedOrderModuleTest is TestBase {
         AdvancedOrderModule feeModule =
             new AdvancedOrderModule(address(feeCore), address(feeOracle));
         LiquidationModule feeLiquidation =
-            new LiquidationModule(address(feeCore), address(feeModule), 500);
+            new LiquidationModule(address(feeCore), address(feeModule), address(0), 500);
 
         feeCore.configureAdvancedModule(address(feeModule));
         feeModule.configureLiquidationModule(address(feeLiquidation));
