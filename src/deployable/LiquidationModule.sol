@@ -102,6 +102,26 @@ contract LiquidationModule {
         IOrderBookCore.Side[] calldata makerSides,
         uint16[] calldata makerTicks,
         uint64[] calldata conditionalIds,
+        uint64[] calldata trailingIds
+    ) external returns (uint96 closedLots) {
+        if (makerSides.length != makerTicks.length) revert UnsettledOrders();
+
+        gateway.liquidationCleanupAdvanced(account, conditionalIds, trailingIds);
+
+        for (uint256 i; i < makerTicks.length; ++i) {
+            gateway.liquidationForceCancelQuote(
+                account, makerSides[i], makerTicks[i]
+            );
+        }
+
+        closedLots = _liquidatePosition(account, msg.sender);
+    }
+
+    function liquidate(
+        address account,
+        IOrderBookCore.Side[] calldata makerSides,
+        uint16[] calldata makerTicks,
+        uint64[] calldata conditionalIds,
         uint64[] calldata trailingIds,
         uint64[] calldata strategyIds
     ) external returns (uint96 closedLots) {
