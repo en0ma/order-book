@@ -64,8 +64,13 @@ contract ExecutionStrategyModuleTest is TestBase {
         assertEq(visibleBefore, 10, "initial display mismatch");
         assertEq(
             advanced.activeAdvancedOrders(ALICE),
+            0,
+            "strategy leaked into advanced module count"
+        );
+        assertEq(
+            strategy.activeStrategyCount(ALICE),
             1,
-            "strategy missing from advanced count"
+            "strategy registry count mismatch"
         );
 
         vm.prank(BOB);
