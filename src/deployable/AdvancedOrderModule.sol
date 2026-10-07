@@ -259,6 +259,9 @@ contract AdvancedOrderModule {
         uint32 generation,
         uint128 shares
     ) external onlyMakerExecutionModule returns (uint96 removedLots) {
+        if (shares == 0) {
+            return core.moduleSettle(maker, side, tick);
+        }
         removedLots =
             core.moduleRemoveLockedShares(maker, side, tick, generation, shares);
     }
@@ -308,13 +311,6 @@ contract AdvancedOrderModule {
     }
 
 
-    function strategySettle(
-        address account,
-        IOrderBookCore.Side side,
-        uint16 tick
-    ) external onlyMakerExecutionModule returns (uint96 filledLots) {
-        filledLots = core.moduleSettle(account, side, tick);
-    }
 
 
 
