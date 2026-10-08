@@ -19,6 +19,7 @@ export interface CanonicalRpcOptions {
   decode(log: RpcLog, chainId: number): CanonicalLogEnvelope | undefined;
   /** Required for mark-price reads; do not infer a price from old events. */
   markTicks?(manifest: OperatorManifest): Promise<Readonly<Record<string, number>>>;
+  portfolioHealth?(accounts: readonly Address[], manifest: OperatorManifest): Promise<Readonly<Record<Address, { equity: bigint; requirement: bigint }>>>;
 }
 const hex = (n: number) => "0x" + n.toString(16);
 function quantity(value: unknown, name: string): number {
@@ -116,6 +117,7 @@ export function createCanonicalRpcAdapter(
       envelopes.sort((a, b) => a.transactionIndex - b.transactionIndex || a.logIndex - b.logIndex);
       return normalizeCanonicalEvents(manifest, envelopes);
     },
+    ...(options.portfolioHealth ? { getPortfolioHealth: (accounts: readonly Address[], manifest: OperatorManifest) => options.portfolioHealth!(accounts, manifest) } : {}),
     async getMarkTicks(manifest) {
       if (!options.markTicks) throw new Error("mark tick reader is not configured");
       return options.markTicks(manifest);
