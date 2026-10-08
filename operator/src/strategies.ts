@@ -5,6 +5,7 @@ export interface StrategyRecord {
   marketId: string;
   strategyId: bigint;
   owner: Address;
+  side?: 0 | 1;
   kind: StrategyKind;
   placedAtBlock: number;
   // Placement parameters are immutable. Execution progress must be read from chain.
@@ -36,6 +37,7 @@ export interface StrategySnapshot {
     marketId: string;
     strategyId: string;
     owner: Address;
+    side?: 0 | 1;
     kind: StrategyKind;
     placedAtBlock: number;
     totalLots: string;
@@ -89,8 +91,10 @@ export class StrategyRegistry {
       marketId: event.marketId,
       strategyId,
       owner: owner(a.owner),
+      side: numeric(a.side, "side") as 0 | 1,
       placedAtBlock: event.blockNumber,
     };
+    if (common.side !== 0 && common.side !== 1) throw new TypeError("invalid strategy side");
     let next: StrategyRecord;
     switch (event.name) {
       case "IcebergPlaced":
@@ -129,6 +133,7 @@ export class StrategyRegistry {
     return { version: 1, records: [...this.records.entries()].sort(([a], [b]) => a.localeCompare(b))
       .map(([key, r]) => ({
         key, marketId: r.marketId, strategyId: r.strategyId.toString(), owner: r.owner,
+        ...(r.side === undefined ? {} : { side: r.side }),
         kind: r.kind, placedAtBlock: r.placedAtBlock, totalLots: r.totalLots.toString(),
         ...(r.sliceLots === undefined ? {} : { sliceLots: r.sliceLots.toString() }),
         ...(r.tick === undefined ? {} : { tick: r.tick }),
@@ -149,7 +154,7 @@ export class StrategyRegistry {
       const key = keyOf(r.marketId, strategyId);
       if (key !== r.key || next.has(key)) throw new Error("invalid or duplicate strategy snapshot key");
       next.set(key, {
-        marketId: r.marketId, strategyId, owner: owner(r.owner), kind: r.kind,
+        marketId: r.marketId, strategyId, owner: owner(r.owner), side: r.side, kind: r.kind,
         placedAtBlock: numeric(r.placedAtBlock, "placedAtBlock"), totalLots: uint(r.totalLots, "totalLots"),
         ...(r.sliceLots === undefined ? {} : { sliceLots: uint(r.sliceLots, "sliceLots") }),
         ...(r.tick === undefined ? {} : { tick: numeric(r.tick, "tick") }),
@@ -186,8 +191,13 @@ export function planStrategyTasks(
       const mark = markTicks[record.marketId];
       if (mark === undefined || record.offsetTicks === undefined) continue;
       const raw = mark + record.offsetTicks;
-      if (raw < 0 || raw > 65535 || raw === s.currentTick) continue;
-      // Contract enforces bid/ask bounds; simulation remains mandatory before submission.
+      if (raw < 0 || raw > 65535 || record.side === undefined || record.priceBoundTick === undefined) continue;
+      const target = record.side === 0
+        ? Math.min(raw, record.priceBoundTick)
+        : Math.max(raw, record.priceBoundTick);
+      // A fully consumed quote still needs sync to crystallize lazy fills and complete.
+      if (target === s.currentTick && s.visibleLots !== 0n) continue;
+      // Re-simulate at submission time to guard against stale on-chain observations.
       tasks.push({ kind: "syncPegged", marketId: record.marketId, strategyId: record.strategyId });
     }
   }
