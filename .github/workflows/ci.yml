@@ -93,6 +93,7 @@ jobs:
           restore-keys: foundry-size-${{ runner.os }}-
       - name: Contract sizes
         run: |
+          set -o pipefail
           forge build --sizes | tee contract-sizes.txt
           FOUNDRY_PROFILE=size forge build --sizes | tee contract-sizes-size-profile.txt
       - name: Enforce deployable EIP-170 sizes
@@ -125,7 +126,9 @@ jobs:
           key: foundry-gas-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
           restore-keys: foundry-gas-${{ runner.os }}-
       - name: Gas report
-        run: forge test --no-match-contract MainnetForkTest --gas-report | tee gas-report.txt
+        run: |
+          set -o pipefail
+          forge test --no-match-contract MainnetForkTest --gas-report | tee gas-report.txt
       - name: Gas snapshot
         run: forge snapshot --no-match-contract MainnetForkTest
       - name: Upload gas artifacts
