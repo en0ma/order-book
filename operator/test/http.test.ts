@@ -60,3 +60,21 @@ test("HTTP refuses unavailable canonical snapshots and failed providers", async 
     assert.equal((await fetch(base + "/markets")).status, 503);
   });
 });
+
+test("stalled provider and authorization awaits terminate with 503", async () => {
+  await withServer({ requestTimeoutMs: 30, snapshot: () => new Promise(() => {}) }, async base => {
+    const start = Date.now();
+    const result = await fetch(base + "/markets");
+    assert.equal(result.status, 503);
+    assert.ok(Date.now() - start < 2000);
+  });
+  await withServer({
+    requestTimeoutMs: 30,
+    authorizeAccount: () => new Promise(() => {}),
+  }, async base => {
+    const start = Date.now();
+    const result = await fetch(base + "/accounts/" + owner);
+    assert.equal(result.status, 503);
+    assert.ok(Date.now() - start < 2000);
+  });
+});
