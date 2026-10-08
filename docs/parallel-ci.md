@@ -13,13 +13,15 @@ The pull-request workflow runs all existing checks. It uses separate jobs to red
 | gas | Foundry gas report and gas snapshot |
 | test | Final status gate: fail unless all five jobs succeed |
 
-Every procedure from the prior serial workflow remains in the new workflow. The `test` job has `if: always()` so a failed or cancelled prerequisite cannot produce a green aggregate result. Do not use an optional check configuration to bypass the five jobs.
+Every procedure from the prior serial workflow remains in the new workflow. The final aggregate job keeps the existing required check name `test` and has `if: always()` so a failed or cancelled prerequisite cannot produce a green aggregate result. Do not use an optional check configuration to bypass the five jobs.
 
 ## Build reuse
 
 The protocol, size, and gas jobs restore Foundry `cache/` and `out/` directories by profile-specific keys. Changes to the Foundry configuration, Solidity sources, dependencies, and tests change the cache key. Foundry must still validate the restored compiler outputs before use. Do not cache the RPC secret.
 
 ## Artifacts
+
+The default-profile `forge build --sizes` report can exit nonzero when it lists oversized test-only harness contracts. The workflow retains that report and tolerates only this specific Foundry EIP-170 size warning. The size-profile build and deployable size enforcement still fail on violations; other compilation errors remain fatal.
 
 The `gas-results` artifact includes `gas-report.txt` and `.gas-snapshot`. The `contract-sizes` artifact includes output from both build profiles. This replaces one combined artifact with two focused artifacts. Both reports remain available to the operator.
 
