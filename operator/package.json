@@ -41,6 +41,11 @@
       "import": "./dist/recovery-cycle.js",
       "default": "./dist/recovery-cycle.js"
     },
+    "./rpc-adapter": {
+      "types": "./rpc-adapter.d.ts",
+      "import": "./dist/rpc-adapter.js",
+      "default": "./dist/rpc-adapter.js"
+    },
     "./supervisor": {
       "types": "./supervisor.d.ts",
       "import": "./dist/supervisor.js",
@@ -95,6 +100,7 @@
     "publication.d.ts",
     "self-hosted.d.ts",
     "supervisor.d.ts",
+    "rpc-adapter.d.ts",
     "RECOVERY_CYCLE.md",
     "PUBLICATION.md",
     "SELF_HOSTED.md",
