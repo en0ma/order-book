@@ -47,6 +47,17 @@ export function createHttpRuntime(options: HttpRuntimeOptions): HttpRuntime {
   if (marketIds.some(id => typeof id !== "string" || !id || id.length > 128) ||
       new Set(marketIds).size !== marketIds.length) throw new TypeError("invalid market configuration");
 
+  // Node's requestTimeout controls request-body receipt, not awaited application work.
+  // Race provider promises against a deadline; late rejection remains handled by the race.
+  function withDeadline<T>(work: Promise<T> | T): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("provider deadline exceeded")), timeout);
+      Promise.resolve(work).then(
+        value => { clearTimeout(timer); resolve(value); },
+        error => { clearTimeout(timer); reject(error); },
+      );
+    });
+  }
   const server = createServer(async (request, response) => {
     try {
       if (request.method !== "GET" && request.method !== "HEAD") {
@@ -75,11 +86,11 @@ export function createHttpRuntime(options: HttpRuntimeOptions): HttpRuntime {
       }
       const account = /^\/accounts\/(0x[0-9a-fA-F]{40})$/.exec(url.pathname);
       if (account) {
-        if (!options.authorizeAccount || !(await options.authorizeAccount(request, account[1]))) {
+        if (!options.authorizeAccount || !(await withDeadline(Promise.resolve().then(() => options.authorizeAccount!(request, account[1]))))) {
           fail(response, 403, "account_access_denied"); return;
         }
       }
-      const model = await options.snapshot();
+      const model = await withDeadline(Promise.resolve().then(() => options.snapshot()));
       if (!model || !model.snapshot || !model.snapshot.head) {
         fail(response, 503, "canonical_snapshot_unavailable"); return;
       }
