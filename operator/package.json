@@ -62,6 +62,7 @@
     "strategies.d.ts",
     "read-model.d.ts",
     "http.d.ts",
-    "readiness.d.ts"
+    "readiness.d.ts",
+    "READINESS.md"
   ]
 }
