@@ -7,7 +7,9 @@ const addr = "0x1111111111111111111111111111111111111111";
 const manifest = { schemaVersion: 1, chainId: 1, deploymentBlock: 1,
   collateral: { token: addr, decimals: 18 },
   markets: [{ id: "ETH", core: addr, advanced: addr, oracle: addr }] };
-const blocks = new Map([[1, { number: 1, hash: "0x001", parentHash: "0x000" }]]);
+const blocks = new Map([[1, { number: 1, hash: "0x001", parentHash: "0x000" }],
+  [2, { number: 2, hash: "0x002", parentHash: "0x001" }],
+  [3, { number: 3, hash: "0x003", parentHash: "0x002" }]]);
 function setup() {
   let saved;
   let fail = false;
@@ -23,7 +25,7 @@ function setup() {
     load: async () => saved,
     save: async (_, bundle) => { if (fail) throw new Error("storage unavailable"); saved = bundle; },
   };
-  const publication = createRecoveryPublication(manifest, rpc, store);
+  const publication = createRecoveryPublication(manifest, rpc, store, { maxBlocksPerSync: 1 });
   return { rpc, store, publication, fail: value => { fail = value; },
     head: value => { remoteHead = value; } };
 }
@@ -42,7 +44,7 @@ test("publication stays closed until complete canonical recovery commits", async
 test("lagging recovery never exposes stale reads or keeper tasks", async () => {
   const h = setup();
   await h.publication.refresh();
-  h.head(2);
+  h.head(3);
   const result = await h.publication.refresh();
   assert.equal(result.readiness.ready, false);
   assert.equal(h.publication.ready(), false);
