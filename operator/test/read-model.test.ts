@@ -46,3 +46,23 @@ test("read model checks snapshot and diagnostics pairing", () => {
   assert.equal(routeRead(model, "GET", "/markets", {}, ["ETH"]).status, 200);
   assert.equal(routeRead(model, "GET", "/health").status, 200);
 });
+
+test("pagination cursors reject stale canonical heads and cross-query reuse", () => {
+  const first = routeRead(model, "GET", "/strategies", { limit: "1" });
+  assert.equal(first.status, 200);
+  const cursor = first.body.nextCursor;
+  assert.equal(typeof cursor, "string");
+  const reorg = composeReadModel({ ...snapshot, head: { number: 100, hash: "0xother" } }, model.strategies);
+  assert.equal(routeRead(reorg, "GET", "/strategies", { cursor }).status, 400);
+  const advanced = composeReadModel({ ...snapshot, head: { number: 101, hash: "0xnext" } }, model.strategies);
+  assert.equal(routeRead(advanced, "GET", "/strategies", { cursor }).status, 400);
+  assert.equal(routeRead(model, "GET", "/strategies", { cursor, marketId: "ETH" }).status, 400);
+  assert.equal(routeRead(model, "GET", "/strategies", { cursor: "not-json" }).status, 400);
+  const accountPage = routeRead(model, "GET", "/accounts/" + owner, { limit: "1" });
+  assert.equal(routeRead(model, "GET", "/strategies", { cursor: accountPage.body.strategies.nextCursor }).status, 400);
+  assert.equal(routeRead(model, "GET", "/strategies", { cursor }).status, 200);
+});
+test("invalid URL encoding is a 400, not an internal error", () => {
+  assert.equal(routeRead(model, "GET", "/markets/%/book").status, 400);
+  assert.equal(routeRead(model, "GET", "/markets/%E0%A4%A/book").status, 400);
+});
