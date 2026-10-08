@@ -94,6 +94,7 @@
     "recovery-cycle.d.ts",
     "publication.d.ts",
     "self-hosted.d.ts",
+    "supervisor.d.ts",
     "RECOVERY_CYCLE.md",
     "PUBLICATION.md",
     "SELF_HOSTED.md"
