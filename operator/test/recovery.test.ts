@@ -24,6 +24,10 @@ test("strategy and index state must use the same canonical head and manifest", (
   assert.throws(() => assembleRecoveryBundle(manifest, checkpoint, strategies,
     { number: 12, hash: "0xorphan" }), /heads/);
   assert.throws(() => validateRecoveryBundle(manifest, { ...bundle, identity: "wrong" }), /identity/);
+  assert.throws(() => validateRecoveryBundle(manifest, { ...bundle,
+    strategies: { version: 1, records: [{ strategyId: "not-decimal" }] } }), /strategyId/);
+  assert.throws(() => validateRecoveryBundle(manifest, { ...bundle,
+    checkpoint: { ...checkpoint, state: { ...checkpoint.state, pools: null } } }), /map|iterable|read/i);
 });
 test("keeper task admission checks canonical readiness and idempotent simulation", async () => {
   const operations = [];
@@ -33,7 +37,8 @@ test("keeper task admission checks canonical readiness and idempotent simulation
     submit: async (_task, key) => { operations.push(key); return "0xtx"; },
   };
   const tasks = [{ kind: "checkTrailing", marketId: "ETH", orderId: 1n }];
-  const result = await executeReadyTasks(manifest, checkpoint, snapshot, diagnostics, tasks, executor);
+  const verifier = { getCanonicalBlockHash: async () => head.hash };
+  const result = await executeReadyTasks(manifest, checkpoint, snapshot, diagnostics, tasks, executor, verifier);
   assert.equal(result.admitted, 1);
   assert.equal(result.transactionIds[0], "0xtx");
   assert.ok(operations[0].includes("branch:2"));
@@ -41,5 +46,8 @@ test("keeper task admission checks canonical readiness and idempotent simulation
     { ...diagnostics, status: "stalled" }, tasks, executor), /not ready/);
   await assert.rejects(() => executeReadyTasks(manifest, checkpoint,
     { ...snapshot, head: { number: 12, hash: "0xorphan" } }, diagnostics, tasks, executor), /not ready/);
+  assert.equal(operations.length, 1);
+  await assert.rejects(() => executeReadyTasks(manifest, checkpoint, snapshot, diagnostics,
+    tasks, executor, { getCanonicalBlockHash: async () => "0xorphan" }), /canonical head hash/);
   assert.equal(operations.length, 1);
 });
