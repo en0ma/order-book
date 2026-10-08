@@ -78,13 +78,18 @@ export function createHttpRuntime(options: HttpRuntimeOptions): HttpRuntime {
       return;
     }
     active++;
-    response.once("finish", () => {
+    let completed = false;
+    const complete = () => {
+      if (completed) return;
+      completed = true;
       active--;
       const route = /^\\/accounts\\//.test(request.url ?? "") ? "/accounts/:address"
         : (request.url ?? "").split("?")[0].replace(/\\/markets\\/[^/]+\\/book$/, "/markets/:id/book");
       try { options.onRequest?.({ status: response.statusCode, durationMs: Date.now() - started, route }); }
       catch { /* Telemetry cannot affect HTTP correctness. */ }
-    });
+    };
+    response.once("finish", complete);
+    response.once("close", complete);
     try {
       if (request.method !== "GET" && request.method !== "HEAD") {
         fail(response, 405, "method_not_allowed"); return;
