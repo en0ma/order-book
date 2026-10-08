@@ -171,3 +171,7 @@ Use the `./self-hosted` export to connect an atomic on-disk recovery bundle, can
 ## Supervised operator lifecycle
 
 Use `./supervisor` or `createSelfHostedOperator(...).supervise()` for repeated canonical recovery, bounded retry delay, HTTP fail-closed readiness, and guarded keeper admission. See [SUPERVISION.md](SUPERVISION.md) for startup, stop, and safety behavior.
+
+## Canonical Ethereum JSON-RPC
+
+The `./rpc-adapter` export connects standard Ethereum block and log queries with deployment ABI decoding, canonical hash validation, durable replay, and supervised HTTP/keeper admission. See [RPC_ADAPTER.md](RPC_ADAPTER.md). The operator must provide a trusted RPC transport, ABI decoder and current mark-price reads.
