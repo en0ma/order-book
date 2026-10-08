@@ -67,3 +67,27 @@ test("a canonical reorg after restart closes HTTP and refuses persisted orphan",
     assert.throws(() => restarted.publication.snapshot(), /not ready/);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("recovery bundle syncs newly created nested parent directories", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ob-recovery-parent-"));
+  const path = join(root, "new", "nested", "bundle.json");
+  try {
+    const operator = createSelfHostedOperator(manifest, rpc(), { bundlePath: path });
+    await operator.recover();
+    assert.equal(JSON.parse(await readFile(path, "utf8")).bundle.checkpoint.head.hash, "0x001");
+    const restarted = createSelfHostedOperator(manifest, rpc(), { bundlePath: path });
+    assert.equal((await restarted.recover()).restored, true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+test("operator rejects an audit path that resolves to the recovery file", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ob-recovery-alias-"));
+  try {
+    const file = join(dir, "bundle.json");
+    assert.throws(() => createSelfHostedOperator(manifest, rpc(), {
+      bundlePath: file, auditPath: join(dir, ".", "bundle.json"),
+    }), /audit journal path must differ/);
+    assert.throws(() => createSelfHostedOperator(manifest, rpc(), {
+      bundlePath: file, auditPath: file,
+    }), /audit journal path must differ/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
