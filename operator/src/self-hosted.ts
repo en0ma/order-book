@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { createOperatorSupervisor, type OperatorSupervisor, type SupervisorOptions } from "./supervisor.js";
 import { JsonFileRecoveryStore, JsonlOperatorAuditJournal } from "./node.js";
 import { createRecoveryPublication, type RecoveryPublication } from "./publication.js";
 import { createHttpRuntime, type HttpRuntime, type HttpRuntimeOptions } from "./http.js";
@@ -11,6 +12,7 @@ export interface SelfHostedOperator {
   http: HttpRuntime;
   recover(): Promise<RecoveryCycleResult>;
   bootstrap(config?: BootstrapOptions): Promise<RecoveryCycleResult>;
+  supervise(options?: SupervisorOptions): OperatorSupervisor;
 }
 export interface BootstrapOptions {
   maxCycles?: number;
@@ -67,6 +69,9 @@ export function createSelfHostedOperator(
   }
   return {
     publication, http, recover,
+    supervise(options: SupervisorOptions = {}) {
+      return createOperatorSupervisor({ ...publication, refresh: recover }, options);
+    },
     async bootstrap(config: BootstrapOptions = {}) {
       if (bootstrapping) throw new Error("operator bootstrap already running");
       const maxCycles = config.maxCycles ?? 100;

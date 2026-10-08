@@ -167,3 +167,7 @@ The `./publication` export connects canonical recovery, persisted state, HTTP sn
 ## Durable self-hosted operation
 
 Use the `./self-hosted` export to connect an atomic on-disk recovery bundle, canonical replay, guarded HTTP reads, and an optional audit journal. See [SELF_HOSTED.md](SELF_HOSTED.md) for the full restart and safety procedures.
+
+## Supervised operator lifecycle
+
+Use `./supervisor` or `createSelfHostedOperator(...).supervise()` for repeated canonical recovery, bounded retry delay, HTTP fail-closed readiness, and guarded keeper admission. See [SUPERVISION.md](SUPERVISION.md) for startup, stop, and safety behavior.
