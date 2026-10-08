@@ -176,3 +176,7 @@ The deployable stack includes an optional `ExecutionStrategyModule` for executio
 The standalone and portfolio deployment scripts wire this module automatically. The deployment manifest may publish its address as `executionStrategy`, and the TypeScript SDK exposes placement, refresh/sync, slice execution and cancellation plans.
 
 Future/hidden quantity is admitted slice-by-slice rather than locking margin for the whole program up front. This keeps strategy capital usage predictable and lets later keeper actions fail safely if account health has changed.
+
+## Source-pinned Boros comparison evidence
+
+The [Boros matched benchmark protocol](docs/BOROS_MATCHED_BENCHMARK.md) audits the public Boros FIFO tick implementation, defines equivalent gas workloads and provides a CI-tested evidence comparator that rejects unequal fixtures or compiler environments. No Boros gas advantage or disadvantage is asserted until real, comparable transactions are measured.
