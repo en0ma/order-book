@@ -11,11 +11,16 @@ export interface HttpRuntimeOptions {
   maxPathBytes?: number;
   maxQueryBytes?: number;
   requestTimeoutMs?: number;
+  /** Bound application-level concurrency, including hung upstream providers. */
+  maxConcurrentRequests?: number;
+  /** Optional request telemetry; never receives credentials or account addresses. */
+  onRequest?: (result: { status: number; durationMs: number; route: string }) => void;
 }
 export interface HttpRuntime {
   server: Server;
   listen(port: number, host?: string): Promise<void>;
   close(): Promise<void>;
+  metrics(): { active: number; total: number; rejected: number; errors: number };
 }
 function fail(response: ServerResponse, status: number, code: string): void {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store",
@@ -40,6 +45,12 @@ export function createHttpRuntime(options: HttpRuntimeOptions): HttpRuntime {
   const maxPath = bound(options.maxPathBytes, 1024, 8192);
   const maxQuery = bound(options.maxQueryBytes, 2048, 8192);
   const timeout = bound(options.requestTimeoutMs, 10_000, 120_000);
+  const capacity = bound(options.maxConcurrentRequests, 64, 4096);
+  let active = 0;
+  let total = 0;
+  let rejected = 0;
+  let errors = 0;
+  let draining = false;
   if (typeof options.snapshot !== "function" || !Array.isArray(options.markets)) {
     throw new TypeError("snapshot provider and market IDs required");
   }
@@ -59,6 +70,28 @@ export function createHttpRuntime(options: HttpRuntimeOptions): HttpRuntime {
     });
   }
   const server = createServer(async (request, response) => {
+    const started = Date.now();
+    total++;
+    if (draining || active >= capacity) {
+      rejected++;
+      fail(response, 503, draining ? "server_draining" : "capacity_exceeded");
+      return;
+    }
+    active++;
+    let completed = false;
+    const complete = () => {
+      if (completed) return;
+      completed = true;
+      active--;
+      const pathname = (request.url ?? "").split("?")[0];
+      const route = pathname.startsWith("/accounts/") ? "/accounts/:address"
+        : pathname.startsWith("/markets/") && pathname.endsWith("/book")
+          ? "/markets/:id/book" : pathname;
+      try { options.onRequest?.({ status: response.statusCode, durationMs: Date.now() - started, route }); }
+      catch { /* Telemetry cannot affect HTTP correctness. */ }
+    };
+    response.once("finish", complete);
+    response.once("close", complete);
     try {
       if (request.method !== "GET" && request.method !== "HEAD") {
         fail(response, 405, "method_not_allowed"); return;
@@ -103,6 +136,7 @@ export function createHttpRuntime(options: HttpRuntimeOptions): HttpRuntime {
       }
       json(response, result.status, result.body, canonicalHead);
     } catch {
+      errors++;
       if (!response.headersSent) fail(response, 503, "snapshot_or_authorization_unavailable");
       else response.end();
     }
@@ -125,9 +159,12 @@ export function createHttpRuntime(options: HttpRuntimeOptions): HttpRuntime {
       });
     },
     close() {
+      draining = true;
       return new Promise<void>((resolve, reject) => {
         server.close(error => error ? reject(error) : resolve());
+        server.closeIdleConnections();
       });
     },
+    metrics() { return { active, total, rejected, errors }; },
   };
 }
