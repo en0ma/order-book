@@ -22,6 +22,11 @@ export type CanonicalDecodedEvent =
   | { name: "OTOResized"; parentOrderId: bigint; childOrderId: bigint; lots: bigint }
   | { name: "ManagedQuoteUpdated"; maker: Address; side: 0 | 1; tick: number; shares: bigint; generation: number }
   | { name: "ManagedQuoteRemoved"; maker: Address; side: 0 | 1; tick: number }
+  | { name: "IcebergPlaced"; strategyId: bigint; owner: Address; side: 0 | 1; tick: number; totalLots: bigint; displayLots: bigint }
+  | { name: "TWAPPlaced"; strategyId: bigint; owner: Address; side: 0 | 1; limitTick: number; totalLots: bigint; sliceLots: bigint; startTime: bigint; interval: bigint; deadline: bigint }
+  | { name: "PeggedPlaced"; strategyId: bigint; owner: Address; side: 0 | 1; offsetTicks: number; priceBoundTick: number; lots: bigint; initialTick: number }
+  | { name: "StrategyCancelled"; strategyId: bigint; remainingLots: bigint }
+  | { name: "StrategyCompleted"; strategyId: bigint }
   | { name: "PortfolioLockSynchronized"; account: Address; equity: bigint; requirement: bigint; lockedCollateral: bigint };
 export interface CanonicalLogEnvelope {
   chainId: number; blockNumber: number; blockHash: string; transactionIndex: number; logIndex: number; address: Address; event: CanonicalDecodedEvent;
