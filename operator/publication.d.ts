@@ -1,7 +1,7 @@
-import type { OperatorRpcAdapter, OperatorSyncOptions, KeeperTask, IdempotentKeeperExecutor } from "./src/index.js";
-import type { RecoveryStore, CanonicalHeadVerifier, KeeperAdmissionResult } from "./src/recovery.js";
-import type { RecoveryCycleResult } from "./src/recovery-cycle.js";
-import type { ReadModel } from "./src/read-model.js";
+import type { OperatorRpcAdapter, OperatorSyncOptions, KeeperTask, IdempotentKeeperExecutor } from "./index.js";
+import type { RecoveryStore, CanonicalHeadVerifier, KeeperAdmissionResult } from "./recovery.js";
+import type { RecoveryCycleResult } from "./recovery-cycle.js";
+import type { ReadModel } from "./read-model.js";
 export interface RecoveryPublication {
   ready(): boolean;
   snapshot(): ReadModel;
