@@ -104,6 +104,7 @@
     "RECOVERY_CYCLE.md",
     "PUBLICATION.md",
     "SELF_HOSTED.md",
-    "SUPERVISION.md"
+    "SUPERVISION.md",
+    "RPC_ADAPTER.md"
   ]
 }
