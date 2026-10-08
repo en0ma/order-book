@@ -83,8 +83,10 @@ export function createHttpRuntime(options: HttpRuntimeOptions): HttpRuntime {
       if (completed) return;
       completed = true;
       active--;
-      const route = /^\\/accounts\\//.test(request.url ?? "") ? "/accounts/:address"
-        : (request.url ?? "").split("?")[0].replace(/\\/markets\\/[^/]+\\/book$/, "/markets/:id/book");
+      const pathname = (request.url ?? "").split("?")[0];
+      const route = pathname.startsWith("/accounts/") ? "/accounts/:address"
+        : pathname.startsWith("/markets/") && pathname.endsWith("/book")
+          ? "/markets/:id/book" : pathname;
       try { options.onRequest?.({ status: response.statusCode, durationMs: Date.now() - started, route }); }
       catch { /* Telemetry cannot affect HTTP correctness. */ }
     };
