@@ -146,41 +146,64 @@ jobs:
           path: contract-sizes-size-profile.txt
           if-no-files-found: error
 
-  gas:
-    name: Gas report and snapshot
+  gas-report:
+    name: Gas report
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
-      - name: Restore Foundry gas cache
+      - name: Restore gas-report build cache
         uses: actions/cache@v4
         with:
           path: |
             cache
             out
-          key: foundry-gas-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
-          restore-keys: foundry-gas-${{ runner.os }}-
+          key: foundry-gas-report-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
+          restore-keys: foundry-gas-report-${{ runner.os }}-
       - name: Gas report
         run: |
           set -o pipefail
           forge test --no-match-contract MainnetForkTest --gas-report | tee gas-report.txt
-      - name: Gas snapshot
-        run: forge snapshot --no-match-contract MainnetForkTest
-      - name: Upload gas artifacts
+      - name: Upload gas report
         uses: actions/upload-artifact@v4
         with:
-          name: gas-results
+          name: gas-report
+          path: gas-report.txt
+          if-no-files-found: error
+
+  gas:
+    name: Gas snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Restore gas-snapshot build cache
+        uses: actions/cache@v4
+        with:
           path: |
-            gas-report.txt
-            .gas-snapshot
+            cache
+            out
+          key: foundry-gas-snapshot-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
+          restore-keys: foundry-gas-snapshot-${{ runner.os }}-
+      - name: Gas snapshot
+        run: forge snapshot --no-match-contract MainnetForkTest
+      - name: Upload gas snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-snapshot
+          path: .gas-snapshot
+          if-no-files-found: error
 
   test:
     name: test
     if: always()
-    needs: [node, protocol, fork, sizes-default, sizes, gas]
+    needs: [node, protocol, fork, sizes-default, sizes, gas-report, gas]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -191,9 +214,10 @@ jobs:
           FORK_RESULT: ${{ needs.fork.result }}
           DEFAULT_SIZES_RESULT: ${{ needs['sizes-default'].result }}
           SIZES_RESULT: ${{ needs.sizes.result }}
+          GAS_REPORT_RESULT: ${{ needs['gas-report'].result }}
           GAS_RESULT: ${{ needs.gas.result }}
         run: |
-          for result in "$NODE_RESULT" "$PROTOCOL_RESULT" "$FORK_RESULT" "$DEFAULT_SIZES_RESULT" "$SIZES_RESULT" "$GAS_RESULT"; do
+          for result in "$NODE_RESULT" "$PROTOCOL_RESULT" "$FORK_RESULT" "$DEFAULT_SIZES_RESULT" "$SIZES_RESULT" "$GAS_REPORT_RESULT" "$GAS_RESULT"; do
             if [ "$result" != success ]; then
               echo "::error::A required CI validation did not succeed: $result"
               exit 1
