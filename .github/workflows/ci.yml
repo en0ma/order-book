@@ -6,43 +6,64 @@ on:
 permissions:
   contents: read
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    env:
-      ETH_RPC: ${{ secrets.ETH_RPC }}
+# Cancel work for a superseded commit on the same pull request.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
+jobs:
+  node:
+    name: SDK, indexer and operator
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: stable
-
-      - name: Install Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
-
       - name: SDK tests
         working-directory: sdk
         run: npm test
-
       - name: Reference indexer tests
         working-directory: reference/indexer
         run: npm test
-
       - name: Operator tests
         working-directory: operator
         run: npm test
 
+  protocol:
+    name: Formatting, unit, fuzz and gas ceilings
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Restore Foundry build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache
+            out
+          key: foundry-protocol-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
+          restore-keys: foundry-protocol-${{ runner.os }}-
       - name: Format sources
         run: forge fmt
-
       - name: Unit, fuzz, and gas ceiling tests
         run: forge test --no-match-contract MainnetForkTest -vvv
 
+  fork:
+    name: Ethereum mainnet fork
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ETH_RPC: ${{ secrets.ETH_RPC }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
       - name: Ethereum mainnet fork test
         run: |
           test -n "$ETH_RPC" || (echo "ETH_RPC secret is not configured" && exit 1)
@@ -53,28 +74,64 @@ jobs:
           echo "::warning::Configured ETH_RPC could not create a Foundry fork; retrying public mainnet fallback"
           ETH_RPC="https://ethereum-rpc.publicnode.com" forge test --match-contract MainnetForkTest -vvv
 
+  sizes:
+    name: Contract sizes and EIP-170
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Restore Foundry size cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache
+            out
+          key: foundry-size-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
+          restore-keys: foundry-size-${{ runner.os }}-
       - name: Contract sizes
         run: |
           forge build --sizes | tee contract-sizes.txt
           FOUNDRY_PROFILE=size forge build --sizes | tee contract-sizes-size-profile.txt
-
       - name: Enforce deployable EIP-170 sizes
         run: |
           FOUNDRY_PROFILE=size forge build
           python3 script/check_deployable_sizes.py
+      - name: Upload size artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-sizes
+          path: |
+            contract-sizes.txt
+            contract-sizes-size-profile.txt
 
+  gas:
+    name: Gas report and snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Restore Foundry gas cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache
+            out
+          key: foundry-gas-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
+          restore-keys: foundry-gas-${{ runner.os }}-
       - name: Gas report
         run: forge test --no-match-contract MainnetForkTest --gas-report | tee gas-report.txt
-
       - name: Gas snapshot
         run: forge snapshot --no-match-contract MainnetForkTest
-
       - name: Upload gas artifacts
         uses: actions/upload-artifact@v4
         with:
           name: gas-results
           path: |
             gas-report.txt
-            contract-sizes.txt
-            contract-sizes-size-profile.txt
             .gas-snapshot
