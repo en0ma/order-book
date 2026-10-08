@@ -141,3 +141,7 @@ Production deployments can replace it with Postgres/ClickHouse/log shipping whil
 ## Self-hosted read-only integration
 
 The `/read-model` package export supplies bounded, transport-neutral query responses for indexed books, account strategy registries, deployed market discovery and diagnostics. See [READ_MODEL.md](READ_MODEL.md) for supported routes, canonical snapshot coordination and security boundaries. This is deliberately not a hosted API or an authoritative per-maker settlement read.
+
+## Runnable self-hosted HTTP adapter
+
+The optional `/http` export supplies a loopback-first Node HTTP boundary for the read model, canonical-head response metadata, limits on request size, and fail-closed private account authorization. It is configured with the DEX team's own atomic snapshot provider and never starts on import. See [HTTP_RUNTIME.md](HTTP_RUNTIME.md) for an example and the security/operations contract.
