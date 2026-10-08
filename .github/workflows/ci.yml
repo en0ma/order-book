@@ -103,8 +103,15 @@ jobs:
           if [ "$status" -ne 0 ] && ! grep -Fq "Error: some contracts exceed the runtime size limit (EIP-170: 24576 bytes)" contract-sizes.txt; then
             exit "$status"
           fi
-          # The deployable size-profile and script remain strict below.
-          FOUNDRY_PROFILE=size forge build --sizes | tee contract-sizes-size-profile.txt
+          # The size profile also reports non-deployable test harness contracts.
+          # Check its report exit the same way; deployable enforcement is strict below.
+          set +e
+          FOUNDRY_PROFILE=size forge build --sizes 2>&1 | tee contract-sizes-size-profile.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ] && ! grep -Fq "Error: some contracts exceed the runtime size limit (EIP-170: 24576 bytes)" contract-sizes-size-profile.txt; then
+            exit "$status"
+          fi
       - name: Enforce deployable EIP-170 sizes
         run: |
           FOUNDRY_PROFILE=size forge build
