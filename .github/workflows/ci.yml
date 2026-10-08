@@ -2,6 +2,8 @@ name: ci
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -89,10 +91,13 @@ jobs:
           path: |
             cache
             out
-          key: foundry-size-default-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
-          restore-keys: foundry-size-default-${{ runner.os }}-
+          key: foundry-size-default-${{ runner.os }}-solc-0.8.24-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
+          restore-keys: |
+            foundry-size-default-${{ runner.os }}-solc-0.8.24-
+            foundry-size-default-${{ runner.os }}-
       - name: Default-profile contract sizes
         run: |
+          started=$SECONDS
           set -o pipefail
           set +e
           forge build --sizes 2>&1 | tee contract-sizes.txt
@@ -101,6 +106,7 @@ jobs:
           if [ "$status" -ne 0 ] && ! grep -Fq "Error: some contracts exceed the runtime size limit (EIP-170: 24576 bytes)" contract-sizes.txt; then
             exit "$status"
           fi
+          echo "Default-profile size report took $((SECONDS-started)) seconds" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload default-profile size report
         uses: actions/upload-artifact@v4
         with:
@@ -123,10 +129,13 @@ jobs:
           path: |
             cache
             out
-          key: foundry-size-deployable-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
-          restore-keys: foundry-size-deployable-${{ runner.os }}-
+          key: foundry-size-deployable-${{ runner.os }}-solc-0.8.24-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
+          restore-keys: |
+            foundry-size-deployable-${{ runner.os }}-solc-0.8.24-
+            foundry-size-deployable-${{ runner.os }}-
       - name: Size-profile contract sizes
         run: |
+          started=$SECONDS
           set -o pipefail
           set +e
           FOUNDRY_PROFILE=size forge build --sizes 2>&1 | tee contract-sizes-size-profile.txt
@@ -135,6 +144,7 @@ jobs:
           if [ "$status" -ne 0 ] && ! grep -Fq "Error: some contracts exceed the runtime size limit (EIP-170: 24576 bytes)" contract-sizes-size-profile.txt; then
             exit "$status"
           fi
+          echo "Size-profile report took $((SECONDS-started)) seconds" >> "$GITHUB_STEP_SUMMARY"
       - name: Enforce deployable EIP-170 sizes
         run: |
           FOUNDRY_PROFILE=size forge build
