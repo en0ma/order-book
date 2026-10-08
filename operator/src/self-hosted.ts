@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { JsonFileRecoveryStore, JsonlOperatorAuditJournal } from "./node.js";
 import { createRecoveryPublication, type RecoveryPublication } from "./publication.js";
 import { createHttpRuntime, type HttpRuntime, type HttpRuntimeOptions } from "./http.js";
@@ -22,6 +23,9 @@ export function createSelfHostedOperator(
   manifestInput: unknown, rpc: OperatorRpcAdapter, options: SelfHostedOperatorOptions,
 ): SelfHostedOperator {
   const manifest = validateOperatorManifest(manifestInput);
+  if (options.auditPath && resolve(options.auditPath) === resolve(options.bundlePath)) {
+    throw new TypeError("audit journal path must differ from recovery bundle path");
+  }
   const store = new JsonFileRecoveryStore(options.bundlePath);
   const publication = createRecoveryPublication(manifest, rpc, store, options.sync);
   const journal = options.auditPath ? new JsonlOperatorAuditJournal(options.auditPath) : undefined;
