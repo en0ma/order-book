@@ -61,3 +61,21 @@ test("failed batch and invalid recovery are atomic", () => {
   assert.throws(() => r.restore({ version: 1, records: [{ ...old.records[0], key: "forged" }] }), /key/);
   assert.deepEqual(r.snapshot(), old);
 });
+
+test("pegged keeper settles exhausted quotes at unchanged marks and respects bounds", () => {
+  const r = new StrategyRegistry();
+  const bid = { name: "PeggedPlaced", strategyId: 10n, owner, side: 0, offsetTicks: 5, priceBoundTick: 50, lots: 10n, initialTick: 50 };
+  const ask = { name: "PeggedPlaced", strategyId: 11n, owner, side: 1, offsetTicks: -5, priceBoundTick: 50, lots: 10n, initialTick: 50 };
+  r.apply(normalize(bid));
+  r.apply(normalize(ask));
+  const observations = new Map([
+    [key(10n), { active: true, remainingLots: 10n, visibleLots: 10n, nextExecution: 0n, currentTick: 50 }],
+    [key(11n), { active: true, remainingLots: 10n, visibleLots: 10n, nextExecution: 0n, currentTick: 50 }],
+  ]);
+  assert.equal(planStrategyTasks(r, observations, 0n, { ETH: 50 }).length, 0);
+  observations.set(key(10n), { active: true, remainingLots: 10n, visibleLots: 0n, nextExecution: 0n, currentTick: 50 });
+  assert.deepEqual(planStrategyTasks(r, observations, 0n, { ETH: 50 }).map(t => t.strategyId), [10n]);
+  assert.equal(planStrategyTasks(r, observations, 0n, { ETH: 55 }).length, 1);
+  observations.set(key(10n), { active: true, remainingLots: 10n, visibleLots: 10n, nextExecution: 0n, currentTick: 50 });
+  assert.equal(planStrategyTasks(r, observations, 0n, { ETH: 55 }).length, 0);
+});
