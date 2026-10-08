@@ -78,3 +78,47 @@ test("stalled provider and authorization awaits terminate with 503", async () =>
     assert.ok(Date.now() - start < 2000);
   });
 });
+
+test("HTTP bounds concurrent upstream reads and recovers slots after completion", async () => {
+  let release;
+  let started;
+  const entered = new Promise(resolve => { started = resolve; });
+  const blocked = new Promise(resolve => { release = resolve; });
+  const runtime = createHttpRuntime({
+    markets: ["ETH"], maxConcurrentRequests: 1,
+    snapshot: async () => { started(); await blocked; return model; },
+  });
+  await runtime.listen(0);
+  const address = runtime.server.address();
+  const base = "http://127.0.0.1:" + address.port;
+  try {
+    const first = fetch(base + "/markets");
+    await entered;
+    const second = await fetch(base + "/markets");
+    assert.equal(second.status, 503);
+    assert.equal((await second.json()).error, "capacity_exceeded");
+    assert.equal(runtime.metrics().rejected, 1);
+    release();
+    assert.equal((await first).status, 200);
+    assert.equal((await fetch(base + "/markets")).status, 200);
+  } finally { release(); await runtime.close(); }
+});
+test("HTTP telemetry redacts account identifiers and isolates observer failures", async () => {
+  const reports = [];
+  const runtime = createHttpRuntime({
+    markets: ["ETH"], snapshot: () => model,
+    authorizeAccount: () => true,
+    onRequest: result => { reports.push(result); throw new Error("observer down"); },
+  });
+  await runtime.listen(0);
+  const address = runtime.server.address();
+  try {
+    const base = "http://127.0.0.1:" + address.port;
+    assert.equal((await fetch(base + "/accounts/" + owner)).status, 200);
+    assert.equal((await fetch(base + "/markets")).status, 200);
+    assert.equal(runtime.metrics().total, 2);
+    assert.equal(runtime.metrics().active, 0);
+    assert.ok(reports.some(r => r.route === "/accounts/:address" && r.status === 200));
+    assert.ok(reports.every(r => !JSON.stringify(r).includes(owner)));
+  } finally { await runtime.close(); }
+});
