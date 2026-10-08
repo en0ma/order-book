@@ -88,6 +88,7 @@
     "RECOVERY.md",
     "recovery-cycle.d.ts",
     "publication.d.ts",
+    "self-hosted.d.ts",
     "RECOVERY_CYCLE.md",
     "PUBLICATION.md"
   ]
