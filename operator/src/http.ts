@@ -129,7 +129,7 @@ export function createHttpRuntime(options: HttpRuntimeOptions): HttpRuntime {
       if (!model || !model.snapshot || !model.snapshot.head) {
         fail(response, 503, "canonical_snapshot_unavailable"); return;
       }
-      const readiness = checkReadiness(model.snapshot, model.diagnostics, options.readiness ?? { requireDiagnostics: false });
+      const readiness = checkReadiness(model.snapshot, model.diagnostics, options.readiness);
       if (url.pathname === "/ready") {
         json(response, readiness.ready ? 200 : 503, readiness, model.snapshot.head.hash);
         return;
