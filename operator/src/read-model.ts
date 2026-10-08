@@ -33,17 +33,30 @@ function isAddress(account: string): boolean {
   return /^0x[0-9a-fA-F]{40}$/.test(account);
 }
 function collect<T extends { key: string }>(
-  records: readonly T[], limit: number, cursor?: string,
+  records: readonly T[], limit: number, head: ApiSnapshot["head"] | undefined,
+  chainId: number, scope: string, cursor?: string,
 ): { items: T[]; nextCursor?: string } {
-  if (cursor !== undefined && cursor.length > 512) throw new RangeError("cursor too long");
+  if (cursor !== undefined && cursor.length > 1024) throw new RangeError("cursor too long");
+  if (!head) throw new TypeError("paginated reads require a canonical snapshot head");
+  let after: string | undefined;
+  if (cursor !== undefined) {
+    let parts: unknown;
+    try { parts = JSON.parse(cursor); } catch { throw new TypeError("malformed cursor"); }
+    if (!Array.isArray(parts) || parts.length !== 5
+      || parts[0] !== chainId || parts[1] !== head.number || parts[2] !== head.hash
+      || parts[3] !== scope || typeof parts[4] !== "string") {
+      throw new TypeError("cursor does not match canonical snapshot and query");
+    }
+    after = parts[4];
+  }
   const ordered = [...records].sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
-  const start = cursor === undefined ? 0 : ordered.findIndex((r) => r.key > cursor);
+  const start = after === undefined ? 0 : ordered.findIndex((r) => r.key > after);
   if (start === -1) return { items: [] };
   const items = ordered.slice(start, start + limit);
   return {
     items,
     ...(start + limit < ordered.length && items.length
-      ? { nextCursor: items[items.length - 1].key } : {}),
+      ? { nextCursor: JSON.stringify([chainId, head.number, head.hash, scope, items[items.length - 1].key]) } : {}),
   };
 }
 export function marketBook(
@@ -72,7 +85,7 @@ export function accountView(
     .filter((r) => r.owner.toLowerCase() === account.toLowerCase());
   return {
     account: account.toLowerCase(),
-    strategies: collect(strategies, limit, cursor),
+    strategies: collect(strategies, limit, model.snapshot.head, model.snapshot.chainId, `account:${account.toLowerCase()}`, cursor),
     ...(model.snapshot.portfolioLocks.find((r) => r.account.toLowerCase() === account.toLowerCase())
       ? { portfolioLock: model.snapshot.portfolioLocks.find((r) =>
           r.account.toLowerCase() === account.toLowerCase()) } : {}),
@@ -108,11 +121,11 @@ export function routeRead(
     if (pathname === "/strategies") {
       const records = model.strategies?.records ?? [];
       const selected = query.marketId ? records.filter((r) => r.marketId === query.marketId) : records;
-      return { status: 200, body: collect(selected, positiveBound(query.limit, 50, 100), query.cursor) };
+      return { status: 200, body: collect(selected, positiveBound(query.limit, 50, 100), model.snapshot.head, model.snapshot.chainId, `strategies:${query.marketId ?? ""}`, query.cursor) };
     }
     return { status: 404, body: { error: "not_found" } };
   } catch (error) {
-    return { status: error instanceof RangeError || error instanceof TypeError ? 400 : 500,
+    return { status: error instanceof RangeError || error instanceof TypeError || error instanceof URIError ? 400 : 500,
       body: { error: "invalid_request" } };
   }
 }
