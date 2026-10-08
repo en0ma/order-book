@@ -53,7 +53,7 @@ const keyOf = (marketId: string, id: bigint) => JSON.stringify([marketId, id.toS
 function uint(value: unknown, name: string): bigint {
   const n = typeof value === "bigint" ? value :
     (typeof value === "number" && Number.isSafeInteger(value) ? BigInt(value) :
-      (typeof value === "string" && /^\\d+$/.test(value) ? BigInt(value) : -1n));
+      (typeof value === "string" && /^\d+$/.test(value) ? BigInt(value) : -1n));
   if (n < 0n) throw new TypeError(name + " must be a nonnegative integer");
   return n;
 }
