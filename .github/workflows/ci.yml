@@ -94,7 +94,16 @@ jobs:
       - name: Contract sizes
         run: |
           set -o pipefail
-          forge build --sizes | tee contract-sizes.txt
+          # The default profile includes intentionally oversized test-only contracts.
+          # Keep the full size report; allow only Foundry's EIP-170 report exit.
+          set +e
+          forge build --sizes 2>&1 | tee contract-sizes.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ] && ! grep -Fq "Error: some contracts exceed the runtime size limit (EIP-170: 24576 bytes)" contract-sizes.txt; then
+            exit "$status"
+          fi
+          # The deployable size-profile and script remain strict below.
           FOUNDRY_PROFILE=size forge build --sizes | tee contract-sizes-size-profile.txt
       - name: Enforce deployable EIP-170 sizes
         run: |
@@ -140,7 +149,7 @@ jobs:
             .gas-snapshot
 
   test:
-    name: Full validation gate
+    name: test
     if: always()
     needs: [node, protocol, fork, sizes, gas]
     runs-on: ubuntu-latest
