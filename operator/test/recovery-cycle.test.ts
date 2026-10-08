@@ -62,3 +62,27 @@ test("recovery rejects RPC chain switch before any checkpoint load", async () =>
   await assert.rejects(() => runRecoveryCycle(manifest, h.rpc, h.store), /chain ID/);
   assert.equal(h.commits, 0);
 });
+
+test("recovery replays strategy placement and completion in chain log order", async () => {
+  const h = harness();
+  const placement = { chainId: 1, blockNumber: 1, blockHash: "0x001",
+    transactionIndex: 0, logIndex: 0, address: addr, marketId: "ETH",
+    name: "IcebergPlaced", args: { strategyId: 7n, owner: addr, side: 0,
+      tick: 100, totalLots: 10n, displayLots: 2n } };
+  const completion = { ...placement, logIndex: 1, name: "StrategyCompleted",
+    args: { strategyId: 7n } };
+  h.rpc.getEvents = async block => block.number === 1 ? [completion, placement] : [];
+  const result = await runRecoveryCycle(manifest, h.rpc, h.store, { maxBlocksPerSync: 1 });
+  assert.equal(result.bundle.strategies.records.length, 0);
+  assert.equal(h.saved.strategies.records.length, 0);
+});
+test("recovery diagnostics count restored index state, not hard-coded zero", async () => {
+  const h = harness();
+  const first = await runRecoveryCycle(manifest, h.rpc, h.store, { maxBlocksPerSync: 1 });
+  const state = first.bundle.checkpoint.state;
+  const populated = { ...first.bundle, checkpoint: { ...first.bundle.checkpoint,
+    state: { ...state, managedQuotes: [["ETH:0:100", { shares: "2", generation: 1 }]] } } };
+  h.store.load = async () => populated;
+  const result = await runRecoveryCycle(manifest, h.rpc, h.store, { maxBlocksPerSync: 1 });
+  assert.equal(result.readModel.diagnostics.managedQuotes, 1);
+});
