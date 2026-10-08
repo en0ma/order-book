@@ -745,13 +745,13 @@ export function operatorManifestIdentity(manifestInput: unknown): string {
       market.id,
       market.core.toLowerCase(),
       market.advanced.toLowerCase(),
-      market.executionStrategy?.toLowerCase() ?? "",
       market.marketMaker?.toLowerCase() ?? "",
       market.liquidation?.toLowerCase() ?? "",
       market.portfolioLiquidation?.toLowerCase() ?? "",
       market.integrationLens?.toLowerCase() ?? "",
       market.oracle.toLowerCase(),
       market.portfolioMarketIndex ?? "",
+      ...(market.executionStrategy ? [market.executionStrategy.toLowerCase()] : []),
     ].join(":"))
     .join("|");
   const portfolioIdentity = manifest.portfolio
