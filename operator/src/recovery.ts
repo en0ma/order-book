@@ -1,8 +1,8 @@
 import {
-  keeperTaskId, operatorManifestIdentity, type IdempotentKeeperExecutor,
+  keeperTaskId, operatorManifestIdentity, ReferenceIndexer, type IdempotentKeeperExecutor,
   type KeeperTask, type OperatorCheckpoint,
 } from "./index.js";
-import type { StrategySnapshot, StrategyTask } from "./strategies.js";
+import { StrategyRegistry, type StrategySnapshot, type StrategyTask } from "./strategies.js";
 import { checkReadiness, type ReadinessPolicy } from "./readiness.js";
 import type { ApiSnapshot, OperatorDiagnostics } from "./api.js";
 
@@ -35,8 +35,16 @@ export function validateRecoveryBundle(manifest: unknown, bundle: RecoveryBundle
     throw new Error("recovery bundle deployment identity mismatch");
   }
   assembleRecoveryBundle(manifest, bundle.checkpoint, bundle.strategies, bundle.strategyHead);
+  // Validate both payloads in isolated instances before callers restore live state.
+  const isolated = new ReferenceIndexer(bundle.checkpoint.chainId);
+  isolated.restoreCheckpoint(bundle.checkpoint, manifest);
+  new StrategyRegistry().restore(bundle.strategies);
 }
 export type AdmittedTask = KeeperTask | StrategyTask;
+export interface CanonicalHeadVerifier {
+  /** Read the current canonical block hash from a trusted RPC source. */
+  getCanonicalBlockHash(blockNumber: number): Promise<string>;
+}
 export interface KeeperAdmissionResult {
   admitted: number;
   skipped: number;
@@ -50,6 +58,7 @@ export async function executeReadyTasks(
   diagnostics: OperatorDiagnostics,
   tasks: readonly KeeperTask[],
   executor: IdempotentKeeperExecutor,
+  verifier: CanonicalHeadVerifier,
   policy: ReadinessPolicy = { requireDiagnostics: true, maxLagBlocks: 0 },
 ): Promise<KeeperAdmissionResult> {
   const readiness = checkReadiness(snapshot, diagnostics, policy);
@@ -59,6 +68,15 @@ export async function executeReadyTasks(
     checkpoint.head.hash !== snapshot.head.hash) {
     throw new Error("keeper submission rejected: canonical state is not ready");
   }
+  if (!verifier || typeof verifier.getCanonicalBlockHash !== "function") {
+    throw new Error("keeper submission rejected: canonical verifier is required");
+  }
+  const verifyCurrentHead = async () => {
+    if (await verifier.getCanonicalBlockHash(snapshot.head!.number) !== snapshot.head!.hash) {
+      throw new Error("keeper submission rejected: canonical head hash changed");
+    }
+  };
+  await verifyCurrentHead();
   const branchEpoch = checkpoint.branchEpoch ?? 0;
   let skipped = 0;
   const transactionIds: string[] = [];
@@ -70,6 +88,7 @@ export async function executeReadyTasks(
     }
     // Confirm readiness again after simulation, before transaction submission.
     // The caller must still recheck chain state in its signing/relay adapter.
+    await verifyCurrentHead();
     transactionIds.push(await executor.submit(task, key));
   }
   return { admitted: transactionIds.length, skipped, transactionIds };
