@@ -46,3 +46,11 @@ The default and size profiles compile on separate runners at the same time. The 
 The `gas-build` job compiles the default-profile Solidity contracts once. It uploads `out/` and `cache/`, including Foundry metadata. The required `gas` job downloads these artifacts. It runs the full gas report first, then the full gas snapshot in the same workspace, in that order. It uploads both outputs as one `gas-results` artifact with `include-hidden-files: true`, because `.gas-snapshot` is a hidden file.
 
 The aggregate `test` gate requires the shared build and the sequential gas job to succeed, along with all other checks. In run #1199, all 273 snapshot tests passed, but artifact upload failed because the upload action ignored the hidden snapshot file. This change corrects that upload and restores the required order. Measure the complete runtime after a successful run; shared build transfer and runner queues can offset compilation savings.
+
+## Size build cache diagnostics
+
+The contract-size profiles remain separate jobs and continue to compile all contracts with their original Foundry settings. The size-profile EIP-170 enforcement is unchanged.
+
+Both size caches use compiler-version-aware primary keys. Restore keys remain compatible with older cache entries to warm the job when source inputs change. Foundry checks that any restored build output matches its current inputs before reusing it. The workflow reports the duration of each size compilation command in the GitHub Actions job summary.
+
+In successful run #1201 (2026-10-08), both size caches hit, and the two size jobs completed in seconds. Cold compilation can still take several minutes. The objective is to raise the reuse rate across PRs and make cold/warm timing visible. This PR does not claim an improvement until repeated cold and warm runs support it. Do not bypass the full size report or the strict deployable EIP-170 check.
