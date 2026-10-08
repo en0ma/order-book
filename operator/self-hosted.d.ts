@@ -6,6 +6,12 @@ export interface SelfHostedOperator {
   publication: RecoveryPublication;
   http: HttpRuntime;
   recover(): Promise<RecoveryCycleResult>;
+  bootstrap(config?: BootstrapOptions): Promise<RecoveryCycleResult>;
+}
+export interface BootstrapOptions {
+  maxCycles?: number;
+  signal?: AbortSignal;
+  listen?: { port: number; host?: string };
 }
 export interface SelfHostedOperatorOptions {
   bundlePath: string;
