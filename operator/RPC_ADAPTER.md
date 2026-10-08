@@ -4,7 +4,7 @@ The `./rpc-adapter` entry point connects Ethereum JSON-RPC block and log reads t
 
 ## Wire a deployment
 
-Provide a transport that performs `eth_chainId`, `eth_blockNumber`, `eth_getBlockByNumber` and `eth_getLogs` requests. Provide a deployment-specific ABI decoder that returns `CanonicalLogEnvelope` or `undefined` for an intentionally unsupported log. Use `normalizeCanonicalEvents` through the adapter, not ad-hoc event names. A trusted mark-tick reader is required for planning; do not use old event ticks as authoritative current prices.
+Provide a transport that performs `eth_chainId`, `eth_blockNumber`, `eth_getBlockByNumber` and `eth_getLogs` requests. Provide a deployment-specific ABI decoder that returns `CanonicalLogEnvelope` or `undefined` for an intentionally unsupported log. Use `normalizeCanonicalEvents` through the adapter, not ad-hoc event names. Portfolio deployments using the sync/keeper cycle also need a trusted `portfolioHealth` callback for authoritative equity and maintenance requirements. A trusted mark-tick reader is required for planning; do not use old event ticks as authoritative current prices.
 
 ```js
 import { createCanonicalRpcAdapter } from "@en0ma/order-book-operator/rpc-adapter";
@@ -13,6 +13,7 @@ import { createSelfHostedOperator } from "@en0ma/order-book-operator/self-hosted
 const rpc = createCanonicalRpcAdapter(transport, {
   decode: (log, chainId) => decodeUsingDeploymentAbi(log, chainId),
   markTicks: manifest => readCurrentMarkTicks(manifest),
+  portfolioHealth: (accounts, manifest) => readCurrentPortfolioHealth(accounts, manifest),
 });
 const operator = createSelfHostedOperator(manifest, rpc, {
   bundlePath: "./private/canonical-recovery.json",
