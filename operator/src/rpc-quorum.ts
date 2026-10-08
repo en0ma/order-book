@@ -51,6 +51,7 @@ export function createQuorumRpcAdapter(
       throw new RangeError("invalid canonical block height");
     }
     const values = await heads();
+    if (values[0] < blockNumber) throw new Error("primary RPC is behind canonical block height");
     const eligible = sources.filter((_, i) => values[i] >= blockNumber);
     if (eligible.length < required) throw new Error("not enough canonical RPC sources at block height");
     const blocks = await Promise.all(eligible.map(rpc => rpc.getBlock(blockNumber)));
