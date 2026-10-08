@@ -31,6 +31,11 @@
       "import": "./dist/strategies.js",
       "default": "./dist/strategies.js"
     },
+    "./read-model": {
+      "types": "./read-model.d.ts",
+      "import": "./dist/read-model.js",
+      "default": "./dist/read-model.js"
+    },
     "./api": {
       "types": "./api.d.ts",
       "import": "./dist/api.js",
@@ -44,6 +49,7 @@
     "README.md",
     "integration.d.ts",
     "api.d.ts",
-    "strategies.d.ts"
+    "strategies.d.ts",
+    "read-model.d.ts"
   ]
 }
