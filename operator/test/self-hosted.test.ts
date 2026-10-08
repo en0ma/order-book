@@ -91,3 +91,24 @@ test("operator rejects an audit path that resolves to the recovery file", async 
     }), /audit journal path must differ/);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("audit path aliases are rejected before any bundle is written", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ob-recovery-"));
+  try {
+    const path = join(dir, "bundle.json");
+    assert.throws(() => createSelfHostedOperator(manifest, rpc(), {
+      bundlePath: path, auditPath: join(dir, ".", "bundle.json"),
+    }), /audit journal path must differ/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+test("recovery store creates nested parents and persists a complete JSON bundle", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ob-recovery-"));
+  const path = join(dir, "nested", "deeper", "bundle.json");
+  try {
+    const instance = createSelfHostedOperator(manifest, rpc(), { bundlePath: path });
+    await instance.recover();
+    const loaded = JSON.parse(await readFile(path, "utf8"));
+    assert.equal(loaded.bundle.checkpoint.head.hash, "0x001");
+    assert.equal(loaded.bundle.strategyHead.hash, "0x001");
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
