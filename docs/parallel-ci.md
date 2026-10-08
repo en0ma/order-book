@@ -21,7 +21,7 @@ The protocol, size, and gas jobs restore Foundry `cache/` and `out/` directories
 
 ## Artifacts
 
-The default-profile `forge build --sizes` report can exit nonzero when it lists oversized test-only harness contracts. The workflow retains that report and tolerates only this specific Foundry EIP-170 size warning. The size-profile build and deployable size enforcement still fail on violations; other compilation errors remain fatal.
+Both default-profile and size-profile `forge build --sizes` reports can exit nonzero when they list oversized test-only harness contracts. The workflow retains that report and tolerates only this specific Foundry EIP-170 size warning. The subsequent size-profile build and deployable EIP-170 enforcement script remain strict. Other compilation errors still fail the report steps.
 
 The `gas-results` artifact includes `gas-report.txt` and `.gas-snapshot`. The `contract-sizes` artifact includes output from both build profiles. This replaces one combined artifact with two focused artifacts. Both reports remain available to the operator.
 
