@@ -63,3 +63,22 @@ test("RPC adapter fails closed without a configured ABI decoder or mark tick rea
   const adapter = createCanonicalRpcAdapter(h.transport, { decode: () => undefined });
   await assert.rejects(adapter.getMarkTicks(manifest), /not configured/);
 });
+
+test("portfolio health callback is exposed and receives accounts and manifest", async () => {
+  const h = fixture();
+  const calls = [];
+  const adapter = createCanonicalRpcAdapter(h.transport, {
+    decode: () => undefined,
+    portfolioHealth: async (accounts, deployment) => {
+      calls.push({ accounts, deployment });
+      return { [addr]: { equity: 100n, requirement: 40n } };
+    },
+  });
+  const health = await adapter.getPortfolioHealth([addr], manifest);
+  assert.equal(health[addr].equity, 100n);
+  assert.equal(health[addr].requirement, 40n);
+  assert.deepEqual(calls[0].accounts, [addr]);
+  assert.equal(calls[0].deployment, manifest);
+  const without = createCanonicalRpcAdapter(h.transport, { decode: () => undefined });
+  assert.equal(without.getPortfolioHealth, undefined);
+});
