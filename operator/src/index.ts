@@ -745,6 +745,7 @@ export function operatorManifestIdentity(manifestInput: unknown): string {
       market.id,
       market.core.toLowerCase(),
       market.advanced.toLowerCase(),
+      market.executionStrategy?.toLowerCase() ?? "",
       market.marketMaker?.toLowerCase() ?? "",
       market.liquidation?.toLowerCase() ?? "",
       market.portfolioLiquidation?.toLowerCase() ?? "",
@@ -804,6 +805,7 @@ export function validateOperatorManifest(input: unknown): OperatorManifest {
       oracle: expectAddress(market.oracle, `markets[${index}].oracle`),
     };
     for (const field of [
+      "executionStrategy",
       "marketMaker",
       "liquidation",
       "portfolioLiquidation",
