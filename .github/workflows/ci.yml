@@ -74,28 +74,26 @@ jobs:
           echo "::warning::Configured ETH_RPC could not create a Foundry fork; retrying public mainnet fallback"
           ETH_RPC="https://ethereum-rpc.publicnode.com" forge test --match-contract MainnetForkTest -vvv
 
-  sizes:
-    name: Contract sizes and EIP-170
+  sizes-default:
+    name: Default-profile contract sizes
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
-      - name: Restore Foundry size cache
+      - name: Restore default-profile build cache
         uses: actions/cache@v4
         with:
           path: |
             cache
             out
-          key: foundry-size-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
-          restore-keys: foundry-size-${{ runner.os }}-
-      - name: Contract sizes
+          key: foundry-size-default-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
+          restore-keys: foundry-size-default-${{ runner.os }}-
+      - name: Default-profile contract sizes
         run: |
           set -o pipefail
-          # The default profile includes intentionally oversized test-only contracts.
-          # Keep the full size report; allow only Foundry's EIP-170 report exit.
           set +e
           forge build --sizes 2>&1 | tee contract-sizes.txt
           status=${PIPESTATUS[0]}
@@ -103,8 +101,33 @@ jobs:
           if [ "$status" -ne 0 ] && ! grep -Fq "Error: some contracts exceed the runtime size limit (EIP-170: 24576 bytes)" contract-sizes.txt; then
             exit "$status"
           fi
-          # The size profile also reports non-deployable test harness contracts.
-          # Check its report exit the same way; deployable enforcement is strict below.
+      - name: Upload default-profile size report
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-sizes-default
+          path: contract-sizes.txt
+          if-no-files-found: error
+
+  sizes:
+    name: Size profile and deployable EIP-170
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Restore size-profile build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache
+            out
+          key: foundry-size-deployable-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
+          restore-keys: foundry-size-deployable-${{ runner.os }}-
+      - name: Size-profile contract sizes
+        run: |
+          set -o pipefail
           set +e
           FOUNDRY_PROFILE=size forge build --sizes 2>&1 | tee contract-sizes-size-profile.txt
           status=${PIPESTATUS[0]}
@@ -116,13 +139,12 @@ jobs:
         run: |
           FOUNDRY_PROFILE=size forge build
           python3 script/check_deployable_sizes.py
-      - name: Upload size artifacts
+      - name: Upload size-profile report
         uses: actions/upload-artifact@v4
         with:
-          name: contract-sizes
-          path: |
-            contract-sizes.txt
-            contract-sizes-size-profile.txt
+          name: contract-sizes-size-profile
+          path: contract-sizes-size-profile.txt
+          if-no-files-found: error
 
   gas:
     name: Gas report and snapshot
@@ -158,7 +180,7 @@ jobs:
   test:
     name: test
     if: always()
-    needs: [node, protocol, fork, sizes, gas]
+    needs: [node, protocol, fork, sizes-default, sizes, gas]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -167,10 +189,11 @@ jobs:
           NODE_RESULT: ${{ needs.node.result }}
           PROTOCOL_RESULT: ${{ needs.protocol.result }}
           FORK_RESULT: ${{ needs.fork.result }}
+          DEFAULT_SIZES_RESULT: ${{ needs.sizes-default.result }}
           SIZES_RESULT: ${{ needs.sizes.result }}
           GAS_RESULT: ${{ needs.gas.result }}
         run: |
-          for result in "$NODE_RESULT" "$PROTOCOL_RESULT" "$FORK_RESULT" "$SIZES_RESULT" "$GAS_RESULT"; do
+          for result in "$NODE_RESULT" "$PROTOCOL_RESULT" "$FORK_RESULT" "$DEFAULT_SIZES_RESULT" "$SIZES_RESULT" "$GAS_RESULT"; do
             if [ "$result" != success ]; then
               echo "::error::A required CI validation did not succeed: $result"
               exit 1
