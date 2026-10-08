@@ -85,3 +85,46 @@ test("self-hosted HTTP remains unavailable on witness disagreement", async () =>
     assert.equal(op.publication.ready(), false);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("keeper checks enforce current RPC quorum even with a primary-only signer verifier", async () => {
+  const primary = source(), witness = source();
+  const rpc = createQuorumRpcAdapter(primary.rpc, [witness.rpc]);
+  let bundle;
+  const published = createRecoveryPublication(manifest, rpc, {
+    load: async () => bundle, save: async (_, next) => { bundle = next; },
+  });
+  await published.refresh();
+  const executor = { alreadySubmitted: async () => false, simulate: async () => true,
+    submit: async () => "tx" };
+  const primaryOnly = { getCanonicalBlockHash: async () => "0x001" };
+  assert.equal((await published.submit([], executor, primaryOnly)).admitted, 0);
+  witness.hash("0xorphan");
+  await assert.rejects(published.submit([], executor, primaryOnly), /hash disagreement/);
+  assert.equal(published.ready(), true, "the previously published state remains gated by the next refresh");
+  await assert.rejects(published.submit([{ kind: "expireConditional", marketId: "ETH", orderId: 1n }],
+    executor, primaryOnly), /hash disagreement/);
+});
+test("self-hosted supervisor keeper admission inherits RPC quorum verification", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ob-keeper-quorum-"));
+  const primary = source(), witness = source();
+  const op = createSelfHostedOperator(manifest, createQuorumRpcAdapter(primary.rpc, [witness.rpc]),
+    { bundlePath: join(dir, "recovery.json") });
+  const controller = new AbortController();
+  let firstReady;
+  const ready = new Promise(resolve => { firstReady = resolve; });
+  const supervisor = op.supervise({ intervalMs: 1000, signal: controller.signal,
+    onCycle: event => { if (event.kind === "ready") firstReady(); } });
+  const running = supervisor.run();
+  try {
+    await ready;
+    witness.hash("0xnewfork");
+    const executor = { alreadySubmitted: async () => false, simulate: async () => true,
+      submit: async () => "tx" };
+    await assert.rejects(supervisor.submit([], executor, {
+      getCanonicalBlockHash: async () => "0x001",
+    }), /hash disagreement/);
+  } finally {
+    supervisor.stop(); controller.abort(); await running;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
