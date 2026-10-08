@@ -52,9 +52,14 @@ export function marketBook(
   if (!Number.isSafeInteger(depth) || depth < 1 || depth > 100) {
     throw new RangeError("book depth must be 1..100");
   }
-  const levels = model.snapshot.pools
-    .filter((p) => matchesMarket(p.key, marketId) && BigInt(p.remainingLots) > 0n)
-    .sort((a, b) => a.key.localeCompare(b.key)).slice(0, depth);
+  const pool = model.snapshot.pools
+    .filter((p) => matchesMarket(p.key, marketId) && BigInt(p.remainingLots) > 0n);
+  const levelSide = (key: string) => Number(key.split(":").at(-2));
+  const levelTick = (key: string) => Number(key.split(":").at(-1));
+  const ranked = (side: number) => pool.filter((p) => levelSide(p.key) === side)
+    .sort((a, b) => side === 0 ? levelTick(b.key) - levelTick(a.key) : levelTick(a.key) - levelTick(b.key))
+    .slice(0, depth);
+  const levels = [...ranked(0), ...ranked(1)];
   return { chainId: model.snapshot.chainId, ...(model.snapshot.head ? { head: model.snapshot.head } : {}),
     marketId, levels };
 }
