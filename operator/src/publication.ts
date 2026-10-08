@@ -63,9 +63,20 @@ export function createRecoveryPublication(
           throw new Error("keeper submission rejected: recovery is not ready");
         }
         const candidate = published;
+        const quorum = rpc as OperatorRpcAdapter & { verifyBlock?: (number: number) => Promise<{ hash: string }> };
+        const canonicalVerifier: CanonicalHeadVerifier = typeof quorum.verifyBlock === "function"
+          ? { async getCanonicalBlockHash(number) {
+              const agreed = await quorum.verifyBlock!(number);
+              const signerHash = await verifier.getCanonicalBlockHash(number);
+              if (signerHash.toLowerCase() !== agreed.hash.toLowerCase()) {
+                throw new Error("keeper submission rejected: signer and RPC quorum disagree");
+              }
+              return agreed.hash;
+            } }
+          : verifier;
         return executeReadyTasks(
           manifest, candidate.bundle.checkpoint, candidate.readModel.snapshot,
-          candidate.readModel.diagnostics, tasks, executor, verifier,
+          candidate.readModel.diagnostics, tasks, executor, canonicalVerifier,
         );
       });
     },

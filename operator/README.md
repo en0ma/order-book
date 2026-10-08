@@ -179,3 +179,7 @@ The `./rpc-adapter` export connects standard Ethereum block and log queries with
 ## Operator-approved canonical rebuild
 
 After a confirmed deep reorg, stop all writers and use `./rebuild` to quarantine the rejected Core-and-strategy bundle before explicitly rebuilding from canonical deployment logs. See [REBUILD.md](REBUILD.md). This operation requires reviewed hashes and is never automatic.
+
+## Independent RPC verification
+
+Use the `./rpc-quorum` export to require agreement from independent RPC providers before canonical block replay, checkpoint recovery, HTTP publication, and keeper admission. It also supports verification during an approved orphan-checkpoint rebuild. See [RPC_QUORUM.md](RPC_QUORUM.md) for deployment and limitations.
