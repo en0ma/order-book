@@ -41,6 +41,11 @@
       "import": "./dist/recovery-cycle.js",
       "default": "./dist/recovery-cycle.js"
     },
+    "./rebuild": {
+      "types": "./rebuild.d.ts",
+      "import": "./dist/rebuild.js",
+      "default": "./dist/rebuild.js"
+    },
     "./http-rpc": {
       "types": "./http-rpc.d.ts",
       "import": "./dist/http-rpc.js",
@@ -107,10 +112,12 @@
     "supervisor.d.ts",
     "rpc-adapter.d.ts",
     "http-rpc.d.ts",
+    "rebuild.d.ts",
     "RECOVERY_CYCLE.md",
     "PUBLICATION.md",
     "SELF_HOSTED.md",
     "SUPERVISION.md",
-    "RPC_ADAPTER.md"
+    "RPC_ADAPTER.md",
+    "REBUILD.md"
   ]
 }

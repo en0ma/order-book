@@ -175,3 +175,7 @@ Use `./supervisor` or `createSelfHostedOperator(...).supervise()` for repeated c
 ## Canonical Ethereum JSON-RPC
 
 The `./rpc-adapter` export connects standard Ethereum block and log queries with deployment ABI decoding, canonical hash validation, durable replay, and supervised HTTP/keeper admission. See [RPC_ADAPTER.md](RPC_ADAPTER.md). The operator must provide a trusted RPC transport, ABI decoder and current mark-price reads.
+
+## Operator-approved canonical rebuild
+
+After a confirmed deep reorg, stop all writers and use `./rebuild` to quarantine the rejected Core-and-strategy bundle before explicitly rebuilding from canonical deployment logs. See [REBUILD.md](REBUILD.md). This operation requires reviewed hashes and is never automatic.
