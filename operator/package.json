@@ -36,6 +36,11 @@
       "import": "./dist/read-model.js",
       "default": "./dist/read-model.js"
     },
+    "./readiness": {
+      "types": "./readiness.d.ts",
+      "import": "./dist/readiness.js",
+      "default": "./dist/readiness.js"
+    },
     "./http": {
       "types": "./http.d.ts",
       "import": "./dist/http.js",
@@ -56,6 +61,8 @@
     "api.d.ts",
     "strategies.d.ts",
     "read-model.d.ts",
-    "http.d.ts"
+    "http.d.ts",
+    "readiness.d.ts",
+    "READINESS.md"
   ]
 }

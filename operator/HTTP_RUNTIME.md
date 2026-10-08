@@ -30,3 +30,7 @@ These application functions are intentionally user-supplied, not bundled infrast
 - Pagination is bound to chain ID, head hash/number and scope by the read-model package. Clients must restart pagination after a reorg or head advance.
 - Operators must independently implement RPC trust, persistence, reorg rollback, request rate limiting, robust authentication, TLS, DDoS protection, access logs without credential leakage, and graceful shutdown. This reference HTTP adapter is not a substitute for production edge infrastructure.
 - Strategy placement metadata and pool levels do not constitute settled maker positions, full account balances, or executable trades. All write actions must be simulated against current authoritative contracts.
+
+## Recovery and readiness
+
+Configure the optional readiness policy to fail closed when the indexer is behind its safe head or in a stalled/mismatched state. `GET /ready` exposes a reasoned HTTP 200/503 response; see [READINESS.md](READINESS.md). Readiness is a consistency check, not a finality oracle.

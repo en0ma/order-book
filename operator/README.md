@@ -147,3 +147,7 @@ The `/read-model` package export supplies bounded, transport-neutral query respo
 The optional `/http` export supplies a loopback-first Node HTTP boundary for the read model, canonical-head response metadata, limits on request size, and fail-closed private account authorization. It is configured with the DEX team's own atomic snapshot provider and never starts on import. See [HTTP_RUNTIME.md](HTTP_RUNTIME.md) for an example and the security/operations contract.
 
 The HTTP adapter also limits concurrent in-flight requests, supports graceful draining and exposes credential-safe request metrics. Operators must still configure network-edge rate limits, TLS and independent RPC abort handling.
+
+## Safe-head readiness gate
+
+The optional `/readiness` export and HTTP `/ready` endpoint provide a canonical-head and indexer-lag gate for fail-closed data serving. Production operators should explicitly configure `readiness: { requireDiagnostics: true, maxLagBlocks: 0 }`, run their own RPC/indexer recovery, and consult [READINESS.md](READINESS.md) before exposing market data.
