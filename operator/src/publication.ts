@@ -22,7 +22,7 @@ export function createRecoveryPublication(
 ): RecoveryPublication {
   let published: RecoveryCycleResult | undefined;
   let gateOpen = false;
-  let busy = false;
+  let pendingRefreshes = 0;
   let tail: Promise<unknown> = Promise.resolve();
   function serialize<T>(work: () => Promise<T>): Promise<T> {
     const result = tail.then(work, work);
@@ -30,9 +30,9 @@ export function createRecoveryPublication(
     return result;
   }
   return {
-    ready: () => gateOpen && !busy && published?.readiness.ready === true,
+    ready: () => gateOpen && pendingRefreshes === 0 && published?.readiness.ready === true,
     snapshot() {
-      if (!gateOpen || busy || !published?.readiness.ready) {
+      if (!gateOpen || pendingRefreshes !== 0 || !published?.readiness.ready) {
         throw new Error("canonical recovery is not ready for publication");
       }
       return published.readModel;
@@ -40,25 +40,25 @@ export function createRecoveryPublication(
     refresh() {
       // Fail closed before the first awaited RPC or storage operation.
       gateOpen = false;
-      busy = true;
+      pendingRefreshes++;
       return serialize(async () => {
         try {
           const candidate = await runRecoveryCycle(manifest, rpc, store, options);
           published = candidate;
-          gateOpen = candidate.readiness.ready;
+          gateOpen = candidate.readiness.ready && pendingRefreshes === 1;
           return candidate;
         } catch (error) {
           published = undefined;
           gateOpen = false;
           throw error;
         } finally {
-          busy = false;
+          pendingRefreshes--;
         }
       });
     },
     submit(tasks, executor, verifier) {
       return serialize(async () => {
-        if (!gateOpen || busy || !published?.readiness.ready ||
+        if (!gateOpen || pendingRefreshes !== 0 || !published?.readiness.ready ||
             !published.readModel.diagnostics) {
           throw new Error("keeper submission rejected: recovery is not ready");
         }
