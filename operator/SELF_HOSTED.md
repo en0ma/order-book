@@ -20,9 +20,9 @@ while (!(await runtime.recover()).readiness.ready) {}
 await runtime.http.listen(8080, "127.0.0.1");
 ```
 
-The recovery file contains Core index state **and** strategy registry state at one canonical hash. The store checks the deployment identity, writes to a private temporary file, syncs the file, renames it atomically, and syncs the containing directory. A single process must own the file; do not run competing writers. Back up the file securely, and do not treat it as a substitute for verified on-chain state.
+The recovery file contains Core index state **and** strategy registry state at one canonical hash. The store checks the deployment identity, writes to a private temporary file, syncs the file, renames it atomically, and syncs the containing directory. When it creates missing parent directories, it also syncs each new directory and its parent entry. A single process must own the file; do not run competing writers. Back up the file securely, and do not treat it as a substitute for verified on-chain state.
 
-The optional JSONL journal records successful recovery cycles and failures. Journal delivery is **not** transactional with the checkpoint; for regulated or critical audit needs, use a stronger external store. An audit write failure prevents `recover()` from returning normally even when a bundle has committed; the publication gate still reflects the committed ready state.
+The audit journal path must differ from the bundle path after path normalization. The optional JSONL journal records successful recovery cycles and failures. Journal delivery is **not** transactional with the checkpoint; for regulated or critical audit needs, use a stronger external store. An audit write failure prevents `recover()` from returning normally even when a bundle has committed; the publication gate still reflects the committed ready state.
 
 ## Fail-closed rules
 
