@@ -6,43 +6,64 @@ on:
 permissions:
   contents: read
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    env:
-      ETH_RPC: ${{ secrets.ETH_RPC }}
+# Cancel work for a superseded commit on the same pull request.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
+jobs:
+  node:
+    name: SDK, indexer and operator
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: stable
-
-      - name: Install Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
-
       - name: SDK tests
         working-directory: sdk
         run: npm test
-
       - name: Reference indexer tests
         working-directory: reference/indexer
         run: npm test
-
       - name: Operator tests
         working-directory: operator
         run: npm test
 
+  protocol:
+    name: Formatting, unit, fuzz and gas ceilings
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Restore Foundry build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache
+            out
+          key: foundry-protocol-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
+          restore-keys: foundry-protocol-${{ runner.os }}-
       - name: Format sources
         run: forge fmt
-
       - name: Unit, fuzz, and gas ceiling tests
         run: forge test --no-match-contract MainnetForkTest -vvv
 
+  fork:
+    name: Ethereum mainnet fork
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ETH_RPC: ${{ secrets.ETH_RPC }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
       - name: Ethereum mainnet fork test
         run: |
           test -n "$ETH_RPC" || (echo "ETH_RPC secret is not configured" && exit 1)
@@ -53,28 +74,105 @@ jobs:
           echo "::warning::Configured ETH_RPC could not create a Foundry fork; retrying public mainnet fallback"
           ETH_RPC="https://ethereum-rpc.publicnode.com" forge test --match-contract MainnetForkTest -vvv
 
+  sizes:
+    name: Contract sizes and EIP-170
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Restore Foundry size cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache
+            out
+          key: foundry-size-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
+          restore-keys: foundry-size-${{ runner.os }}-
       - name: Contract sizes
         run: |
-          forge build --sizes | tee contract-sizes.txt
-          FOUNDRY_PROFILE=size forge build --sizes | tee contract-sizes-size-profile.txt
-
+          set -o pipefail
+          # The default profile includes intentionally oversized test-only contracts.
+          # Keep the full size report; allow only Foundry's EIP-170 report exit.
+          set +e
+          forge build --sizes 2>&1 | tee contract-sizes.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ] && ! grep -Fq "Error: some contracts exceed the runtime size limit (EIP-170: 24576 bytes)" contract-sizes.txt; then
+            exit "$status"
+          fi
+          # The size profile also reports non-deployable test harness contracts.
+          # Check its report exit the same way; deployable enforcement is strict below.
+          set +e
+          FOUNDRY_PROFILE=size forge build --sizes 2>&1 | tee contract-sizes-size-profile.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ] && ! grep -Fq "Error: some contracts exceed the runtime size limit (EIP-170: 24576 bytes)" contract-sizes-size-profile.txt; then
+            exit "$status"
+          fi
       - name: Enforce deployable EIP-170 sizes
         run: |
           FOUNDRY_PROFILE=size forge build
           python3 script/check_deployable_sizes.py
+      - name: Upload size artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-sizes
+          path: |
+            contract-sizes.txt
+            contract-sizes-size-profile.txt
 
+  gas:
+    name: Gas report and snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Restore Foundry gas cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache
+            out
+          key: foundry-gas-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
+          restore-keys: foundry-gas-${{ runner.os }}-
       - name: Gas report
-        run: forge test --no-match-contract MainnetForkTest --gas-report | tee gas-report.txt
-
+        run: |
+          set -o pipefail
+          forge test --no-match-contract MainnetForkTest --gas-report | tee gas-report.txt
       - name: Gas snapshot
         run: forge snapshot --no-match-contract MainnetForkTest
-
       - name: Upload gas artifacts
         uses: actions/upload-artifact@v4
         with:
           name: gas-results
           path: |
             gas-report.txt
-            contract-sizes.txt
-            contract-sizes-size-profile.txt
             .gas-snapshot
+
+  test:
+    name: test
+    if: always()
+    needs: [node, protocol, fork, sizes, gas]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every validation job
+        env:
+          NODE_RESULT: ${{ needs.node.result }}
+          PROTOCOL_RESULT: ${{ needs.protocol.result }}
+          FORK_RESULT: ${{ needs.fork.result }}
+          SIZES_RESULT: ${{ needs.sizes.result }}
+          GAS_RESULT: ${{ needs.gas.result }}
+        run: |
+          for result in "$NODE_RESULT" "$PROTOCOL_RESULT" "$FORK_RESULT" "$SIZES_RESULT" "$GAS_RESULT"; do
+            if [ "$result" != success ]; then
+              echo "::error::A required CI validation did not succeed: $result"
+              exit 1
+            fi
+          done
