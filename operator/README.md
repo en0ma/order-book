@@ -163,3 +163,7 @@ The `/recovery-cycle` export runs a bounded canonical replay of the Core index a
 ## Atomic publication and keeper gate
 
 The `./publication` export connects canonical recovery, persisted state, HTTP snapshot publication, and checked keeper admission. Call `createRecoveryPublication`, wait for a ready `refresh()`, and pass `publication.snapshot` to the read-only HTTP runtime with strict readiness. Use `publication.submit` for guarded Core keeper tasks, with your own executor and trusted canonical hash verifier. On failed or lagging replay, the controller stops serving reads and admitting keeper work. See [PUBLICATION.md](PUBLICATION.md) for the full safety contract and operational limits.
+
+## Durable self-hosted operation
+
+Use the `./self-hosted` export to connect an atomic on-disk recovery bundle, canonical replay, guarded HTTP reads, and an optional audit journal. See [SELF_HOSTED.md](SELF_HOSTED.md) for the full restart and safety procedures.
