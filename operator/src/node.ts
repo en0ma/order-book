@@ -1,5 +1,5 @@
 import { appendFile, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import type { OperatorCheckpoint, OperatorCheckpointStore } from "./index.js";
 import type { RecoveryBundle, RecoveryStore } from "./recovery.js";
 
@@ -120,7 +120,28 @@ export class JsonFileRecoveryStore implements RecoveryStore {
       return Promise.reject(new Error("recovery bundle identity mismatch"));
     }
     const write = async () => {
-      await mkdir(dirname(this.path), { recursive: true });
+      // Make newly created parent entries durable before reporting a saved bundle.
+      const parent = resolve(dirname(this.path));
+      const missing: string[] = [];
+      for (let current = parent; ; current = dirname(current)) {
+        try {
+          const directory = await open(current, "r");
+          await directory.close();
+          break;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          missing.push(current);
+          if (dirname(current) === current) throw new Error("cannot find existing directory ancestor");
+        }
+      }
+      await mkdir(parent, { recursive: true });
+      for (const created of missing.reverse()) {
+        // fsync each created directory and the parent that holds its new entry.
+        for (const target of [created, dirname(created)]) {
+          const directory = await open(target, "r");
+          try { await directory.sync(); } finally { await directory.close(); }
+        }
+      }
       const temp = this.path + "." + process.pid + "." +
         Date.now().toString(36) + "." + Math.random().toString(36).slice(2) + ".tmp";
       try {
