@@ -159,3 +159,7 @@ The `/recovery` package export joins the Core index checkpoint and strategy regi
 ## Integrated canonical replay
 
 The `/recovery-cycle` export runs a bounded canonical replay of the Core index and strategy lifecycle events from one trusted checkpoint, then writes a single recovery bundle. It returns the candidate read model only after persistence succeeds. See [RECOVERY_CYCLE.md](RECOVERY_CYCLE.md) for the trust and failure boundaries.
+
+## Atomic publication and keeper gate
+
+The `./publication` export connects canonical recovery, persisted state, HTTP snapshot publication, and checked keeper admission. Call `createRecoveryPublication`, wait for a ready `refresh()`, and pass `publication.snapshot` to the read-only HTTP runtime with strict readiness. Use `publication.submit` for guarded Core keeper tasks, with your own executor and trusted canonical hash verifier. On failed or lagging replay, the controller stops serving reads and admitting keeper work. See [PUBLICATION.md](PUBLICATION.md) for the full safety contract and operational limits.
