@@ -23,6 +23,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Boros comparison evidence tests
+        run: node --test test-js/compare-boros.test.mjs
       - name: SDK tests
         working-directory: sdk
         run: npm test
