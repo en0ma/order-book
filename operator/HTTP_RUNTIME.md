@@ -21,6 +21,7 @@ These application functions are intentionally user-supplied, not bundled infrast
 ## Operational trust boundaries
 
 - Public aggregate book and market views are read-only. Private account paths return 403 unless a caller-supplied authorization hook permits them. Never consider a caller-provided account address proof of ownership.
+- Authentication and snapshot provider awaits are bounded by `requestTimeoutMs` with an application-level deadline; the HTTP handler returns 503 for stalled providers. Timeout does not cancel external RPC work: providers should implement their own abortable calls and resource limits.
 - Duplicate, unknown, or oversized query parameters fail closed. Only GET/HEAD are allowed. The runtime limits path/query size and request/header lifetime, and returns `no-store` and `nosniff` response headers.
 - Requests require a canonical head, and each response returns `x-canonical-head`. A missing head or failed snapshot provider returns 503.
 - Pagination is bound to chain ID, head hash/number and scope by the read-model package. Clients must restart pagination after a reorg or head advance.
