@@ -41,6 +41,11 @@
       "import": "./dist/recovery-cycle.js",
       "default": "./dist/recovery-cycle.js"
     },
+    "./self-hosted": {
+      "types": "./self-hosted.d.ts",
+      "import": "./dist/self-hosted.js",
+      "default": "./dist/self-hosted.js"
+    },
     "./publication": {
       "types": "./publication.d.ts",
       "import": "./dist/publication.js",
@@ -83,7 +88,9 @@
     "RECOVERY.md",
     "recovery-cycle.d.ts",
     "publication.d.ts",
+    "self-hosted.d.ts",
     "RECOVERY_CYCLE.md",
-    "PUBLICATION.md"
+    "PUBLICATION.md",
+    "SELF_HOSTED.md"
   ]
 }
