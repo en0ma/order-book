@@ -10,6 +10,12 @@ export interface SelfHostedOperator {
   publication: RecoveryPublication;
   http: HttpRuntime;
   recover(): Promise<RecoveryCycleResult>;
+  bootstrap(config?: BootstrapOptions): Promise<RecoveryCycleResult>;
+}
+export interface BootstrapOptions {
+  maxCycles?: number;
+  signal?: AbortSignal;
+  listen?: { port: number; host?: string };
 }
 export interface SelfHostedOperatorOptions {
   bundlePath: string;
@@ -35,30 +41,53 @@ export function createSelfHostedOperator(
     markets: manifest.markets.map(market => market.id),
     readiness: { requireDiagnostics: true, maxLagBlocks: 0 },
   });
-  return {
-    publication, http,
-    async recover() {
+  let bootstrapping = false;
+  async function recover(): Promise<RecoveryCycleResult> {
+    try {
+      const result = await publication.refresh();
+      await journal?.append({
+        timestamp: new Date().toISOString(),
+        manifestIdentity: operatorManifestIdentity(manifest),
+        kind: "cycle",
+        payload: { head: result.head, appliedBlocks: result.appliedBlocks,
+          restored: result.restored, ready: result.readiness.ready },
+      });
+      return result;
+    } catch (error) {
       try {
-        const result = await publication.refresh();
         await journal?.append({
           timestamp: new Date().toISOString(),
           manifestIdentity: operatorManifestIdentity(manifest),
-          kind: "cycle",
-          payload: { head: result.head, appliedBlocks: result.appliedBlocks,
-            restored: result.restored, ready: result.readiness.ready },
+          kind: "error",
+          payload: { message: error instanceof Error ? error.message : "unknown error" },
         });
-        return result;
-      } catch (error) {
-        // Audit is best effort; the publication controller has already closed the gate.
-        try {
-          await journal?.append({
-            timestamp: new Date().toISOString(),
-            manifestIdentity: operatorManifestIdentity(manifest),
-            kind: "error",
-            payload: { message: error instanceof Error ? error.message : "unknown error" },
-          });
-        } catch { /* Preserve the original recovery failure. */ }
-        throw error;
+      } catch { /* Preserve the original recovery error. */ }
+      throw error;
+    }
+  }
+  return {
+    publication, http, recover,
+    async bootstrap(config: BootstrapOptions = {}) {
+      if (bootstrapping) throw new Error("operator bootstrap already running");
+      const maxCycles = config.maxCycles ?? 100;
+      if (!Number.isSafeInteger(maxCycles) || maxCycles < 1 || maxCycles > 100_000) {
+        throw new RangeError("invalid maximum bootstrap cycles");
+      }
+      bootstrapping = true;
+      try {
+        for (let cycle = 0; cycle < maxCycles; cycle++) {
+          if (config.signal?.aborted) throw new Error("operator bootstrap aborted");
+          const result = await recover();
+          if (config.signal?.aborted) throw new Error("operator bootstrap aborted");
+          if (result.readiness.ready && publication.ready()) {
+            if (config.listen) await http.listen(config.listen.port, config.listen.host);
+            return result;
+          }
+          if (result.appliedBlocks === 0) break;
+        }
+        throw new Error("operator bootstrap did not reach canonical readiness");
+      } finally {
+        bootstrapping = false;
       }
     },
   };
