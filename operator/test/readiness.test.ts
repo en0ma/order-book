@@ -37,3 +37,28 @@ test("HTTP readiness reports 503 and gates data until indexer catches up", async
     assert.equal((await fetch(base + "/markets")).status, 200);
   } finally { await app.close(); }
 });
+
+test("readiness rejects invalid numeric diagnostics without fail-open", () => {
+  for (const broken of [
+    { safeHead: Number.NaN },
+    { lagBlocks: Number.NaN },
+    { safeHead: Number.POSITIVE_INFINITY },
+    { lagBlocks: -1 },
+    { appliedBlocks: 1.5 },
+    { remoteHead: -1 },
+  ]) {
+    assert.equal(checkReadiness(snapshot, { ...diagnostics, ...broken }).reason, "invalid_diagnostics");
+  }
+});
+test("unconfigured /ready fails closed without diagnostics while public routes stay compatible", async () => {
+  const app = createHttpRuntime({ markets: ["ETH"], snapshot: () => ({ snapshot }) });
+  await app.listen(0);
+  const addr = app.server.address();
+  const base = "http://127.0.0.1:" + addr.port;
+  try {
+    const ready = await fetch(base + "/ready");
+    assert.equal(ready.status, 503);
+    assert.equal((await ready.json()).reason, "missing_diagnostics");
+    assert.equal((await fetch(base + "/markets")).status, 200);
+  } finally { await app.close(); }
+});
