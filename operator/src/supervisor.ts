@@ -39,8 +39,13 @@ export function createOperatorSupervisor(
   function wait(ms: number): Promise<void> {
     if (stopped || options.signal?.aborted) return Promise.resolve();
     return new Promise(resolve => {
-      const timer = setTimeout(() => { wake = undefined; resolve(); }, ms);
-      const finish = () => { clearTimeout(timer); wake = undefined; resolve(); };
+      const finish = () => {
+        clearTimeout(timer);
+        options.signal?.removeEventListener("abort", finish);
+        wake = undefined;
+        resolve();
+      };
+      const timer = setTimeout(finish, ms);
       wake = finish;
       options.signal?.addEventListener("abort", finish, { once: true });
     });
