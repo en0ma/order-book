@@ -38,7 +38,7 @@ contract DeployableStateMachineTest is TestBase {
         core = new OrderBookCoreHarness(address(token), address(oracle), 40, 1_000, 10, 5);
         advanced = new AdvancedOrderModule(address(core), address(oracle));
         marketMaker = new MarketMakerModule(address(core), address(advanced));
-        liquidation = new LiquidationModule(address(core), address(advanced), 500);
+        liquidation = new LiquidationModule(address(core), address(advanced), address(0), 500);
 
         core.configureAdvancedModule(address(advanced));
         advanced.configureMarketMakerModule(address(marketMaker));

@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {OrderBookCore} from "../src/deployable/OrderBookCore.sol";
 import {AdvancedOrderModule} from "../src/deployable/AdvancedOrderModule.sol";
+import {ExecutionStrategyModule} from "../src/deployable/ExecutionStrategyModule.sol";
 import {MarketMakerModule} from "../src/deployable/MarketMakerModule.sol";
 import {IntegrationLens} from "../src/deployable/IntegrationLens.sol";
 import {PortfolioMarginPolicy} from "../src/deployable/PortfolioMarginPolicy.sol";
@@ -51,6 +52,7 @@ contract DeployPortfolio {
     struct MarketDeployment {
         OrderBookCore core;
         AdvancedOrderModule advanced;
+        ExecutionStrategyModule strategy;
         MarketMakerModule marketMaker;
         IntegrationLens lens;
     }
@@ -78,6 +80,7 @@ contract DeployPortfolio {
         address indexed core,
         address indexed advanced,
         address marketMaker,
+        address strategy,
         address lens,
         address oracle,
         address fundingUpdater
@@ -147,6 +150,8 @@ contract DeployPortfolio {
             );
             AdvancedOrderModule advanced =
                 new AdvancedOrderModule(address(core), config.oracles[i]);
+            ExecutionStrategyModule strategy =
+                new ExecutionStrategyModule(address(core), address(advanced));
             MarketMakerModule marketMaker =
                 new MarketMakerModule(address(core), address(advanced));
             IntegrationLens lens =
@@ -155,6 +160,7 @@ contract DeployPortfolio {
             deployment.markets[i] = MarketDeployment({
                 core: core,
                 advanced: advanced,
+                strategy: strategy,
                 marketMaker: marketMaker,
                 lens: lens
             });
@@ -201,6 +207,7 @@ contract DeployPortfolio {
             market.core.configurePortfolioController(address(deployment.coordinator));
 
             market.advanced.configureMarketMakerModule(address(market.marketMaker));
+            market.advanced.configureExecutionStrategyModule(address(market.strategy));
             market.advanced.configurePortfolioController(
                 address(deployment.coordinator), uint8(i)
             );
@@ -215,6 +222,7 @@ contract DeployPortfolio {
                 address(market.core),
                 address(market.advanced),
                 address(market.marketMaker),
+                address(market.strategy),
                 address(market.lens),
                 config.oracles[i],
                 config.fundingUpdaters[i]

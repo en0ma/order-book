@@ -26,7 +26,7 @@ contract CustodyReserveBackingInvariantTest is TestBase {
         AdvancedOrderModule module =
             new AdvancedOrderModule(address(core), address(oracle));
         LiquidationModule liquidation =
-            new LiquidationModule(address(core), address(module), 500);
+            new LiquidationModule(address(core), address(module), address(0), 500);
 
         core.configureAdvancedModule(address(module));
         module.configureLiquidationModule(address(liquidation));
@@ -75,7 +75,8 @@ contract CustodyReserveBackingInvariantTest is TestBase {
             sides,
             ticks,
             conditionalIds,
-            trailingIds
+            trailingIds,
+            new uint64[](0)
         );
         assertEq(closed, 100, "liquidation did not fully close");
 

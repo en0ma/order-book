@@ -5,6 +5,15 @@ import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {ILiquidationGateway} from "./ILiquidationGateway.sol";
 import {PortfolioMarginPolicy} from "./PortfolioMarginPolicy.sol";
 
+interface IPortfolioStrategyCleanup {
+    function liquidationCleanup(address account, uint64[] calldata strategyIds) external;
+    function activeStrategyCount(address account) external view returns (uint32);
+}
+
+interface IPortfolioStrategyGatewayDiscovery {
+    function executionStrategyModule() external view returns (address);
+}
+
 /// @title PortfolioLiquidationModule
 /// @notice Cross-market liquidation orchestration over a PortfolioMarginPolicy.
 /// @dev This module intentionally does not provide cross-market collateral transfer or
@@ -28,6 +37,7 @@ contract PortfolioLiquidationModule {
         uint16[] makerTicks;
         uint64[] conditionalIds;
         uint64[] trailingIds;
+        uint64[] strategyIds;
     }
 
     error InvalidPortfolioLiquidationConfig();
@@ -95,9 +105,17 @@ contract PortfolioLiquidationModule {
             if (
                 market.core.activeQuoteCount(account) != 0
                     || market.gateway.activeAdvancedOrders(account) != 0
-            ) {
-                return true;
-            }
+            ) return true;
+
+            try IPortfolioStrategyGatewayDiscovery(address(market.gateway))
+                .executionStrategyModule() returns (address strategy)
+            {
+                if (
+                    strategy != address(0)
+                        && IPortfolioStrategyCleanup(strategy)
+                            .activeStrategyCount(account) != 0
+                ) return true;
+            } catch {}
         }
         return false;
     }
@@ -170,6 +188,7 @@ contract PortfolioLiquidationModule {
         );
     }
 
+
     function _cleanupMarket(
         address account,
         MarketConfig storage market,
@@ -184,6 +203,18 @@ contract PortfolioLiquidationModule {
             cleanup.conditionalIds,
             cleanup.trailingIds
         );
+
+        if (cleanup.strategyIds.length != 0) {
+            address strategy = IPortfolioStrategyGatewayDiscovery(
+                address(market.gateway)
+            ).executionStrategyModule();
+            if (strategy == address(0)) revert UnsettledOrders();
+
+            IPortfolioStrategyCleanup(strategy).liquidationCleanup(
+                account,
+                cleanup.strategyIds
+            );
+        }
 
         for (uint256 i; i < cleanup.makerTicks.length; ++i) {
             market.gateway.liquidationForceCancelQuote(

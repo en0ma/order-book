@@ -163,3 +163,16 @@ The coordinator locks enough vault collateral so that the account's post-action 
 Once a vault controller is configured, direct vault withdrawals are disabled. Portfolio withdrawals must go through `PortfolioAdmissionCoordinator.withdraw`, which recomputes current settled cash equity and post-withdraw portfolio margin atomically. Realized trading/funding gains may therefore be withdrawn beyond the user's original deposit, while unrealized mark-to-market gains cannot. The vault records any withdrawal beyond gross deposits as a signed collateral claim offset by market cashflow, preserving pooled custody conservation.
 
 Protocol fees may be allocated to insurance using the existing owner-controlled accounting path. After a portfolio is fully closed and order-free, `PortfolioAdmissionCoordinator.coverBadDebt` can consume those insurance reserves against negative aggregate equity; coverage becomes user market cashflow rather than local collateral, preserving shared-custody semantics.
+
+
+## Advanced execution strategies
+
+The deployable stack includes an optional `ExecutionStrategyModule` for execution styles that should not live in Core's matching loop:
+
+- **Iceberg / display quantity:** exposes only a configured slice of a larger maker instruction and permissionlessly replenishes after lazy maker fills.
+- **TWAP / scheduled execution:** releases bounded IOC slices over time with explicit start, interval, deadline and limit tick.
+- **Pegged orders:** maintains maker liquidity at mark plus/minus a signed tick offset, constrained by a trader-defined worst price.
+
+The standalone and portfolio deployment scripts wire this module automatically. The deployment manifest may publish its address as `executionStrategy`, and the TypeScript SDK exposes placement, refresh/sync, slice execution and cancellation plans.
+
+Future/hidden quantity is admitted slice-by-slice rather than locking margin for the whole program up front. This keeps strategy capital usage predictable and lets later keeper actions fail safely if account health has changed.

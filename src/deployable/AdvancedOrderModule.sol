@@ -113,6 +113,7 @@ contract AdvancedOrderModule {
     address public owner;
     address public marketMakerModule;
     address public liquidationModule;
+    address public executionStrategyModule;
     IPortfolioAdmissionGateway public portfolioController;
     uint8 public portfolioMarketIndex;
 
@@ -205,8 +206,11 @@ contract AdvancedOrderModule {
         emit OwnershipTransferred(previousOwner, nextOwner);
     }
 
-    modifier onlyMarketMakerModule() {
-        if (msg.sender != marketMakerModule || msg.sender == address(0)) revert Unauthorized();
+    modifier onlyMakerExecutionModule() {
+        if (
+            msg.sender == address(0)
+                || (msg.sender != marketMakerModule && msg.sender != executionStrategyModule)
+        ) revert Unauthorized();
         _;
     }
 
@@ -234,7 +238,7 @@ contract AdvancedOrderModule {
         address maker,
         IOrderBookCore.Side side,
         uint96 lots
-    ) external onlyMarketMakerModule returns (uint16 riskCeilingTick) {
+    ) external onlyMakerExecutionModule returns (uint16 riskCeilingTick) {
         riskCeilingTick = _reserveExposure(maker, side, lots);
     }
 
@@ -244,7 +248,7 @@ contract AdvancedOrderModule {
         uint16 tick,
         uint96 lots,
         uint16 riskCeilingTick
-    ) external onlyMarketMakerModule returns (uint128 shares) {
+    ) external onlyMakerExecutionModule returns (uint128 shares) {
         shares = _addLiquidity(maker, side, tick, lots, riskCeilingTick);
     }
 
@@ -254,7 +258,10 @@ contract AdvancedOrderModule {
         uint16 tick,
         uint32 generation,
         uint128 shares
-    ) external onlyMarketMakerModule returns (uint96 removedLots) {
+    ) external onlyMakerExecutionModule returns (uint96 removedLots) {
+        if (shares == 0) {
+            return core.moduleSettle(maker, side, tick);
+        }
         removedLots =
             core.moduleRemoveLockedShares(maker, side, tick, generation, shares);
     }
@@ -265,9 +272,48 @@ contract AdvancedOrderModule {
         uint16 tick,
         uint32 generation,
         uint128 shares
-    ) external onlyMarketMakerModule {
+    ) external onlyMakerExecutionModule {
         core.moduleUnlockShares(maker, side, tick, generation, shares);
     }
+
+    function configureExecutionStrategyModule(address module_) external {
+        if (
+            msg.sender != owner || module_ == address(0)
+                || executionStrategyModule != address(0)
+        ) revert Unauthorized();
+        executionStrategyModule = module_;
+    }
+
+
+
+    function strategyTake(
+        address account,
+        IOrderBookCore.Side side,
+        uint16 limitTick,
+        uint96 lots
+    ) external returns (uint96 filledLots) {
+        if (msg.sender != executionStrategyModule || msg.sender == address(0)) {
+            revert Unauthorized();
+        }
+        _reserveExposure(account, side, lots);
+        filledLots = _take(
+            account,
+            side,
+            limitTick,
+            lots,
+            IOrderBookCore.FillPolicy.IOC,
+            false,
+            true
+        );
+        if (filledLots < lots) {
+            _releaseExposure(account, side, lots - filledLots);
+        }
+    }
+
+
+
+
+
 
     modifier onlyLiquidationModule() {
         if (msg.sender != liquidationModule || msg.sender == address(0)) revert Unauthorized();
@@ -344,6 +390,7 @@ contract AdvancedOrderModule {
 
         if (activeAdvancedCount[account] != 0) revert UnsettledAdvancedOrders();
     }
+
 
     function liquidationForceCancelQuote(
         address account,

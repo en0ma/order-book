@@ -68,7 +68,7 @@ contract AdvancedLifecycleStateMachineTest is TestBase {
         core = new OrderBookCoreHarness(address(token), address(oracle), 40, 1_000, 0, 0);
         advanced = new AdvancedOrderModuleHarness(address(core), address(oracle));
         marketMaker = new MarketMakerModule(address(core), address(advanced));
-        liquidation = new LiquidationModule(address(core), address(advanced), 500);
+        liquidation = new LiquidationModule(address(core), address(advanced), address(0), 500);
 
         core.configureAdvancedModule(address(advanced));
         advanced.configureMarketMakerModule(address(marketMaker));

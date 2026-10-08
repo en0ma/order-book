@@ -77,6 +77,46 @@ test("validates the repository example manifest", () => {
   assert.equal(validateManifest(manifest).markets[0].id, "ETH-PERP");
 });
 
+test("plans iceberg, TWAP, and pegged strategy actions", () => {
+  const manifest = standaloneManifest();
+  manifest.markets[0].executionStrategy = H;
+  const sdk = new OrderBookSDK(manifest);
+
+  assert.deepEqual(sdk.placeIceberg("ETH-PERP", 0, 99, 100n, 10n), {
+    target: H,
+    functionName: "placeIceberg",
+    args: [0, 99, 100n, 10n],
+  });
+  assert.deepEqual(
+    sdk.placeTWAP("ETH-PERP", 0, 105, 100n, 10n, 1_000n, 60n, 2_000n),
+    {
+      target: H,
+      functionName: "placeTWAP",
+      args: [0, 105, 100n, 10n, 1_000n, 60n, 2_000n],
+    },
+  );
+  assert.deepEqual(sdk.placePegged("ETH-PERP", 1, 2, 95, 25n), {
+    target: H,
+    functionName: "placePegged",
+    args: [1, 2, 95, 25n],
+  });
+  assert.deepEqual(sdk.refreshIceberg("ETH-PERP", 7n), {
+    target: H,
+    functionName: "refreshIceberg",
+    args: [7n],
+  });
+  assert.deepEqual(sdk.executeTWAPSlice("ETH-PERP", 8n), {
+    target: H,
+    functionName: "executeTWAPSlice",
+    args: [8n],
+  });
+  assert.deepEqual(sdk.syncPegged("ETH-PERP", 9n), {
+    target: H,
+    functionName: "syncPegged",
+    args: [9n],
+  });
+});
+
 test("routes portfolio risk growth through coordinator", () => {
   const manifest = standaloneManifest();
   manifest.portfolio = { coordinator: G, policy: H, vault: A };

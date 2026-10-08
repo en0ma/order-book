@@ -131,11 +131,19 @@ Production hardening still required before deployment:
 - oracle liveness/failure-mode hardening for deployment-specific adapters
 - broader adversarial invariant, fork and long-horizon economic testing
 
-Advanced-order roadmap:
-- post-only maker admission
-- iceberg/display-quantity orders with deterministic replenishment
-- scheduled/TWAP-style execution
-- additional composition primitives that remain outside the maker-count-independent matching hot path
+Advanced execution now includes:
+- post-only maker admission;
+- iceberg/display-quantity orders with permissionless deterministic replenishment;
+- scheduled/TWAP-style IOC slicing with start/interval/deadline controls;
+- mark-pegged maker orders with signed offsets and user price bounds.
+
+These strategies live in the optional `ExecutionStrategyModule` and route through a narrow `AdvancedOrderModule` gateway. Core still has one privileged advanced-module boundary and the matching hot path is unchanged.
+
+Hidden iceberg quantity and future TWAP slices are not pre-reserved for their entire lifetime. Each visible/released slice is admitted against current margin immediately before it becomes on-chain exposure. A later slice may therefore fail safely if the account no longer has sufficient margin.
+
+Remaining advanced-execution roadmap:
+- participation/VWAP-style execution once a canonical market-volume input is defined;
+- richer strategy composition where it can remain outside the maker-count-independent matching hot path.
 
 
 ## Account state packing
@@ -559,3 +567,26 @@ The optimized Ask taker branch had accidentally dropped the non-pre-reserved min
 violating minPosition <= settledPosition.
 
 The missing minPosition update was restored and a focused direct-Ask regression was added. The full randomized state-machine corpus is green again. This validates the value of checking risk-envelope invariants after every randomized transition rather than relying only on scenario tests.
+
+
+## Execution strategy module
+
+`ExecutionStrategyModule` is an optional orchestration layer above Core.
+
+### Iceberg
+
+An iceberg stores total remaining quantity plus a display quantity. Only the displayed slice is added to the ordinary Core pool. Any account using an iceberg must keep that strategy's tick exclusive from its other quotes; the module detects quote-share contamination and fails closed.
+
+Permissionless `refreshIceberg` settles lazy maker fills, decrements total remaining quantity, and replenishes only the amount needed to restore the configured display size. Full displayed-slice consumption across a pool generation rollover is handled explicitly.
+
+### TWAP
+
+A TWAP stores total remaining quantity, slice quantity, limit tick, start time, interval, and deadline. Anyone may execute a due slice. Each slice reserves current exposure, executes as bounded IOC through the existing admission boundary, releases unfilled reservation, and advances the schedule. Unfilled quantity remains in the strategy rather than being silently discarded.
+
+### Pegged
+
+A pegged order derives its maker tick from the current mark plus a signed tick offset. Bid pegs have a maximum price bound; ask pegs have a minimum price bound. Permissionless `syncPegged` settles any lazy fills, removes the old locked share slice, and recreates the remaining quantity at the newly derived tick.
+
+### Liquidation
+
+Strategy state contributes to `activeAdvancedOrders`. Existing liquidation entrypoints remain valid for accounts without strategies, while strategy-aware liquidation entrypoints accept strategy IDs for atomic cleanup. Omitting active strategy IDs fails closed through the open-order check.

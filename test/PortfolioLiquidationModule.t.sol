@@ -102,6 +102,13 @@ contract MockPortfolioLiquidationGateway is ILiquidationGateway {
         _advanced[account] = 0;
     }
 
+    function liquidationCleanupStrategies(
+        address account,
+        uint64[] calldata
+    ) external {
+        _advanced[account] = 0;
+    }
+
     function liquidationForceCancelQuote(
         address account,
         IOrderBookCore.Side,

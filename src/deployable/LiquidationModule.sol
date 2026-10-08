@@ -5,6 +5,10 @@ import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {ILiquidationGateway} from "./ILiquidationGateway.sol";
 import {LiquidationPolicy} from "./LiquidationPolicy.sol";
 
+interface IStrategyLiquidationCleanup {
+    function liquidationCleanup(address account, uint64[] calldata strategyIds) external;
+}
+
 /// @title LiquidationModule
 /// @notice Maintenance-health policy and liquidation orchestration.
 /// @dev Advanced-order storage cleanup is delegated back to AdvancedOrderModule.
@@ -18,6 +22,7 @@ contract LiquidationModule {
     LiquidationPolicy public immutable policy;
     uint16 public immutable maintenanceMarginBps;
     address public owner;
+    address internal immutable strategyModule;
     uint16 public liquidatorRewardBps;
     bool internal _liquidatorRewardConfigured;
 
@@ -40,7 +45,12 @@ contract LiquidationModule {
     event LiquidatorRewardConfigured(uint16 rewardBps);
     event LiquidatorRewardPaid(address indexed liquidator, uint256 amount);
 
-    constructor(address core_, address gateway_, uint16 maintenanceBps_) {
+    constructor(
+        address core_,
+        address gateway_,
+        address strategyModule_,
+        uint16 maintenanceBps_
+    ) {
         if (
             core_ == address(0) || gateway_ == address(0) || maintenanceBps_ == 0
                 || maintenanceBps_ > 10_000
@@ -53,6 +63,7 @@ contract LiquidationModule {
 
         core = coreRef;
         gateway = ILiquidationGateway(gateway_);
+        strategyModule = strategyModule_;
         policy = new LiquidationPolicy(core_, gateway_, maintenanceBps_);
         maintenanceMarginBps = maintenanceBps_;
         owner = msg.sender;
@@ -94,11 +105,20 @@ contract LiquidationModule {
         IOrderBookCore.Side[] calldata makerSides,
         uint16[] calldata makerTicks,
         uint64[] calldata conditionalIds,
-        uint64[] calldata trailingIds
+        uint64[] calldata trailingIds,
+        uint64[] calldata strategyIds
     ) external returns (uint96 closedLots) {
         if (makerSides.length != makerTicks.length) revert UnsettledOrders();
 
         gateway.liquidationCleanupAdvanced(account, conditionalIds, trailingIds);
+
+        address strategy = strategyModule;
+        if (strategyIds.length != 0) {
+            if (strategy == address(0)) revert UnsettledOrders();
+            IStrategyLiquidationCleanup(strategy).liquidationCleanup(
+                account, strategyIds
+            );
+        }
 
         for (uint256 i; i < makerTicks.length; ++i) {
             gateway.liquidationForceCancelQuote(
@@ -106,16 +126,17 @@ contract LiquidationModule {
             );
         }
 
-        if (policy.hasOpenOrders(account)) revert UnsettledOrders();
+        closedLots = _liquidatePosition(account, msg.sender);
+    }
+
+    function _liquidatePosition(address account, address liquidator)
+        internal
+        returns (uint96 closedLots)
+    {
+        if (!policy.isLiquidatable(account)) revert NotLiquidatable();
 
         int256 equityBefore = core.accountEquity(account);
         (int80 position,,) = core.accountRisk(account);
-        if (
-            equityBefore
-                >= int256(policy.maintenanceRequirementForPosition(position))
-        ) {
-            revert NotLiquidatable();
-        }
 
         if (position > 0) {
             closedLots = gateway.liquidationTake(
@@ -135,8 +156,8 @@ contract LiquidationModule {
             revert NotLiquidatable();
         }
 
-        emit Liquidated(msg.sender, account, closedLots, equityBefore);
-        _finalizeLiquidation(account, closedLots, msg.sender);
+        emit Liquidated(liquidator, account, closedLots, equityBefore);
+        _finalizeLiquidation(account, closedLots, liquidator);
     }
 
     function _finalizeLiquidation(

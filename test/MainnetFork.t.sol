@@ -36,7 +36,7 @@ contract MainnetForkTest is TestBase {
         MarketMakerModule marketMaker =
             new MarketMakerModule(address(core), address(advanced));
         LiquidationModule liquidation =
-            new LiquidationModule(address(core), address(advanced), 500);
+            new LiquidationModule(address(core), address(advanced), address(0), 500);
 
         core.configureAdvancedModule(address(advanced));
         advanced.configureMarketMakerModule(address(marketMaker));
