@@ -106,6 +106,7 @@
     "self-hosted.d.ts",
     "supervisor.d.ts",
     "rpc-adapter.d.ts",
+    "http-rpc.d.ts",
     "RECOVERY_CYCLE.md",
     "PUBLICATION.md",
     "SELF_HOSTED.md",
