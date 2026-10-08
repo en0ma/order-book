@@ -175,8 +175,8 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
-  gas-report:
-    name: Gas report
+  gas:
+    name: Sequential gas report and snapshot
     needs: [gas-build]
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -194,41 +194,22 @@ jobs:
         run: |
           set -o pipefail
           forge test --no-match-contract MainnetForkTest --gas-report | tee gas-report.txt
-      - name: Upload gas report
-        uses: actions/upload-artifact@v4
-        with:
-          name: gas-report
-          path: gas-report.txt
-          if-no-files-found: error
-
-  gas:
-    name: Gas snapshot
-    needs: [gas-build]
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: stable
-      - name: Download compiled Foundry artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: gas-compiled-default
-          path: .
       - name: Gas snapshot
         run: forge snapshot --no-match-contract MainnetForkTest
-      - name: Upload gas snapshot
+      - name: Upload gas artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: gas-snapshot
-          path: .gas-snapshot
+          name: gas-results
+          path: |
+            gas-report.txt
+            .gas-snapshot
+          include-hidden-files: true
           if-no-files-found: error
 
   test:
     name: test
     if: always()
-    needs: [node, protocol, fork, sizes-default, sizes, gas-build, gas-report, gas]
+    needs: [node, protocol, fork, sizes-default, sizes, gas-build, gas]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -240,10 +221,9 @@ jobs:
           DEFAULT_SIZES_RESULT: ${{ needs['sizes-default'].result }}
           SIZES_RESULT: ${{ needs.sizes.result }}
           GAS_BUILD_RESULT: ${{ needs['gas-build'].result }}
-          GAS_REPORT_RESULT: ${{ needs['gas-report'].result }}
           GAS_RESULT: ${{ needs.gas.result }}
         run: |
-          for result in "$NODE_RESULT" "$PROTOCOL_RESULT" "$FORK_RESULT" "$DEFAULT_SIZES_RESULT" "$SIZES_RESULT" "$GAS_BUILD_RESULT" "$GAS_REPORT_RESULT" "$GAS_RESULT"; do
+          for result in "$NODE_RESULT" "$PROTOCOL_RESULT" "$FORK_RESULT" "$DEFAULT_SIZES_RESULT" "$SIZES_RESULT" "$GAS_BUILD_RESULT" "$GAS_RESULT"; do
             if [ "$result" != success ]; then
               echo "::error::A required CI validation did not succeed: $result"
               exit 1
