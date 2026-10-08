@@ -82,6 +82,7 @@
     "recovery.d.ts",
     "RECOVERY.md",
     "recovery-cycle.d.ts",
+    "publication.d.ts",
     "RECOVERY_CYCLE.md"
   ]
 }
