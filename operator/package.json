@@ -97,6 +97,7 @@
     "supervisor.d.ts",
     "RECOVERY_CYCLE.md",
     "PUBLICATION.md",
-    "SELF_HOSTED.md"
+    "SELF_HOSTED.md",
+    "SUPERVISION.md"
   ]
 }
