@@ -64,8 +64,10 @@ export async function runRecoveryCycle(
   for (let number = first; number <= last; number++) {
     const block = await rpc.getBlock(number);
     const events = await rpc.getEvents(block, manifest);
-    indexer.applyBlock(block, events);
-    registry.applyBatch(events);
+    const ordered = [...events].sort((a, b) =>
+      a.transactionIndex - b.transactionIndex || a.logIndex - b.logIndex);
+    indexer.applyBlock(block, ordered);
+    registry.applyBatch(ordered);
     appliedBlocks++;
   }
   const head = indexer.headBlock();
@@ -84,8 +86,11 @@ export async function runRecoveryCycle(
   const diagnostics: OperatorDiagnostics = {
     status: lagBlocks === 0 ? "healthy" : appliedBlocks > 0 ? "catching_up" : "stalled",
     headBlock: head.number, remoteHead, safeHead,
-    lagBlocks, appliedBlocks, taskCounts: {}, activeConditionals: 0,
-    activeTrailing: 0, managedQuotes: 0, portfolioAccounts: 0,
+    lagBlocks, appliedBlocks, taskCounts: {},
+    activeConditionals: [...indexer.state.conditionals.values()].filter(v => v.active || v.resting).length,
+    activeTrailing: [...indexer.state.trailing.values()].filter(v => v.active).length,
+    managedQuotes: indexer.state.managedQuotes.size,
+    portfolioAccounts: indexer.state.portfolioLocks.size,
   };
   const readiness = checkReadiness(snapshot, diagnostics);
   // The store must commit the complete bundle in one atomic write.
