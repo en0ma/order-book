@@ -118,6 +118,7 @@
     "rpc-adapter.d.ts",
     "http-rpc.d.ts",
     "rebuild.d.ts",
+    "rpc-quorum.d.ts",
     "RECOVERY_CYCLE.md",
     "PUBLICATION.md",
     "SELF_HOSTED.md",
