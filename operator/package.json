@@ -124,6 +124,7 @@
     "SELF_HOSTED.md",
     "SUPERVISION.md",
     "RPC_ADAPTER.md",
-    "REBUILD.md"
+    "REBUILD.md",
+    "RPC_QUORUM.md"
   ]
 }
