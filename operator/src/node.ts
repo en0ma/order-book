@@ -126,7 +126,7 @@ export class JsonFileRecoveryStore implements RecoveryStore {
       try {
         const handle = await open(temp, "wx", 0o600);
         try {
-          await handle.writeFile(JSON.stringify({ identity, bundle }) + "\\n", "utf8");
+          await handle.writeFile(JSON.stringify({ identity, bundle }) + "\n", "utf8");
           await handle.sync();
         } finally { await handle.close(); }
         await rename(temp, this.path);
