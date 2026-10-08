@@ -151,3 +151,7 @@ The HTTP adapter also limits concurrent in-flight requests, supports graceful dr
 ## Safe-head readiness gate
 
 The optional `/readiness` export and HTTP `/ready` endpoint provide a canonical-head and indexer-lag gate for fail-closed data serving. Production operators should explicitly configure `readiness: { requireDiagnostics: true, maxLagBlocks: 0 }`, run their own RPC/indexer recovery, and consult [READINESS.md](READINESS.md) before exposing market data.
+
+## Canonical recovery and keeper admission
+
+The `/recovery` package export joins the Core index checkpoint and strategy registry snapshot under one canonical block/hash. It also gates existing keeper tasks on matching safe-head diagnostics, branch-epoch idempotency, and simulation. See [RECOVERY.md](RECOVERY.md) for recovery steps and trust limits.
