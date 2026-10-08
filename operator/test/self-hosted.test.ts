@@ -112,3 +112,40 @@ test("recovery store creates nested parents and persists a complete JSON bundle"
     assert.equal(loaded.bundle.strategyHead.hash, "0x001");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("bootstrap catches up in bounded cycles before HTTP listens", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ob-bootstrap-"));
+  const instance = createSelfHostedOperator(manifest, rpc(2), {
+    bundlePath: join(dir, "recovery.json"), sync: { maxBlocksPerSync: 1 },
+  });
+  try {
+    assert.equal(instance.http.server.listening, false);
+    const ready = await instance.bootstrap({ maxCycles: 3, listen: { port: 0 } });
+    assert.equal(ready.readiness.ready, true);
+    assert.equal(ready.head.number, 2);
+    assert.equal(instance.http.server.listening, true);
+    const base = "http://127.0.0.1:" + instance.http.server.address().port;
+    assert.equal((await fetch(base + "/ready")).status, 200);
+  } finally {
+    if (instance.http.server.listening) await instance.http.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+test("bootstrap cycle limits and cancellation prevent HTTP exposure", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ob-bootstrap-"));
+  try {
+    const instance = createSelfHostedOperator(manifest, rpc(2), {
+      bundlePath: join(dir, "recovery.json"), sync: { maxBlocksPerSync: 1 },
+    });
+    await assert.rejects(instance.bootstrap({ maxCycles: 1, listen: { port: 0 } }),
+      /did not reach canonical readiness/);
+    assert.equal(instance.http.server.listening, false);
+    assert.equal(instance.publication.ready(), false);
+    const stopped = new AbortController();
+    stopped.abort();
+    await assert.rejects(instance.bootstrap({ signal: stopped.signal, listen: { port: 0 } }),
+      /bootstrap aborted/);
+    assert.equal(instance.http.server.listening, false);
+    await assert.rejects(instance.bootstrap({ maxCycles: 0 }), /invalid maximum/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
