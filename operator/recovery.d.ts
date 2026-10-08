@@ -13,7 +13,8 @@ export interface RecoveryStore {
 export declare function assembleRecoveryBundle(manifest: unknown, checkpoint: OperatorCheckpoint,
   strategies: StrategySnapshot, strategyHead: { number: number; hash: string }): RecoveryBundle;
 export declare function validateRecoveryBundle(manifest: unknown, bundle: RecoveryBundle): void;
+export interface CanonicalHeadVerifier { getCanonicalBlockHash(blockNumber: number): Promise<string>; }
 export interface KeeperAdmissionResult { admitted: number; skipped: number; transactionIds: string[]; }
 export declare function executeReadyTasks(manifest: unknown, checkpoint: OperatorCheckpoint,
   snapshot: ApiSnapshot, diagnostics: OperatorDiagnostics, tasks: readonly KeeperTask[],
-  executor: IdempotentKeeperExecutor, policy?: ReadinessPolicy): Promise<KeeperAdmissionResult>;
+  executor: IdempotentKeeperExecutor, verifier: CanonicalHeadVerifier, policy?: ReadinessPolicy): Promise<KeeperAdmissionResult>;
