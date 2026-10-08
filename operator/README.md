@@ -155,3 +155,7 @@ The optional `/readiness` export and HTTP `/ready` endpoint provide a canonical-
 ## Canonical recovery and keeper admission
 
 The `/recovery` package export joins the Core index checkpoint and strategy registry snapshot under one canonical block/hash. It also gates existing keeper tasks on matching safe-head diagnostics, branch-epoch idempotency, and simulation. See [RECOVERY.md](RECOVERY.md) for recovery steps and trust limits.
+
+## Integrated canonical replay
+
+The `/recovery-cycle` export runs a bounded canonical replay of the Core index and strategy lifecycle events from one trusted checkpoint, then writes a single recovery bundle. It returns the candidate read model only after persistence succeeds. See [RECOVERY_CYCLE.md](RECOVERY_CYCLE.md) for the trust and failure boundaries.
