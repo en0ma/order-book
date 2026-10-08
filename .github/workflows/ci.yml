@@ -135,3 +135,25 @@ jobs:
           path: |
             gas-report.txt
             .gas-snapshot
+
+  test:
+    name: Full validation gate
+    if: always()
+    needs: [node, protocol, fork, sizes, gas]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every validation job
+        env:
+          NODE_RESULT: ${{ needs.node.result }}
+          PROTOCOL_RESULT: ${{ needs.protocol.result }}
+          FORK_RESULT: ${{ needs.fork.result }}
+          SIZES_RESULT: ${{ needs.sizes.result }}
+          GAS_RESULT: ${{ needs.gas.result }}
+        run: |
+          for result in "$NODE_RESULT" "$PROTOCOL_RESULT" "$FORK_RESULT" "$SIZES_RESULT" "$GAS_RESULT"; do
+            if [ "$result" != success ]; then
+              echo "::error::A required CI validation did not succeed: $result"
+              exit 1
+            fi
+          done
