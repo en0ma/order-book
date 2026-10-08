@@ -80,6 +80,7 @@ export interface OperatorMarketManifest {
   id: string;
   core: Address;
   advanced: Address;
+  executionStrategy?: Address;
   marketMaker?: Address;
   liquidation?: Address;
   portfolioLiquidation?: Address;
