@@ -145,3 +145,5 @@ The `/read-model` package export supplies bounded, transport-neutral query respo
 ## Runnable self-hosted HTTP adapter
 
 The optional `/http` export supplies a loopback-first Node HTTP boundary for the read model, canonical-head response metadata, limits on request size, and fail-closed private account authorization. It is configured with the DEX team's own atomic snapshot provider and never starts on import. See [HTTP_RUNTIME.md](HTTP_RUNTIME.md) for an example and the security/operations contract.
+
+The HTTP adapter also limits concurrent in-flight requests, supports graceful draining and exposes credential-safe request metrics. Operators must still configure network-edge rate limits, TLS and independent RPC abort handling.
