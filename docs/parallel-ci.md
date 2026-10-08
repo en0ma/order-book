@@ -11,11 +11,12 @@ The pull-request workflow runs all existing checks. It uses separate jobs to red
 | fork | Ethereum mainnet fork tests using the configured RPC, with the existing public fallback |
 | sizes-default | Default-profile contract-size build and complete report |
 | sizes | Size-profile contract-size build and strict deployable EIP-170 check |
-| gas-report | Foundry gas report and artifact |
-| gas | Foundry gas snapshot and artifact |
-| test | Final status gate: fail unless all seven jobs succeed |
+| gas-build | Shared default-profile Foundry compilation; publishes `cache/` and `out/` artifacts |
+| gas-report | Downloads shared compilation output, then runs the unchanged Foundry gas report and uploads its result |
+| gas | Downloads shared compilation output, then runs the unchanged Foundry gas snapshot and uploads its result |
+| test | Final status gate: fail unless all eight jobs succeed |
 
-Every procedure from the prior serial workflow remains in the new workflow. The final aggregate job keeps the existing required check name `test` and has `if: always()` so a failed or cancelled prerequisite cannot produce a green aggregate result. Do not use an optional check configuration to bypass the seven jobs.
+Every procedure from the prior serial workflow remains in the new workflow. The final aggregate job keeps the existing required check name `test` and has `if: always()` so a failed or cancelled prerequisite cannot produce a green aggregate result. Do not use an optional check configuration to bypass the eight jobs.
 
 ## Build reuse
 
@@ -46,3 +47,9 @@ The default and size profiles compile on separate runners at the same time. The 
 The gas report and gas snapshot run as separate required jobs, in parallel. Each uses a profile-specific Foundry cache namespace. The report continues to execute `forge test --no-match-contract MainnetForkTest --gas-report` and the snapshot continues to execute `forge snapshot --no-match-contract MainnetForkTest`. The aggregate `test` status fails if either job fails. Both result files remain available as separate artifacts.
 
 In CI #1196, the combined gas job started its command at 09:51:29 UTC, started the snapshot command at 09:58:48 UTC, and started artifact upload at 10:00:08 UTC. Separate runners can overlap these procedures. Runner startup and cold compiler caches may limit the benefit. Measure the next successful run before claiming a faster CI result.
+
+## Shared gas compilation experiment
+
+The `gas-build` job compiles the default-profile Solidity sources once and publishes both `cache/` and `out/`, including hidden Foundry metadata. The `gas-report` and `gas` jobs depend on this build and download those exact artifacts. They still run the original full gas report and gas snapshot procedures. Foundry must verify that downloaded compilation outputs match the checked-out inputs. No test command is replaced by an artifact.
+
+The aggregate `test` check requires the shared compilation and both downstream gas jobs to succeed. Compare this CI run with #1196 for total workflow elapsed time, gas-job compile messages, gas report/snapshot output, and runner queue overhead. A shared build can reduce duplicate compilation, but its dependency can also lengthen the critical path; keep the change only if measured results support it.
