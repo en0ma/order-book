@@ -12,7 +12,7 @@ This package exposes a dependency-free pure read layer under `@en0ma/order-book-
 - `GET /accounts/:address?limit=50&cursor=...`: strategy placement registry and indexed portfolio lock, with bounded cursor pagination
 - `GET /strategies?marketId=ETH-PERP&limit=50&cursor=...`: strategy placement registry, with bounded cursor pagination
 
-All responses are JSON-safe and suitable for a team's own HTTP/WS adapter. Cursor pagination is stable only for a fixed canonical snapshot; include the `head` hash in client cache keys and invalidate on reorg. Never expose the pure handler directly to the public internet without the team's usual access control, rate limiting, and request/response limits.
+All responses are JSON-safe and suitable for a team's own HTTP/WS adapter. Pagination cursors encode chain ID, canonical head block number/hash, query scope, and the last record key. A cursor from a changed or reorganized head (or another account/market filter) returns HTTP 400 instead of silently skipping or repeating records. Paginated views require a canonical snapshot head; retain that head for the complete pagination session, and restart from page one on a changed head. Include the `head` hash in client cache keys and invalidate on reorg. Never expose the pure handler directly to the public internet without the team's usual access control, rate limiting, and request/response limits.
 
 ## Correctness boundaries
 
