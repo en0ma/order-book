@@ -31,13 +31,16 @@ export function createHttpJsonRpcTransport(endpoint: string, options: HttpJsonRp
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeout);
         let retry = false;
+        let fetching = false;
         try {
           const id = ++counter;
+          fetching = true;
           const response = await send(url.toString(), {
             method: "POST", signal: controller.signal,
             headers: { "content-type": "application/json", ...options.headers },
             body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
           });
+          fetching = false;
           if (!response.ok) {
             retry = [408, 429, 500, 502, 503, 504].includes(response.status);
             if (!retry) throw new Error("RPC HTTP status " + response.status);
@@ -52,7 +55,7 @@ export function createHttpJsonRpcTransport(endpoint: string, options: HttpJsonRp
           }
           return envelope.result;
         } catch (error) {
-          if (controller.signal.aborted) retry = true;
+          if (controller.signal.aborted || (fetching && error instanceof TypeError)) retry = true;
           if (attempt >= attempts || !retry) throw error;
         } finally {
           clearTimeout(timer);
