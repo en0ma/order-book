@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { URL } from "node:url";
 import { routeRead, type ReadModel } from "./read-model.js";
+import { checkReadiness, type ReadinessPolicy } from "./readiness.js";
 
 export interface HttpRuntimeOptions {
   /** Application-provided, atomically captured canonical snapshot. Never read partially mutated state. */
@@ -13,6 +14,7 @@ export interface HttpRuntimeOptions {
   requestTimeoutMs?: number;
   /** Bound application-level concurrency, including hung upstream providers. */
   maxConcurrentRequests?: number;
+  readiness?: ReadinessPolicy;
   /** Optional request telemetry; never receives credentials or account addresses. */
   onRequest?: (result: { status: number; durationMs: number; route: string }) => void;
 }
@@ -126,6 +128,14 @@ export function createHttpRuntime(options: HttpRuntimeOptions): HttpRuntime {
       const model = await withDeadline(Promise.resolve().then(() => options.snapshot()));
       if (!model || !model.snapshot || !model.snapshot.head) {
         fail(response, 503, "canonical_snapshot_unavailable"); return;
+      }
+      const readiness = checkReadiness(model.snapshot, model.diagnostics, options.readiness ?? { requireDiagnostics: false });
+      if (url.pathname === "/ready") {
+        json(response, readiness.ready ? 200 : 503, readiness, model.snapshot.head.hash);
+        return;
+      }
+      if (options.readiness && !readiness.ready) {
+        fail(response, 503, "operator_not_ready"); return;
       }
       const result = routeRead(model, "GET", url.pathname, filter, marketIds);
       const canonicalHead = model.snapshot.head.hash;
