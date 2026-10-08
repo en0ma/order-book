@@ -146,8 +146,38 @@ jobs:
           path: contract-sizes-size-profile.txt
           if-no-files-found: error
 
+  gas-build:
+    name: Shared default-profile gas compilation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Restore shared gas compilation cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache
+            out
+          key: foundry-gas-shared-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
+          restore-keys: foundry-gas-shared-${{ runner.os }}-
+      - name: Compile default-profile test contracts
+        run: forge build
+      - name: Upload compiled Foundry artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-compiled-default
+          path: |
+            cache
+            out
+          include-hidden-files: true
+          if-no-files-found: error
+
   gas-report:
     name: Gas report
+    needs: [gas-build]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -155,14 +185,11 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
-      - name: Restore gas-report build cache
-        uses: actions/cache@v4
+      - name: Download compiled Foundry artifacts
+        uses: actions/download-artifact@v4
         with:
-          path: |
-            cache
-            out
-          key: foundry-gas-report-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
-          restore-keys: foundry-gas-report-${{ runner.os }}-
+          name: gas-compiled-default
+          path: .
       - name: Gas report
         run: |
           set -o pipefail
@@ -176,6 +203,7 @@ jobs:
 
   gas:
     name: Gas snapshot
+    needs: [gas-build]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -183,14 +211,11 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
-      - name: Restore gas-snapshot build cache
-        uses: actions/cache@v4
+      - name: Download compiled Foundry artifacts
+        uses: actions/download-artifact@v4
         with:
-          path: |
-            cache
-            out
-          key: foundry-gas-snapshot-${{ runner.os }}-${{ hashFiles('foundry.toml', 'remappings.txt', 'lib/**', 'src/**', 'test/**') }}
-          restore-keys: foundry-gas-snapshot-${{ runner.os }}-
+          name: gas-compiled-default
+          path: .
       - name: Gas snapshot
         run: forge snapshot --no-match-contract MainnetForkTest
       - name: Upload gas snapshot
@@ -203,7 +228,7 @@ jobs:
   test:
     name: test
     if: always()
-    needs: [node, protocol, fork, sizes-default, sizes, gas-report, gas]
+    needs: [node, protocol, fork, sizes-default, sizes, gas-build, gas-report, gas]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -214,10 +239,11 @@ jobs:
           FORK_RESULT: ${{ needs.fork.result }}
           DEFAULT_SIZES_RESULT: ${{ needs['sizes-default'].result }}
           SIZES_RESULT: ${{ needs.sizes.result }}
+          GAS_BUILD_RESULT: ${{ needs['gas-build'].result }}
           GAS_REPORT_RESULT: ${{ needs['gas-report'].result }}
           GAS_RESULT: ${{ needs.gas.result }}
         run: |
-          for result in "$NODE_RESULT" "$PROTOCOL_RESULT" "$FORK_RESULT" "$DEFAULT_SIZES_RESULT" "$SIZES_RESULT" "$GAS_REPORT_RESULT" "$GAS_RESULT"; do
+          for result in "$NODE_RESULT" "$PROTOCOL_RESULT" "$FORK_RESULT" "$DEFAULT_SIZES_RESULT" "$SIZES_RESULT" "$GAS_BUILD_RESULT" "$GAS_REPORT_RESULT" "$GAS_RESULT"; do
             if [ "$result" != success ]; then
               echo "::error::A required CI validation did not succeed: $result"
               exit 1
