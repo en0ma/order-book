@@ -1,12 +1,14 @@
 import type { OperatorRpcAdapter, OperatorSyncOptions } from "./index.js";
 import type { HttpRuntime, HttpRuntimeOptions } from "./http.js";
 import type { RecoveryPublication } from "./publication.js";
+import type { OperatorSupervisor, SupervisorOptions } from "./supervisor.js";
 import type { RecoveryCycleResult } from "./recovery-cycle.js";
 export interface SelfHostedOperator {
   publication: RecoveryPublication;
   http: HttpRuntime;
   recover(): Promise<RecoveryCycleResult>;
   bootstrap(config?: BootstrapOptions): Promise<RecoveryCycleResult>;
+  supervise(options?: SupervisorOptions): OperatorSupervisor;
 }
 export interface BootstrapOptions {
   maxCycles?: number;
