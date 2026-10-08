@@ -90,6 +90,7 @@
     "publication.d.ts",
     "self-hosted.d.ts",
     "RECOVERY_CYCLE.md",
-    "PUBLICATION.md"
+    "PUBLICATION.md",
+    "SELF_HOSTED.md"
   ]
 }
