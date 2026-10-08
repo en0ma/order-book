@@ -1,5 +1,6 @@
 import type { IncomingMessage, Server } from "node:http";
 import type { ReadModel } from "./read-model.js";
+import type { ReadinessPolicy } from "./readiness.js";
 export interface HttpRuntimeOptions {
   snapshot(): Promise<ReadModel> | ReadModel;
   markets: readonly string[];
@@ -8,6 +9,7 @@ export interface HttpRuntimeOptions {
   maxQueryBytes?: number;
   requestTimeoutMs?: number;
   maxConcurrentRequests?: number;
+  readiness?: ReadinessPolicy;
   onRequest?: (result: { status: number; durationMs: number; route: string }) => void;
 }
 export interface HttpRuntime {
