@@ -12,11 +12,10 @@ The pull-request workflow runs all existing checks. It uses separate jobs to red
 | sizes-default | Default-profile contract-size build and complete report |
 | sizes | Size-profile contract-size build and strict deployable EIP-170 check |
 | gas-build | Shared default-profile Foundry compilation; publishes `cache/` and `out/` artifacts |
-| gas-report | Downloads shared compilation output, then runs the unchanged Foundry gas report and uploads its result |
-| gas | Downloads shared compilation output, then runs the unchanged Foundry gas snapshot and uploads its result |
-| test | Final status gate: fail unless all eight jobs succeed |
+| gas | Downloads shared compilation output, runs the gas report, then the gas snapshot, and uploads both results |
+| test | Final status gate: fail unless all seven jobs succeed |
 
-Every procedure from the prior serial workflow remains in the new workflow. The final aggregate job keeps the existing required check name `test` and has `if: always()` so a failed or cancelled prerequisite cannot produce a green aggregate result. Do not use an optional check configuration to bypass the eight jobs.
+Every procedure from the prior serial workflow remains in the new workflow. The final aggregate job keeps the existing required check name `test` and has `if: always()` so a failed or cancelled prerequisite cannot produce a green aggregate result. Do not use an optional check configuration to bypass the seven jobs.
 
 ## Build reuse
 
@@ -26,7 +25,7 @@ The protocol, size, and gas jobs restore Foundry `cache/` and `out/` directories
 
 Both default-profile and size-profile `forge build --sizes` reports can exit nonzero when they list oversized test-only harness contracts. The workflow retains that report and tolerates only this specific Foundry EIP-170 size warning. The subsequent size-profile build and deployable EIP-170 enforcement script remain strict. Other compilation errors still fail the report steps.
 
-The `gas-report` artifact contains `gas-report.txt`, and the `gas-snapshot` artifact contains `.gas-snapshot`. The `contract-sizes-default` and `contract-sizes-size-profile` artifacts each include the complete report from their respective profile. This replaces one combined artifact with two focused artifacts. Both reports remain available to the operator.
+The `gas-results` artifact contains both `gas-report.txt` and the hidden `.gas-snapshot` file. The `contract-sizes-default` and `contract-sizes-size-profile` artifacts each include the complete report from their respective profile. This replaces one combined artifact with two focused artifacts. Both reports remain available to the operator.
 
 ## Timing and acceptance
 
@@ -42,14 +41,8 @@ This is a CI-only change. It does not modify Solidity contracts, matching behavi
 
 The default and size profiles compile on separate runners at the same time. The size-profile job runs the deployable EIP-170 check after its build. The existing required `test` status fails unless both size jobs and all other validation jobs succeed. Each profile has a separate cache namespace and a separate report artifact. Compare wall-clock duration with run #1195, which compiled each profile in about 4.5 minutes sequentially. Cache misses and runner queue time can affect the result.
 
-## Parallel gas report and snapshot
+## Sequential gas report and snapshot with shared compilation
 
-The gas report and gas snapshot run as separate required jobs, in parallel. Each uses a profile-specific Foundry cache namespace. The report continues to execute `forge test --no-match-contract MainnetForkTest --gas-report` and the snapshot continues to execute `forge snapshot --no-match-contract MainnetForkTest`. The aggregate `test` status fails if either job fails. Both result files remain available as separate artifacts.
+The `gas-build` job compiles the default-profile Solidity contracts once. It uploads `out/` and `cache/`, including Foundry metadata. The required `gas` job downloads these artifacts. It runs the full gas report first, then the full gas snapshot in the same workspace, in that order. It uploads both outputs as one `gas-results` artifact with `include-hidden-files: true`, because `.gas-snapshot` is a hidden file.
 
-In CI #1196, the combined gas job started its command at 09:51:29 UTC, started the snapshot command at 09:58:48 UTC, and started artifact upload at 10:00:08 UTC. Separate runners can overlap these procedures. Runner startup and cold compiler caches may limit the benefit. Measure the next successful run before claiming a faster CI result.
-
-## Shared gas compilation experiment
-
-The `gas-build` job compiles the default-profile Solidity sources once and publishes both `cache/` and `out/`, including hidden Foundry metadata. The `gas-report` and `gas` jobs depend on this build and download those exact artifacts. They still run the original full gas report and gas snapshot procedures. Foundry must verify that downloaded compilation outputs match the checked-out inputs. No test command is replaced by an artifact.
-
-The aggregate `test` check requires the shared compilation and both downstream gas jobs to succeed. Compare this CI run with #1196 for total workflow elapsed time, gas-job compile messages, gas report/snapshot output, and runner queue overhead. A shared build can reduce duplicate compilation, but its dependency can also lengthen the critical path; keep the change only if measured results support it.
+The aggregate `test` gate requires the shared build and the sequential gas job to succeed, along with all other checks. In run #1199, all 273 snapshot tests passed, but artifact upload failed because the upload action ignored the hidden snapshot file. This change corrects that upload and restores the required order. Measure the complete runtime after a successful run; shared build transfer and runner queues can offset compilation savings.
