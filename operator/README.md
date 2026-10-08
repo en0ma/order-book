@@ -137,3 +137,7 @@ This is not a replacement for a production database, but it gives self-hosted de
 - operator failures and recovery actions.
 
 Production deployments can replace it with Postgres/ClickHouse/log shipping while retaining the same record shape.
+
+## Self-hosted read-only integration
+
+The `/read-model` package export supplies bounded, transport-neutral query responses for indexed books, account strategy registries, deployed market discovery and diagnostics. See [READ_MODEL.md](READ_MODEL.md) for supported routes, canonical snapshot coordination and security boundaries. This is deliberately not a hosted API or an authoritative per-maker settlement read.
