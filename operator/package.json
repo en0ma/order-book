@@ -36,6 +36,11 @@
       "import": "./dist/read-model.js",
       "default": "./dist/read-model.js"
     },
+    "./recovery-cycle": {
+      "types": "./recovery-cycle.d.ts",
+      "import": "./dist/recovery-cycle.js",
+      "default": "./dist/recovery-cycle.js"
+    },
     "./recovery": {
       "types": "./recovery.d.ts",
       "import": "./dist/recovery.js",
@@ -70,6 +75,8 @@
     "readiness.d.ts",
     "READINESS.md",
     "recovery.d.ts",
-    "RECOVERY.md"
+    "RECOVERY.md",
+    "recovery-cycle.d.ts",
+    "RECOVERY_CYCLE.md"
   ]
 }
