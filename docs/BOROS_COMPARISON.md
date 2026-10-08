@@ -39,7 +39,7 @@ The suite emits `WorkloadGas` events with measured take gas. Events can be inspe
 | Workload | Independent variable | Constant(s) | Expected invariant |
 | --- | --- | --- | --- |
 | Same-tick matching | 1, 8, 32, 64 makers | Tick 10,000; 6,400 total ask lots; 3,200 taker lots | Gas difference from the 1-maker case stays below existing 20,000-gas regression tolerance |
-| Tick traversal | 1, 2, 4, 8 crossed ticks | Eight makers per tick; 100 lots per maker | Exact taker fill; record growth with crossed ticks |
+| Tick traversal | 1, 2, 4, 8 crossed ticks | Eight makers per tick; 100 lots per maker | Fully deplete each crossed tick (800 lots per tick); record growth with crossed ticks |
 | Partial fill and cancel | Three makers, then one exits | 100 lots each; 90 initial taker fill | Each maker attributed 30; cancelling a 70-lot residual cannot remove others' 140 lots |
 | Conservation property | Fuzz maker sizes, fill size | One tick, two makers | Total posted lots = executed + cancelled + executable remaining |
 | Existing FOK/risk tests | Multiple ticks, margin and oracle bounds | See existing Foundry tests | FOK atomicity and reserved exposure assertions remain covered |
