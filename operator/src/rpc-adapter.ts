@@ -82,6 +82,8 @@ export function createCanonicalRpcAdapter(
       }]);
       if (!Array.isArray(raw)) throw new Error("invalid RPC log list");
       const envelopes: CanonicalLogEnvelope[] = [];
+      const seen = new Set<string>();
+      const trusted = new Set(addresses.map(value => value.toLowerCase()));
       for (const value of raw) {
         const item = record(value);
         if (item.removed === true) throw new Error("RPC returned removed log");
@@ -89,8 +91,15 @@ export function createCanonicalRpcAdapter(
             quantity(item.blockNumber, "log block number") !== block.number) {
           throw new Error("RPC log does not match requested canonical block");
         }
+        const logAddress = address(item.address);
+        if (!trusted.has(logAddress)) throw new Error("RPC log came from an unconfigured address");
+        const txIndex = quantity(item.transactionIndex, "transaction index");
+        const logIndex = quantity(item.logIndex, "log index");
+        const position = txIndex + ":" + logIndex;
+        if (seen.has(position)) throw new Error("duplicate RPC log position");
+        seen.add(position);
         const log: RpcLog = {
-          address: address(item.address), blockHash: block.hash,
+          address: logAddress, blockHash: block.hash,
           blockNumber: item.blockNumber as string,
           transactionIndex: item.transactionIndex as string, logIndex: item.logIndex as string,
           topics: item.topics as string[], data: item.data as string,
@@ -104,8 +113,7 @@ export function createCanonicalRpcAdapter(
         if (decoded.blockHash.toLowerCase() !== block.hash || decoded.blockNumber !== block.number ||
             decoded.chainId !== chainId ||
             decoded.address.toLowerCase() !== log.address.toLowerCase() ||
-            decoded.transactionIndex !== quantity(item.transactionIndex, "transaction index") ||
-            decoded.logIndex !== quantity(item.logIndex, "log index")) {
+            decoded.transactionIndex !== txIndex || decoded.logIndex !== logIndex) {
           throw new Error("decoded event envelope does not match RPC log");
         }
         envelopes.push(decoded);
