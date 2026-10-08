@@ -189,7 +189,7 @@ jobs:
           NODE_RESULT: ${{ needs.node.result }}
           PROTOCOL_RESULT: ${{ needs.protocol.result }}
           FORK_RESULT: ${{ needs.fork.result }}
-          DEFAULT_SIZES_RESULT: ${{ needs.sizes-default.result }}
+          DEFAULT_SIZES_RESULT: ${{ needs['sizes-default'].result }}
           SIZES_RESULT: ${{ needs.sizes.result }}
           GAS_RESULT: ${{ needs.gas.result }}
         run: |
