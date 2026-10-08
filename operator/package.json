@@ -36,6 +36,11 @@
       "import": "./dist/read-model.js",
       "default": "./dist/read-model.js"
     },
+    "./http": {
+      "types": "./http.d.ts",
+      "import": "./dist/http.js",
+      "default": "./dist/http.js"
+    },
     "./api": {
       "types": "./api.d.ts",
       "import": "./dist/api.js",
@@ -50,6 +55,7 @@
     "integration.d.ts",
     "api.d.ts",
     "strategies.d.ts",
-    "read-model.d.ts"
+    "read-model.d.ts",
+    "http.d.ts"
   ]
 }
