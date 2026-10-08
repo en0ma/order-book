@@ -54,3 +54,29 @@ test("canonical adapter rejects untrusted addresses and duplicate log indexes", 
   mode = "duplicate";
   await assert.rejects(adapter.getEvents(block, manifest), /duplicate RPC log position/);
 });
+
+test("transient fetch network failures retry, but malformed successful responses do not", async () => {
+  let networkCalls = 0;
+  const transport = createHttpJsonRpcTransport("https://rpc.invalid", {
+    maxAttempts: 3, retryDelayMs: 0,
+    fetcher: async (_url, options) => {
+      networkCalls++;
+      if (networkCalls < 3) throw new TypeError("fetch failed");
+      const request = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ jsonrpc: "2.0", id: request.id, result: "0x1" }) };
+    },
+  });
+  assert.equal(await transport.request("eth_chainId", []), "0x1");
+  assert.equal(networkCalls, 3);
+
+  let malformedCalls = 0;
+  const malformed = createHttpJsonRpcTransport("https://rpc.invalid", {
+    maxAttempts: 3, retryDelayMs: 0,
+    fetcher: async () => {
+      malformedCalls++;
+      return { ok: true, json: async () => { throw new SyntaxError("invalid JSON"); } };
+    },
+  });
+  await assert.rejects(malformed.request("eth_chainId", []), /invalid JSON/);
+  assert.equal(malformedCalls, 1);
+});
