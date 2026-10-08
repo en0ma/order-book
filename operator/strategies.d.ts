@@ -1,7 +1,7 @@
 import type { Address, NormalizedEvent } from "./index.js";
 export type StrategyKind = "iceberg" | "twap" | "pegged";
 export interface StrategyRecord {
-  marketId: string; strategyId: bigint; owner: Address; kind: StrategyKind;
+  marketId: string; strategyId: bigint; owner: Address; side?: 0 | 1; kind: StrategyKind;
   placedAtBlock: number; totalLots: bigint; sliceLots?: bigint; tick?: number;
   limitTick?: number; startTime?: bigint; interval?: bigint; deadline?: bigint;
   offsetTicks?: number; priceBoundTick?: number;
@@ -18,7 +18,7 @@ export interface StrategySnapshot {
   version: 1;
   records: {
     key: string; marketId: string; strategyId: string; owner: Address;
-    kind: StrategyKind; placedAtBlock: number; totalLots: string;
+    kind: StrategyKind; side?: 0 | 1; placedAtBlock: number; totalLots: string;
     sliceLots?: string; tick?: number; limitTick?: number; startTime?: string;
     interval?: string; deadline?: string; offsetTicks?: number; priceBoundTick?: number;
   }[];
