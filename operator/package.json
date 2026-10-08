@@ -26,6 +26,11 @@
       "import": "./dist/integration.js",
       "default": "./dist/integration.js"
     },
+    "./strategies": {
+      "types": "./strategies.d.ts",
+      "import": "./dist/strategies.js",
+      "default": "./dist/strategies.js"
+    },
     "./api": {
       "types": "./api.d.ts",
       "import": "./dist/api.js",
@@ -38,6 +43,7 @@
     "node.d.ts",
     "README.md",
     "integration.d.ts",
-    "api.d.ts"
+    "api.d.ts",
+    "strategies.d.ts"
   ]
 }
