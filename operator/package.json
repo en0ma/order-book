@@ -112,6 +112,7 @@
     "supervisor.d.ts",
     "rpc-adapter.d.ts",
     "http-rpc.d.ts",
+    "rebuild.d.ts",
     "RECOVERY_CYCLE.md",
     "PUBLICATION.md",
     "SELF_HOSTED.md",
