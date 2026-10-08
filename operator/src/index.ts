@@ -80,6 +80,7 @@ export interface OperatorMarketManifest {
   id: string;
   core: Address;
   advanced: Address;
+  executionStrategy?: Address;
   marketMaker?: Address;
   liquidation?: Address;
   portfolioLiquidation?: Address;
@@ -750,6 +751,7 @@ export function operatorManifestIdentity(manifestInput: unknown): string {
       market.integrationLens?.toLowerCase() ?? "",
       market.oracle.toLowerCase(),
       market.portfolioMarketIndex ?? "",
+      ...(market.executionStrategy ? [market.executionStrategy.toLowerCase()] : []),
     ].join(":"))
     .join("|");
   const portfolioIdentity = manifest.portfolio
@@ -803,6 +805,7 @@ export function validateOperatorManifest(input: unknown): OperatorManifest {
       oracle: expectAddress(market.oracle, `markets[${index}].oracle`),
     };
     for (const field of [
+      "executionStrategy",
       "marketMaker",
       "liquidation",
       "portfolioLiquidation",
