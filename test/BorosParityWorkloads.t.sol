@@ -31,7 +31,7 @@ contract BorosParityWorkloadsTest is TestBase {
     {
         ProRataOrderBook book = new ProRataOrderBook();
         _seed(book, makers, 10_000, ticks);
-        uint96 lots = uint96(makers * ticks * 50);
+        uint96 lots = uint96(makers * ticks * 100);
         uint256 beforeGas = gasleft();
         uint96 filled = book.take(
             ProRataOrderBook.Side.Bid, uint16(9_999 + ticks), lots,
