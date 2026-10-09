@@ -110,6 +110,11 @@
       "types": "./mm-reconcile.d.ts",
       "import": "./dist/mm-reconcile.js",
       "default": "./dist/mm-reconcile.js"
+    },
+    "./accounting-audit": {
+      "types": "./accounting-audit.d.ts",
+      "import": "./dist/accounting-audit.js",
+      "default": "./dist/accounting-audit.js"
     }
   },
   "files": [
@@ -143,6 +148,7 @@
     "RPC_QUORUM.md",
     "trading-safety.d.ts",
     "trader-service.d.ts",
-    "mm-reconcile.d.ts"
+    "mm-reconcile.d.ts",
+    "accounting-audit.d.ts"
   ]
 }
