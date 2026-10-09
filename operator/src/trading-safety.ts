@@ -30,7 +30,7 @@ export function createTradingSafetyGate(policy: SafetyPolicy): TradingSafetyGate
       if (!Number.isSafeInteger(nowMs) || !Number.isSafeInteger(observation?.observedAtMs) ||
           !Number.isSafeInteger(observation?.tick) || observation.tick < 0 ||
           observation.tick > 65535 || observation.observedAtMs > nowMs ||
-          nowMs - observation.observedAtMs > policy.maxAgeMs || observation.sequencerUp !== true ||
+          nowMs - observation.observedAtMs > maxAgeMs || observation.sequencerUp !== true ||
           Math.abs(observation.tick - referenceTick) > maxDeviationTicks) {
         throw new Error("trading safety gate rejected unreliable mark or sequencer");
       }
