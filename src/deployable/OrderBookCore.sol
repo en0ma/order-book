@@ -64,7 +64,6 @@ contract OrderBookCore is IOrderBookCore {
     address public owner;
     address public guardian;
     bool public riskIncreasePaused;
-    event GuardianUpdated(address indexed previousGuardian, address indexed nextGuardian);
     event RiskIncreasePaused(address indexed actor, bool paused);
 
     address public fundingUpdater;
@@ -199,15 +198,11 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function setGuardian(address nextGuardian) external onlyOwner {
-        address previous = guardian;
         guardian = nextGuardian;
-        emit GuardianUpdated(previous, nextGuardian);
     }
 
     function setRiskIncreasePaused(bool paused) external {
-        if (msg.sender != owner && msg.sender != guardian) revert Unauthorized();
-        // Only owner may restore risk-taking after a guardian incident.
-        if (!paused && msg.sender != owner) revert Unauthorized();
+        if (msg.sender != owner && (msg.sender != guardian || !paused)) revert Unauthorized();
         riskIncreasePaused = paused;
         emit RiskIncreasePaused(msg.sender, paused);
     }
