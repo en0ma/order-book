@@ -17,3 +17,14 @@ test("persisted request idempotency survives restart and blocks replacement",asy
   await assert.rejects(b.update({id:"A",fingerprint:"plan1",status:"broadcast",txHash:"0x"+"a".repeat(64)}),/cannot regress/);
  }finally{await rm(dir,{force:true,recursive:true})}
 });
+
+test("rejects malformed hashes before writing and allows special request IDs",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"trade-journal-"));const journal=new JsonSubmissionJournal(join(dir,"jobs.json"));
+ try{
+  await assert.rejects(journal.update({id:"bad",fingerprint:"p",status:"reserved",txHash:"oops"}),/invalid transaction hash/);
+  await journal.update({id:"constructor",fingerprint:"p",status:"reserved"});
+  await journal.update({id:"__proto__",fingerprint:"p",status:"reserved"});
+  assert.equal((await journal.load()).constructor.id,"constructor");
+  assert.equal((await journal.load())["__proto__"].id,"__proto__");
+ }finally{await rm(dir,{force:true,recursive:true})}
+});
