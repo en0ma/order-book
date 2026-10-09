@@ -22,3 +22,5 @@ test("incident requires explicit acknowledgement and restored health",()=>{
  controller.clear(assessExchangeHealth(state,policy));
  assert.equal(controller.status().active,false);
 });
+
+test("untyped truthy monitoring flags fail closed",()=>{const bad={...state,recoveryReady:"false",rpcWitnessesAgree:"false",sequencerUp:"false",signerAvailable:"false"};const r=assessExchangeHealth(bad,policy);assert.equal(r.ready,false);assert.equal(r.blockers.length,4);});
