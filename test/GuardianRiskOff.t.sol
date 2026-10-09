@@ -13,7 +13,7 @@ contract GuardianRiskOffTest is TestBase {
         OrderBookCore core = new OrderBookCore(address(token), address(oracle), 40, 1000, 0, 0);
         address maker = address(0xB0B);
         address guardian = address(0xBEEF);
-        core.configureRiskControl(guardian, false);
+        core.setFundingUpdater(guardian);
         token.mint(maker, 10_000);
         vm.prank(maker);
         token.approve(address(core), 10_000);
@@ -22,7 +22,7 @@ contract GuardianRiskOffTest is TestBase {
         vm.prank(maker);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
         vm.prank(guardian);
-        core.configureRiskControl(guardian, true);
+        core.setRiskIncreasePaused(true);
         (bool ok,) = address(core).call(abi.encodeCall(core.take,
             (IOrderBookCore.Side.Bid, uint16(100), uint96(1), IOrderBookCore.FillPolicy.IOC)));
         assertTrue(!ok, "risk-on take must fail during guardian pause");
@@ -33,9 +33,9 @@ contract GuardianRiskOffTest is TestBase {
         vm.prank(maker);
         core.removeShares(IOrderBookCore.Side.Ask, 100, 1);
         vm.prank(guardian);
-        (ok,) = address(core).call(abi.encodeCall(core.configureRiskControl, (guardian, false)));
+        (ok,) = address(core).call(abi.encodeCall(core.setRiskIncreasePaused, (false)));
         assertTrue(!ok, "guardian cannot reactivate trading");
-        core.configureRiskControl(guardian, false);
+        core.setRiskIncreasePaused(false);
         assertTrue(!core.riskIncreasePaused(), "owner can restore risk-taking");
     }
 }
