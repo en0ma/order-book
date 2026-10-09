@@ -180,3 +180,7 @@ Future/hidden quantity is admitted slice-by-slice rather than locking margin for
 ## Boros CLOB comparison and matching evidence
 
 See [Boros comparison and benchmark methodology](docs/BOROS_COMPARISON.md) for sourced rate-time/FIFO versus pro-rata differences, maker-count and crossed-tick gas workloads, partial-fill cancellation and conservation tests, and remaining deployment/risk parity gaps. Comparative gas or throughput advantages are not claimed without matched Boros measurements.
+
+## Source-pinned Boros comparison evidence
+
+The [Boros matched benchmark protocol](docs/BOROS_MATCHED_BENCHMARK.md) audits the public Boros FIFO tick implementation, defines equivalent gas workloads and provides a CI-tested evidence comparator that rejects unequal fixtures or compiler environments. No Boros gas advantage or disadvantage is asserted until real, comparable transactions are measured.
