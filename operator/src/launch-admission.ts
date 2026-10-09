@@ -16,7 +16,8 @@ export interface LaunchDecision {admitTrading:boolean;admitRiskReduction:boolean
 export function evaluateLaunch(checks:LaunchChecks,signals:ExchangeSignals,policy:ExchangePolicy):LaunchDecision{
  const health=assessExchangeHealth(signals,policy);
  const reasons=[...health.blockers];
- for(const [key,ok] of Object.entries(checks)){
+ const required = ["deploymentVerified","chainIdMatches","auditedConfiguration","guardianConfigured","riskIncreasePaused","canonicalStorageDurable","writableSignerConfigured"] as const;
+ for(const key of required){const ok=checks?.[key];
    if(key==="riskIncreasePaused"){if(ok!==false)reasons.push("on-chain risk-off active or unknown");}
    else if(ok!==true)reasons.push("launch prerequisite failed: "+key);
  }
