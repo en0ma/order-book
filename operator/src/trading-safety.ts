@@ -14,6 +14,7 @@ export function createTradingSafetyGate(policy: SafetyPolicy): TradingSafetyGate
       !Number.isSafeInteger(policy.referenceTick) || policy.referenceTick < 0 || policy.referenceTick > 65535) {
     throw new RangeError("invalid safety policy");
   }
+  const { maxAgeMs, maxDeviationTicks, referenceTick } = policy;
   let reason: string | undefined;
   return {
     status: () => ({ halted: reason !== undefined, ...(reason ? { reason } : {}) }),
@@ -30,7 +31,7 @@ export function createTradingSafetyGate(policy: SafetyPolicy): TradingSafetyGate
           !Number.isSafeInteger(observation?.tick) || observation.tick < 0 ||
           observation.tick > 65535 || observation.observedAtMs > nowMs ||
           nowMs - observation.observedAtMs > policy.maxAgeMs || observation.sequencerUp !== true ||
-          Math.abs(observation.tick - policy.referenceTick) > policy.maxDeviationTicks) {
+          Math.abs(observation.tick - referenceTick) > maxDeviationTicks) {
         throw new Error("trading safety gate rejected unreliable mark or sequencer");
       }
       // Reduce-risk and withdrawals also require reliable state; simulation must enforce actual risk reduction.
