@@ -28,3 +28,13 @@ test("risk-off allows cancellation without a functioning oracle",async()=>{
  halt,limits,async()=>{throw Error("offline")},()=>1100);
  assert.equal((await api.reconcile([])).kind,"submitted");assert.equal(writes,1);
 });
+
+test("quote fill during simulation is caught even if target delta looks identical",async()=>{
+ let calls=0,submits=0;
+ const api=createMakerExecutionCoordinator({canonicalQuotes:async()=>{
+  calls++;return [{side:0,tick:100,lots:calls===1?10n:5n}];
+ },simulate:async()=>{},submit:async()=>{submits++;return "0x"+"a".repeat(64)}},
+ gate,limits,mark,()=>1100);
+ await assert.rejects(api.reconcile([{side:0,tick:100,lots:20n}]),/changed/);
+ assert.equal(submits,0);
+});
