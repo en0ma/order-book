@@ -23,13 +23,13 @@ export function assessExchangeHealth(signals: ExchangeSignals, policy: ExchangeP
     signals.keeperPending,signals.oldestKeeperAgeMs].every(v=>Number.isSafeInteger(v)&&v>=0)) {
    return {ready:false,blockers:["invalid operator health metrics"],warnings};
  }
- if(!signals.recoveryReady)blockers.push("canonical recovery not ready");
- if(!signals.rpcWitnessesAgree)blockers.push("RPC witness disagreement");
- if(!signals.sequencerUp)blockers.push("sequencer unavailable");
+ if(signals.recoveryReady !== true)blockers.push("canonical recovery not ready");
+ if(signals.rpcWitnessesAgree !== true)blockers.push("RPC witness disagreement");
+ if(signals.sequencerUp !== true)blockers.push("sequencer unavailable");
  if(signals.oldestOracleAgeMs>policy.maxOracleAgeMs)blockers.push("stale oracle");
  if(signals.remoteHead<signals.canonicalHead||signals.remoteHead-signals.canonicalHead>policy.maxHeadLag)
    blockers.push("canonical lag exceeded");
- if(!signals.signerAvailable)blockers.push("keeper signer unavailable");
+ if(signals.signerAvailable !== true)blockers.push("keeper signer unavailable");
  if(signals.keeperPending>policy.maxKeeperPending)warnings.push("keeper backlog above limit");
  if(signals.oldestKeeperAgeMs>policy.maxKeeperAgeMs)warnings.push("keeper queue age above limit");
  return {ready:blockers.length===0,blockers,warnings};
