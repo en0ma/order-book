@@ -22,3 +22,9 @@ test("unsafe oracle stops risk growth but verified deployment retains cancel/set
  const decision=evaluateLaunch(checks,{...signals,sequencerUp:false},policy);
  assert.equal(decision.admitTrading,false);assert.equal(decision.admitRiskReduction,true);
 });
+
+test("missing attestations never authorize production risk",()=>{
+ assert.equal(evaluateLaunch({},signals,policy).admitTrading,false);
+ const {riskIncreasePaused,...partial}=checks;
+ assert.equal(evaluateLaunch(partial,signals,policy).admitTrading,false);
+});
