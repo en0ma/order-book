@@ -1,0 +1,3 @@
+# Pre-deployment fee/collateral reconciliation
+
+This module checks declared aggregate token liabilities, conservative insurance reserve and protocol-fee balances, and plans fee routing without floating-point precision loss. **It does not read on-chain balances or authorize/execute withdrawals.** Callers must source accurate comprehensive liabilities across local accounts, portfolio vaults and realized/unrealized PnL; those liabilities are not derivable from a single Core snapshot. Production fee withdrawal and recipient permissions require an independently reviewed on-chain implementation, solvency invariant, withdrawal test matrix and external audit.
