@@ -61,7 +61,6 @@ contract OrderBookCore is IOrderBookCore {
     error PositionOverflow();
 
     address public owner;
-    address public guardian;
     bool public riskIncreasePaused;
     event RiskIncreasePaused(address indexed actor, bool paused);
 
@@ -196,10 +195,9 @@ contract OrderBookCore is IOrderBookCore {
         if (msg.sender != owner) revert Unauthorized();
     }
 
-    function configureRiskControl(address nextGuardian, bool paused) external {
-        if (msg.sender == owner) {
-            guardian = nextGuardian;
-        } else if (msg.sender != guardian || !paused || nextGuardian != guardian) {
+    /// @notice Funding updater may halt new risk; only owner may restore it.
+    function setRiskIncreasePaused(bool paused) external {
+        if (msg.sender != owner && (msg.sender != fundingUpdater || !paused)) {
             revert Unauthorized();
         }
         riskIncreasePaused = paused;
