@@ -44,6 +44,7 @@ contract OrderBookCore is IOrderBookCore {
         uint32 generation;
     }
 
+    error TradingPaused();
     error ZeroAmount();
     error CrossesBook();
     error InsufficientLiquidity();
@@ -61,6 +62,11 @@ contract OrderBookCore is IOrderBookCore {
     error PositionOverflow();
 
     address public owner;
+    address public guardian;
+    bool public riskIncreasePaused;
+    event GuardianUpdated(address indexed previousGuardian, address indexed nextGuardian);
+    event RiskIncreasePaused(address indexed actor, bool paused);
+
     address public fundingUpdater;
     address public advancedModule;
     address public override portfolioController;
@@ -190,6 +196,24 @@ contract OrderBookCore is IOrderBookCore {
 
     function _requireOwner() internal view {
         if (msg.sender != owner) revert Unauthorized();
+    }
+
+    function setGuardian(address nextGuardian) external onlyOwner {
+        address previous = guardian;
+        guardian = nextGuardian;
+        emit GuardianUpdated(previous, nextGuardian);
+    }
+
+    function setRiskIncreasePaused(bool paused) external {
+        if (msg.sender != owner && msg.sender != guardian) revert Unauthorized();
+        // Only owner may restore risk-taking after a guardian incident.
+        if (!paused && msg.sender != owner) revert Unauthorized();
+        riskIncreasePaused = paused;
+        emit RiskIncreasePaused(msg.sender, paused);
+    }
+
+    function _requireRiskIncreaseAllowed() internal view {
+        if (riskIncreasePaused) revert TradingPaused();
     }
 
     function transferOwnership(address nextOwner) external onlyOwner {
@@ -388,6 +412,7 @@ contract OrderBookCore is IOrderBookCore {
         returns (uint16 riskCeilingTick)
     {
         _requirePortfolioControllerIfEnabled();
+        _requireRiskIncreaseAllowed();
         if (lots == 0) revert ZeroAmount();
 
         _adjustRisk(account, side, lots, true);
@@ -633,6 +658,7 @@ contract OrderBookCore is IOrderBookCore {
         bool reduceOnly,
         bool preReserved
     ) internal returns (uint96 filledLots) {
+        if (!reduceOnly) _requireRiskIncreaseAllowed();
         if (lots == 0) revert ZeroAmount();
 
         uint96 executableLots = lots;
@@ -753,6 +779,7 @@ contract OrderBookCore is IOrderBookCore {
         uint16 reservedRiskCeiling,
         bool enforcePostOnly
     ) internal returns (uint128 mintedShares) {
+        _requireRiskIncreaseAllowed();
         if (lots == 0) revert ZeroAmount();
         if (enforcePostOnly) _assertPostOnly(side, tick);
 
