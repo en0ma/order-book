@@ -44,7 +44,6 @@ contract OrderBookCore is IOrderBookCore {
         uint32 generation;
     }
 
-    error TradingPaused();
     error ZeroAmount();
     error CrossesBook();
     error InsufficientLiquidity();
@@ -197,18 +196,18 @@ contract OrderBookCore is IOrderBookCore {
         if (msg.sender != owner) revert Unauthorized();
     }
 
-    function setGuardian(address nextGuardian) external onlyOwner {
-        guardian = nextGuardian;
-    }
-
-    function setRiskIncreasePaused(bool paused) external {
-        if (msg.sender != owner && (msg.sender != guardian || !paused)) revert Unauthorized();
+    function configureRiskControl(address nextGuardian, bool paused) external {
+        if (msg.sender == owner) {
+            guardian = nextGuardian;
+        } else if (msg.sender != guardian || !paused || nextGuardian != guardian) {
+            revert Unauthorized();
+        }
         riskIncreasePaused = paused;
         emit RiskIncreasePaused(msg.sender, paused);
     }
 
     function _requireRiskIncreaseAllowed() internal view {
-        if (riskIncreasePaused) revert TradingPaused();
+        if (riskIncreasePaused) revert Unauthorized();
     }
 
     function transferOwnership(address nextOwner) external onlyOwner {
