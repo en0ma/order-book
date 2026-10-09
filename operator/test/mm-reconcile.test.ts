@@ -16,3 +16,11 @@ test("MM controller enforces aggregate exposure, duplicates and risk-off cancel-
  assert.throws(()=>x.plan([],[{side:0,tick:1,lots:1n}]),/kill switch/);
  assert.deepEqual(x.plan([{side:0,tick:1,lots:5n}],[]),[{side:0,tick:1,lots:0n}]);
 });
+
+test("oversized historical quotes can be canceled after limits tighten",()=>{
+ const controller=createMakerQuoteController(limits);
+ controller.stop();
+ assert.deepEqual(controller.plan([{side:0,tick:100,lots:9999n}],[]),[{side:0,tick:100,lots:0n}]);
+ assert.deepEqual(reconcileMakerQuotes([],[{side:0,tick:100,lots:0n}],limits),[]);
+ assert.throws(()=>createMakerQuoteController({maxLotsPerQuote:1n<<96n,maxTotalLots:1n<<96n,maxQuotes:1}).plan([],[]),/invalid/);
+});
