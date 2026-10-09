@@ -120,6 +120,11 @@
       "types": "./exchange-health.d.ts",
       "import": "./dist/exchange-health.js",
       "default": "./dist/exchange-health.js"
+    },
+    "./verified-oracle": {
+      "types": "./verified-oracle.d.ts",
+      "import": "./dist/verified-oracle.js",
+      "default": "./dist/verified-oracle.js"
     }
   },
   "files": [
@@ -155,6 +160,7 @@
     "trader-service.d.ts",
     "mm-reconcile.d.ts",
     "accounting-audit.d.ts",
-    "exchange-health.d.ts"
+    "exchange-health.d.ts",
+    "verified-oracle.d.ts"
   ]
 }
