@@ -17,3 +17,5 @@ test("integer decimal normalization rejects precision loss",()=>{
  assert.equal(parseTokenUnits("0",0),0n);
  assert.throws(()=>parseTokenUnits("1.0001",3),/precision/);
 });
+
+test("extra metadata does not invalidate an otherwise well-backed ledger",()=>{assert.equal(auditFeeBacking({...initial,blockNumber:123}).excess,0n);});
