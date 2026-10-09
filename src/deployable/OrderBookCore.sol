@@ -62,7 +62,6 @@ contract OrderBookCore is IOrderBookCore {
 
     address public owner;
     bool public riskIncreasePaused;
-    event RiskIncreasePaused(address indexed actor, bool paused);
 
     address public fundingUpdater;
     address public advancedModule;
@@ -201,7 +200,6 @@ contract OrderBookCore is IOrderBookCore {
             revert Unauthorized();
         }
         riskIncreasePaused = paused;
-        emit RiskIncreasePaused(msg.sender, paused);
     }
 
     function _requireRiskIncreaseAllowed() internal view {
