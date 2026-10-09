@@ -7,7 +7,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const outputDir = resolve(here, "dist");
 await mkdir(outputDir, { recursive: true });
 
-for (const entry of ["index", "node", "integration", "api", "strategies", "read-model", "http", "readiness", "recovery", "recovery-cycle", "publication", "self-hosted", "supervisor", "rpc-adapter", "http-rpc", "rebuild", "rpc-quorum", "trading-safety"]) {
+for (const entry of ["index", "node", "integration", "api", "strategies", "read-model", "http", "readiness", "recovery", "recovery-cycle", "publication", "self-hosted", "supervisor", "rpc-adapter", "http-rpc", "rebuild", "rpc-quorum", "trading-safety", "trader-service"]) {
   const sourcePath = resolve(here, `src/${entry}.ts`);
   const outputPath = resolve(outputDir, `${entry}.js`);
   const source = await readFile(sourcePath, "utf8");
