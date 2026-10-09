@@ -32,9 +32,10 @@ export function createMakerExecutionCoordinator(
         await adapter.simulate(updates);
         // Changes since simulation can cause stale cancellation, so verify canonical targets.
         const latest=await adapter.canonicalQuotes();
-        const again=reconcileMakerQuotes(latest,target,limits);
-        if (JSON.stringify(again,(_k,v)=>typeof v==="bigint"?v.toString():v)!==
-            JSON.stringify(updates,(_k,v)=>typeof v==="bigint"?v.toString():v)) {
+        const serialize=(quotes:readonly MakerQuoteTarget[]) => JSON.stringify(
+          [...quotes].sort((a,b)=>a.side-b.side||a.tick-b.tick),
+          (_k,v)=>typeof v==="bigint"?v.toString():v);
+        if (serialize(latest)!==serialize(current)) {
           throw new Error("canonical managed quotes changed during simulation");
         }
         if (!onlyCancels)gate.check("increase-risk",await observation(),now());
