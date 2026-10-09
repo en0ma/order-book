@@ -95,6 +95,11 @@
       "types": "./api.d.ts",
       "import": "./dist/api.js",
       "default": "./dist/api.js"
+    },
+    "./trading-safety": {
+      "types": "./trading-safety.d.ts",
+      "import": "./dist/trading-safety.js",
+      "default": "./dist/trading-safety.js"
     }
   },
   "files": [
@@ -125,6 +130,7 @@
     "SUPERVISION.md",
     "RPC_ADAPTER.md",
     "REBUILD.md",
-    "RPC_QUORUM.md"
+    "RPC_QUORUM.md",
+    "trading-safety.d.ts"
   ]
 }
