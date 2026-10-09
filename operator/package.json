@@ -105,6 +105,11 @@
       "types": "./trader-service.d.ts",
       "import": "./dist/trader-service.js",
       "default": "./dist/trader-service.js"
+    },
+    "./mm-reconcile": {
+      "types": "./mm-reconcile.d.ts",
+      "import": "./dist/mm-reconcile.js",
+      "default": "./dist/mm-reconcile.js"
     }
   },
   "files": [
@@ -137,6 +142,7 @@
     "REBUILD.md",
     "RPC_QUORUM.md",
     "trading-safety.d.ts",
-    "trader-service.d.ts"
+    "trader-service.d.ts",
+    "mm-reconcile.d.ts"
   ]
 }
