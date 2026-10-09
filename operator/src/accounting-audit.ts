@@ -11,7 +11,7 @@ export interface FeeLedger {
 }
 export interface FeeAllocation { toInsurance: bigint; toRecipient: bigint }
 export function auditFeeBacking(ledger: FeeLedger): { liabilities: bigint; excess: bigint } {
- for (const [key,value] of Object.entries(ledger)) {
+ for (const [key,value] of (["tokenBalance", "localCollateral", "portfolioCollateral", "insuranceReserves", "protocolFeesAccrued", "otherReservedLiabilities"] as const).map(key => [key, ledger[key]] as const)) {
    if (typeof value !== "bigint" || value < 0n) throw new Error("invalid nonnegative collateral amount: "+key);
  }
  const liabilities=ledger.localCollateral + ledger.portfolioCollateral +
