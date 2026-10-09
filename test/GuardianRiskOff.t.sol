@@ -14,6 +14,11 @@ contract GuardianRiskOffTest is TestBase {
         address maker = address(0xB0B);
         address guardian = address(0xBEEF);
         core.setGuardian(guardian);
+        token.mint(maker, 10_000);
+        vm.prank(maker);
+        token.approve(address(core), 10_000);
+        vm.prank(maker);
+        core.depositCollateral(10_000);
         vm.prank(maker);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
         vm.prank(guardian);
