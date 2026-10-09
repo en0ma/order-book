@@ -16,3 +16,10 @@ test("risk-off halts trades but leaves cancel and settle available", () => {
  gate.check("cancel",{},2000);gate.check("settle",{},2000);
  gate.resume();gate.check("reduce-risk",{tick:100,observedAtMs:1900,sequencerUp:true},2000);
 });
+
+test("validated oracle policy cannot be weakened by external config mutation", () => {
+ const options={maxAgeMs:100,maxDeviationTicks:5,referenceTick:100};
+ const gate=createTradingSafetyGate(options);
+ options.maxAgeMs=NaN;options.maxDeviationTicks=NaN;options.referenceTick=999;
+ assert.throws(()=>gate.check("increase-risk",{tick:150,observedAtMs:0,sequencerUp:true},1000),/unreliable/);
+});
