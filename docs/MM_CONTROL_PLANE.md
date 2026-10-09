@@ -1,0 +1,3 @@
+# Market-maker quoting and risk limits
+
+This module compares canonical on-chain managed quotes against target quotes, generates sorted atomic replacement/cancel instructions, bounds per-quote and total posted lots, and supports cancel-only emergency mode. Read managed state after any restart or reorg; never assume an unconfirmed submission changed the book. Integrate through the existing packed quote SDK and MarketMakerModule. Inventory delta, oracle skew, profitable spreads, durable nonce/replacement, signing, liquidity provision and external fills are **not implemented** by this controller. It is an integration library, not a live MM daemon.
