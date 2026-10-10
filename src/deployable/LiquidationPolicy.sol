@@ -46,7 +46,9 @@ contract LiquidationPolicy {
             return strategy != address(0)
                 && IStrategyOrderRegistry(strategy).activeStrategyCount(account) != 0;
         } catch {
-            return false;
+            // Unknown strategy-order state is not proof that the account is clear.
+            // Fail closed rather than admitting liquidation or terminal debt.
+            return true;
         }
     }
 
