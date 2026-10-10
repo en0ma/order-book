@@ -1,0 +1,3 @@
+# Verified deployment oracle reads
+
+Use `createVerifiedOracleReader` with an injected **deployment-specific on-chain timestamp and tick reader**. The guard verifies chain ID, 16-bit tick range, absolute observation age and sequencer liveness, rejecting future, stale and malformed observations. Supply contract ABI decoding, L2 sequencer uptime and reorg/finality strategy independently. Do not synthesize `timestampSeconds` from the local clock: it must originate from the on-chain oracle update. This reader is not yet wired to all contract entrypoints, and does not make the on-chain Core pause oracle-aware.
