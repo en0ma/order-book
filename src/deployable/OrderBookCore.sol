@@ -5,6 +5,7 @@ import {IERC20Minimal} from "../interfaces/IERC20Minimal.sol";
 import {IMarkOracle} from "../interfaces/IMarkOracle.sol";
 import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {OrderBookMath} from "./OrderBookMath.sol";
+import {FundingMath} from "./FundingMath.sol";
 
 /// @title OrderBookCore
 /// @notice Deployable hot-path CLOB/risk/funding core.
@@ -919,7 +920,7 @@ contract OrderBookCore is IOrderBookCore {
                 currentFundingEntry - priorCheckpoint;
 
             if (pendingEntryPerShare != 0) {
-                int256 inheritedEntryPerShare = _divFundingDirected(
+                int256 inheritedEntryPerShare = FundingMath.divFundingDirected(
                     side,
                     int256(uint256(q.shares + sharesToBurn))
                         * pendingEntryPerShare,
@@ -1174,7 +1175,7 @@ contract OrderBookCore is IOrderBookCore {
             ? (fillNumerator + uint256(totalShares) - 1) / uint256(totalShares)
             : fillNumerator / uint256(totalShares);
 
-        int256 weighted = _divFundingDirected(
+        int256 weighted = FundingMath.divFundingDirected(
             side,
             int256(fillPerShareX96) * int256(fundingIndexX18),
             FUNDING_SCALE
@@ -1196,7 +1197,7 @@ contract OrderBookCore is IOrderBookCore {
         int256 deltaPerShare =
             finalFundingEntryPerShareX96 - quoteFundingCheckpointX96[maker][side][tick];
 
-        int256 weightedEntry = _divFundingDirected(
+        int256 weightedEntry = FundingMath.divFundingDirected(
             side,
             int256(uint256(shares)) * deltaPerShare,
             int256(ACCUMULATOR_SCALE)
@@ -1691,37 +1692,11 @@ contract OrderBookCore is IOrderBookCore {
     {
         int256 signedLots =
             side == Side.Bid ? int256(uint256(lots)) : -int256(uint256(lots));
-        return _divFundingCeil(
+        return FundingMath.divFundingCeil(
             signedLots * int256(fundingIndexX18),
             FUNDING_SCALE
         );
     }
 
-    function _divFundingCeil(int256 numerator, int256 denominator)
-        internal
-        pure
-        returns (int256 quotient)
-    {
-        quotient = numerator / denominator;
-        if (numerator > 0 && numerator % denominator != 0) {
-            ++quotient;
-        }
-    }
-
-    function _divFundingDirected(
-        Side side,
-        int256 numerator,
-        int256 denominator
-    ) internal pure returns (int256 quotient) {
-        quotient = numerator / denominator;
-        int256 remainder = numerator % denominator;
-        if (remainder == 0) return quotient;
-
-        if (side == Side.Bid) {
-            if (numerator < 0) --quotient;
-        } else if (numerator > 0) {
-            ++quotient;
-        }
-    }
 
 }
