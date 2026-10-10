@@ -9,7 +9,15 @@ import {MockMarkOracle} from "./mocks/MockMarkOracle.sol";
 
 /// @notice Reconciles real maker/taker ledgers after lazy funding settlement.
 contract MakerFundingCashflowConservationTest is TestBase {
-    function testFuzz_MakerSettlementOrderPreservesZeroSumTradingAndFunding(bool reverse) public {
+    function testSettlementMakerAFirst() public {
+        _checkConservation(false);
+    }
+
+    function testSettlementMakerBFirst() public {
+        _checkConservation(true);
+    }
+
+    function _checkConservation(bool reverse) internal {
         MockERC20 token = new MockERC20();
         MockMarkOracle oracle = new MockMarkOracle(100);
         OrderBookCoreHarness core =
