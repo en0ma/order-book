@@ -214,7 +214,7 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _requireModule() internal view {
-        if (msg.sender != advancedModule || msg.sender == address(0)) revert Unauthorized();
+        if (msg.sender != advancedModule) revert Unauthorized();
     }
 
     function _requireRiskModule() internal view {
