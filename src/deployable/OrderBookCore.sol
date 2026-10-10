@@ -197,9 +197,11 @@ contract OrderBookCore is IOrderBookCore {
 
     /// @notice Funding updater may halt new risk; only owner may restore it.
     function setRiskIncreasePaused(bool paused) external {
-        if (msg.sender != owner) {
-            if (!paused || msg.sender != fundingUpdater) revert Unauthorized();
+        if (msg.sender == fundingUpdater && paused) {
+            riskIncreasePaused = true;
+            return;
         }
+        _requireOwner();
         riskIncreasePaused = paused;
     }
 
