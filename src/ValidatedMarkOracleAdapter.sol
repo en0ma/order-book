@@ -14,6 +14,7 @@ interface ITickObservationSink {
     function recordAt(uint16 tick, uint48 observationTime)
         external
         returns (uint64 observationId);
+    function acceptUpdater() external;
 }
 
 /// @title ValidatedMarkOracleAdapter
@@ -92,6 +93,12 @@ contract ValidatedMarkOracleAdapter {
 
         tick = uint16(normalized);
         publishTime = sourcePublishTime;
+    }
+
+    /// @notice Complete the sink's two-step updater handoff after its owner proposes this adapter.
+    /// @dev Sink authenticates msg.sender as its pending updater; safe for anyone to trigger.
+    function acceptSinkUpdater() external {
+        sink.acceptUpdater();
     }
 
     /// @notice Permissionless relay. Only validated source data can reach the canonical sink.
