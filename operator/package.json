@@ -135,6 +135,11 @@
       "types": "./mm-execution.d.ts",
       "import": "./dist/mm-execution.js",
       "default": "./dist/mm-execution.js"
+    },
+    "./launch-admission": {
+      "types": "./launch-admission.d.ts",
+      "import": "./dist/launch-admission.js",
+      "default": "./dist/launch-admission.js"
     }
   },
   "files": [
@@ -173,6 +178,7 @@
     "exchange-health.d.ts",
     "verified-oracle.d.ts",
     "submission-journal.d.ts",
-    "mm-execution.d.ts"
+    "mm-execution.d.ts",
+    "launch-admission.d.ts"
   ]
 }
