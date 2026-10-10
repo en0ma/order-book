@@ -87,7 +87,13 @@ contract SegmentTreeExtremaOracle is IExtremaOracle {
         if (msg.sender != updater) revert Unauthorized();
         if (
             uint256(observationTime) > block.timestamp
-                || observationTime < lastObservationTime
+                || (
+                    observationTime < lastObservationTime
+                        && (
+                            currentObservationId != 1
+                                || block.timestamp - uint256(observationTime) > maxAge
+                        )
+                )
         ) revert InvalidObservation();
         observationId = _record(tick, observationTime);
     }
