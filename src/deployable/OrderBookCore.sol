@@ -61,6 +61,8 @@ contract OrderBookCore is IOrderBookCore {
     error PositionOverflow();
 
     address public owner;
+    bool public riskIncreasePaused;
+
     address public fundingUpdater;
     address public advancedModule;
     address public override portfolioController;
@@ -192,6 +194,18 @@ contract OrderBookCore is IOrderBookCore {
         if (msg.sender != owner) revert Unauthorized();
     }
 
+    /// @notice Funding updater may halt new risk; only owner may restore it.
+    function setRiskIncreasePaused(bool paused) external {
+        if (msg.sender != owner) {
+            if (!paused || msg.sender != fundingUpdater) revert Unauthorized();
+        }
+        riskIncreasePaused = paused;
+    }
+
+    function _requireRiskIncreaseAllowed() internal view {
+        if (riskIncreasePaused) revert Unauthorized();
+    }
+
     function transferOwnership(address nextOwner) external onlyOwner {
         if (nextOwner == address(0)) revert Unauthorized();
         address previousOwner = owner;
@@ -200,7 +214,7 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _requireModule() internal view {
-        if (msg.sender != advancedModule || msg.sender == address(0)) revert Unauthorized();
+        if (msg.sender != advancedModule) revert Unauthorized();
     }
 
     function _requireRiskModule() internal view {
@@ -318,8 +332,9 @@ contract OrderBookCore is IOrderBookCore {
         uint256 accrued = uint256(uint128(packed));
         if (amount == 0 || amount > accrued) revert InsufficientCollateral();
 
-        _feeAccountingPacked =
-            ((packed >> 128) << 128) | (accrued - amount);
+        // amount <= the accrued low 128 bits, so subtraction cannot borrow
+        // from the high 128-bit maker rebate reserve.
+        _feeAccountingPacked = packed - amount;
         insuranceReserves += amount;
         emit ProtocolFeesAllocatedToInsurance(amount);
     }
@@ -388,6 +403,7 @@ contract OrderBookCore is IOrderBookCore {
         returns (uint16 riskCeilingTick)
     {
         _requirePortfolioControllerIfEnabled();
+        _requireRiskIncreaseAllowed();
         if (lots == 0) revert ZeroAmount();
 
         _adjustRisk(account, side, lots, true);
@@ -633,6 +649,7 @@ contract OrderBookCore is IOrderBookCore {
         bool reduceOnly,
         bool preReserved
     ) internal returns (uint96 filledLots) {
+        if (!reduceOnly) _requireRiskIncreaseAllowed();
         if (lots == 0) revert ZeroAmount();
 
         uint96 executableLots = lots;
@@ -753,6 +770,7 @@ contract OrderBookCore is IOrderBookCore {
         uint16 reservedRiskCeiling,
         bool enforcePostOnly
     ) internal returns (uint128 mintedShares) {
+        _requireRiskIncreaseAllowed();
         if (lots == 0) revert ZeroAmount();
         if (enforcePostOnly) _assertPostOnly(side, tick);
 
