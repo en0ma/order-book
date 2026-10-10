@@ -52,13 +52,13 @@ contract MakerFundingCashflowConservationTest is TestBase {
         int256 netFunding;
         for (uint256 i; i < accounts.length; ++i) {
             (int80 position,,) = core.accountRisk(accounts[i]);
-            (, int256 trading, int256 funding,,) =
+            (, int256 trading, int256 funding,, int128 checkpoint) =
                 core.accountingStateTest(accounts[i]);
             netPosition += int256(position);
             netTrade += trading;
             // The taker's funding is pending until a state transition settles it.
             int256 pendingFunding =
-                -(int256(position) * int256(core.fundingIndexTest())) / 1e18;
+                -(int256(position) * (int256(core.fundingIndexTest()) - int256(checkpoint))) / 1e18;
             netFunding += funding + pendingFunding;
         }
 
