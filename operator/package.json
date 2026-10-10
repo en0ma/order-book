@@ -130,6 +130,11 @@
       "types": "./submission-journal.d.ts",
       "import": "./dist/submission-journal.js",
       "default": "./dist/submission-journal.js"
+    },
+    "./mm-execution": {
+      "types": "./mm-execution.d.ts",
+      "import": "./dist/mm-execution.js",
+      "default": "./dist/mm-execution.js"
     }
   },
   "files": [
@@ -167,6 +172,7 @@
     "accounting-audit.d.ts",
     "exchange-health.d.ts",
     "verified-oracle.d.ts",
-    "submission-journal.d.ts"
+    "submission-journal.d.ts",
+    "mm-execution.d.ts"
   ]
 }
