@@ -333,8 +333,9 @@ contract OrderBookCore is IOrderBookCore {
         uint256 accrued = uint256(uint128(packed));
         if (amount == 0 || amount > accrued) revert InsufficientCollateral();
 
-        _feeAccountingPacked =
-            ((packed >> 128) << 128) | (accrued - amount);
+        // amount <= the accrued low 128 bits, so subtraction cannot borrow
+        // from the high 128-bit maker rebate reserve.
+        _feeAccountingPacked = packed - amount;
         insuranceReserves += amount;
         emit ProtocolFeesAllocatedToInsurance(amount);
     }
