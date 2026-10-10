@@ -34,8 +34,7 @@ contract ChainlinkPriceSourceMainnetForkTest is TestBase {
             address(source), address(oracle), source.sourceScale(), 1, 3 days, 0
         );
         oracle.proposeUpdater(address(adapter));
-        vm.prank(address(adapter));
-        oracle.acceptUpdater();
+        adapter.acceptSinkUpdater();
 
         uint64 id = adapter.publish();
         assertEq(uint256(id), 2, "canonical observation not published");
