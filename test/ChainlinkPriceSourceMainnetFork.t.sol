@@ -9,7 +9,7 @@ import {TestBase} from "./TestBase.sol";
 /// @notice Runs against the actual Ethereum Chainlink ETH/USD proxy, not a mock feed.
 contract ChainlinkPriceSourceMainnetForkTest is TestBase {
     address internal constant ETH_USD =
-        0x5f4eC3Df9CBD43714FE2740f5E3616155C5b8419;
+        0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
 
     function testLiveChainlinkFeedPublishesToCanonicalOracle() public {
         vm.createSelectFork(vm.envString("ETH_RPC"));
