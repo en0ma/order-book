@@ -196,8 +196,8 @@ contract OrderBookCore is IOrderBookCore {
 
     /// @notice Funding updater may halt new risk; only owner may restore it.
     function setRiskIncreasePaused(bool paused) external {
-        if (msg.sender != owner && (msg.sender != fundingUpdater || !paused)) {
-            revert Unauthorized();
+        if (msg.sender != owner) {
+            if (!paused || msg.sender != fundingUpdater) revert Unauthorized();
         }
         riskIncreasePaused = paused;
     }
@@ -214,7 +214,7 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _requireModule() internal view {
-        if (msg.sender != advancedModule || msg.sender == address(0)) revert Unauthorized();
+        if (msg.sender != advancedModule) revert Unauthorized();
     }
 
     function _requireRiskModule() internal view {
