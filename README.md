@@ -9,6 +9,9 @@
 | System task | Document |
 | --- | --- |
 | Review all deployment features by subsystem | [System feature catalog](docs/FEATURE_CATALOG.md) |
+| List a new perpetual market | [Market listing](docs/MARKET_LISTING.md) |
+| Configure risk and other market parameters | [Parameter reference](docs/PARAMETER_REFERENCE.md) |
+| Secure admin and funding authority | [Governance and keys](docs/GOVERNANCE_AND_KEYS.md) |
 | See how teams connect frontends, indexers, keepers, makers and liquidators | [System integration flows](docs/INTEGRATION_FLOWS.md) |
 | Understand deployment contracts, trust boundaries and transaction flows | [System system architecture](docs/SYSTEM_ARCHITECTURE.md) |
 | Plan, deploy and operate a deployment DEX as a team | [System team handbook](docs/TEAM_HANDBOOK.md) |
