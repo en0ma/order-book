@@ -2,6 +2,8 @@
 
 The authoritative production market state resides in EVM contracts. The off-chain systems observe state and submit transactions. They do not replace Core custody or matching.
 
+> **Production integration diagrams:** See [production integration flows](PRODUCTION_INTEGRATION_FLOWS.md) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
+
 ## 1. Production component diagram
 
 ```mermaid
