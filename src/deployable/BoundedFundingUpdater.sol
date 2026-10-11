@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 /// @notice Optional bounded funding authority. Assign this contract as the Core funding updater.
 /// @dev No oracle vendor, funding formula, or matching contract changes are required.
 interface IFundingIndexCore {
-    function fundingIndexX18Value() external view returns (int128);
     function setFundingIndex(int128 nextFundingIndexX18) external;
     function setRiskIncreasePaused(bool paused) external;
 }
@@ -14,7 +13,6 @@ contract BoundedFundingUpdater {
     error Unauthorized();
     error UpdateTooEarly();
     error FundingDeltaTooLarge();
-    error FundingIndexChangedExternally();
 
     IFundingIndexCore public immutable core;
     address public immutable operator;
@@ -34,7 +32,7 @@ contract BoundedFundingUpdater {
         operator = operator_;
         minIntervalSeconds = minInterval_;
         maxAbsDeltaX18 = maxDelta_;
-        lastIndexX18 = IFundingIndexCore(core_).fundingIndexX18Value();
+        lastIndexX18 = 0;
         lastUpdateTime = block.timestamp;
     }
 
@@ -49,9 +47,9 @@ contract BoundedFundingUpdater {
         uint256 elapsed = block.timestamp - lastUpdateTime;
         if (elapsed < minIntervalSeconds) revert UpdateTooEarly();
 
-        // Never silently overwrite funding published through a different authority.
-        int128 previous = core.fundingIndexX18Value();
-        if (previous != lastIndexX18) revert FundingIndexChangedExternally();
+        // Core does not expose its index. Deploy and assign this authority before
+        // the first funding update; governance must not rotate it away and back.
+        int128 previous = lastIndexX18;
 
         int256 signedDelta = int256(nextIndex) - int256(previous);
         uint256 delta = uint256(signedDelta < 0 ? -signedDelta : signedDelta);
