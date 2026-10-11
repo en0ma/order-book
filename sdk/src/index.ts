@@ -1430,10 +1430,10 @@ export interface RuntimeCodeAttestationAdapter {
 }
 
 export class RuntimeCodeAttestationError extends Error {
-  constructor(
-    readonly failures: readonly { address?: Address; label: string; reason: string }[],
-  ) {
+  readonly failures: readonly { address?: Address; label: string; reason: string }[];
+  constructor(failures: readonly { address?: Address; label: string; reason: string }[]) {
     super(`runtime code attestation failed: ${failures.length} issue(s)`);
+    this.failures = failures;
   }
 }
 
