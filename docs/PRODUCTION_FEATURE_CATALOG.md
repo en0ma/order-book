@@ -1,10 +1,10 @@
-# Production Feature Catalog
+# System Feature Catalog
 
-This catalog describes the production integration surfaces in this repository. A listed feature is implemented code, not a guarantee that an exchange deployment is ready for unrestricted production funds. The integration team must test its own market parameters, oracle and operator configuration.
+This catalog describes the deployment integration surfaces in this repository. A listed feature is implemented code, not a guarantee that an exchange deployment is ready for unrestricted deployment funds. The integration team must test its own market parameters, oracle and operator configuration.
 
-## 1. Production matching and market state
+## 1. System matching and market state
 
-| Feature | Production behavior | Source |
+| Feature | System behavior | Source |
 | --- | --- | --- |
 | Fully on-chain CLOB | Contracts store authoritative bids, asks and executable liquidity | `src/deployable/OrderBookCore.sol` |
 | Price priority | Matching uses the best executable tick first | `OrderBookCore` |
@@ -15,11 +15,11 @@ This catalog describes the production integration surfaces in this repository. A
 | IOC and FOK | A taker can execute immediately or require a complete fill | `IOrderBookCore`, `OrderBookCore` |
 | Reduce-only and minimum-fill | Risk-reducing order constraints and minimum-fill execution | `OrderBookCore`, advanced integration |
 
-**Production concern:** A pro-rata maker must reconcile its on-chain share claims, pending fills and funding across pool generations. The indexer is not an authority for custody.
+**System concern:** A pro-rata maker must reconcile its on-chain share claims, pending fills and funding across pool generations. The indexer is not an authority for custody.
 
-## 2. Production advanced order features
+## 2. System advanced order features
 
-| Category | Production features | Component |
+| Category | System features | Component |
 | --- | --- | --- |
 | Conditional execution | Stop and take-profit triggers; market-like and triggered-limit activation | `AdvancedOrderModule` |
 | Linked instructions | OCO, OTO and bracket TP/SL composition | `AdvancedOrderModule` |
@@ -28,18 +28,18 @@ This catalog describes the production integration surfaces in this repository. A
 | Execution strategies | Iceberg replenishment, scheduled/TWAP slices and mark-pegged quotes | `ExecutionStrategyModule` |
 | Order safety | Post-only admission, reduce-only constraints and module share locks | Core, Advanced, Strategy |
 
-**Production concern:** Trigger conditions do not submit transactions by themselves. A production keeper must detect eligible work and submit it. During congestion, trigger execution can be late or fail.
+**System concern:** Trigger conditions do not submit transactions by themselves. A deployment keeper must detect eligible work and submit it. During congestion, trigger execution can be late or fail.
 
-## 3. Production market making
+## 3. System market making
 
 - `MarketMakerModule` supports batch quote refresh with typed and packed inputs.
 - Maker quotes use on-chain pool shares and lazy fills.
 - Maker software must track inventory, risk envelopes, accepted quote generations and transaction failures.
-- Each production exchange provides its own maker strategies, private keys, RPCs and uptime targets. The repository does not provide committed liquidity.
+- Each deployment exchange provides its own maker strategies, private keys, RPCs and uptime targets. The repository does not provide committed liquidity.
 
-## 4. Production risk, collateral and funding
+## 4. System risk, collateral and funding
 
-| Area | Implemented behavior | Production operator action |
+| Area | Implemented behavior | System operator action |
 | --- | --- | --- |
 | Standalone collateral | ERC-20 deposits and guarded withdrawals | Select and assess the token; reconcile custody |
 | Margin | Initial exposure reservation and marked account equity | Set conservative limits and test gaps |
@@ -50,18 +50,18 @@ This catalog describes the production integration surfaces in this repository. A
 | Portfolio margin | Shared collateral vault, coordinator and hedge-credit policy | Approve separately after cross-market validation |
 | Fee accounting | Taker fee and maker rebate ledgers, protocol fee allocation to insurance | Review treasury policy and distribution limitations |
 
-The production bounded funding wrapper cannot detect funding-index updates that the Core owner publishes through a different temporary updater. Refer to `docs/BOUNDED_FUNDING_UPDATER.md`.
+The deployment bounded funding wrapper cannot detect funding-index updates that the Core owner publishes through a different temporary updater. Refer to `docs/BOUNDED_FUNDING_UPDATER.md`.
 
-## 5. Production oracle and pricing integration
+## 5. System oracle and pricing integration
 
 - Mark oracle interface with execution bands and freshness controls in the selected adapter.
 - Extrema history interface for trailing-order execution.
 - Optional reference oracle adapters, including single-source configuration.
-- Your production oracle policy must specify stale data, feed outages, decimals, mark manipulation and chain sequencer interruptions where applicable.
+- Your deployment oracle policy must specify stale data, feed outages, decimals, mark manipulation and chain sequencer interruptions where applicable.
 
 Multiple oracle providers are **not** an unconditional protocol requirement.
 
-## 6. Production integration and operations
+## 6. System integration and operations
 
 | Layer | Repo asset | Team responsibility |
 | --- | --- | --- |
@@ -73,6 +73,6 @@ Multiple oracle providers are **not** an unconditional protocol requirement.
 | Frontend/API | Typed integration surfaces | Implement and host public user-facing services |
 | Testing | Foundry fuzz, gas budget and mainnet WETH fork scenarios | Run testnet stress, deployment audits and incident drills |
 
-## 7. Production assurance status
+## 7. System assurance status
 
-The repository includes reproducible tests and production-oriented operational guidance. A team's production release still requires an independent contract audit, resolved findings, tested real-world oracle/funding controls, market maker and liquidation capacity, incident drills, custody reconciliation and legal/compliance review as applicable. Do not describe these external approvals as already complete.
+The repository includes reproducible tests and deployable operational guidance. A team's deployment release still requires an independent contract audit, resolved findings, tested real-world oracle/funding controls, market maker and liquidation capacity, incident drills, custody reconciliation and legal/compliance review as applicable. Do not describe these external approvals as already complete.
