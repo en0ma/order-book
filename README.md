@@ -14,7 +14,7 @@
 | Build a production deployment | [Self-hosted deployment](docs/SELF_HOSTED_DEPLOYMENT.md) |
 | Integrate a production frontend and market maker | [Perp DEX integration guide](docs/PERP_DEX_INTEGRATION_GUIDE.md) |
 | Operate production keepers and recover from faults | [Operator runbook](docs/OPERATOR_RUNBOOK.md) |
-| Assess production assurance gaps and WETH fork evidence | [Security review](docs/SECURITY_REVIEW_WETH_FORK.md) |
+| Assess production assurance gaps and WETH fork evidence | [Security review](https://github.com/en0ma/order-book/pull/130) |
 | Review detailed matching and risk internals | [Architecture reference](docs/ARCHITECTURE.md) |
 
 ## Production quick start
