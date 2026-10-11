@@ -16,7 +16,7 @@
 - The Core **owner can rotate the funding updater**. Governance key security, monitoring, timelocks, and incident policy remain mandatory.
 - It is intentionally **fail closed after an unexpected external index change**. An explicitly approved new wrapper deployment and owner handoff are required to recover authority.
 - It does not itself fetch prices, attest oracle correctness, catch up elapsed funding, or ensure publishing liveness. Teams must build and verify these controls separately.
-- No mandatory dual oracle, and no change to `OrderBookCore` runtime size.
+- No mandatory dual oracle, and one minimal read-only `OrderBookCore.fundingIndex()` getter to detect unexpected index changes; its bytecode must pass the enforced 22,000-byte runtime limit.
 
 ## Acceptance criteria
 
