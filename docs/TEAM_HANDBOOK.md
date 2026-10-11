@@ -1,16 +1,18 @@
-# System DEX Team Handbook
+# DEX Team Handbook
 
-This handbook explains how a team can prepare and run its **own deployment EVM perpetual DEX** with this repository. The repository supplies the contracts and reference integration primitives. The team supplies keys, liquidity, funding and oracle policy, infrastructure, compliance decisions and an independently approved deployment release.
+This handbook explains how a team can prepare and run its **own EVM perpetual DEX** with this repository. The repository supplies the contracts and reference integration primitives. The team supplies keys, liquidity, funding and oracle policy, infrastructure, compliance decisions and an independently approved release.
 
-> **System integration diagrams:** See [deployment integration flows](/docs/INTEGRATION_FLOWS) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
+> **System integration diagrams:** See [integration flows](/docs/INTEGRATION_FLOWS) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
 
 > **Integration guides:** [List a market](/docs/MARKET_LISTING) · [Parameter reference](/docs/PARAMETER_REFERENCE) · [Governance and keys](/docs/GOVERNANCE_AND_KEYS).
 
-## 1. Assign deployment owners
+For broadcasting to Ethereum mainnet or another live chain, use the [network deployment guide](/docs/NETWORK_DEPLOYMENT). Local Foundry and fork tests do not deploy contracts.
+
+## 1. Assign team owners
 
 | System role | Required duty | Evidence before launch |
 | --- | --- | --- |
-| Protocol lead | Own parameters, release commit and contract manifest | Approved deployment specification |
+| Protocol lead | Own parameters, release commit and contract manifest | Approved market specificationification |
 | Security lead | Arrange external audit, triage findings and control access | Signed remediation and release review |
 | Deployment engineer | Broadcast and verify contracts | Chain-specific deployment records and runtime-code attestation |
 | Risk lead | Define leverage, fees, funding, oracle and insurance policy | Stress report and incident thresholds |
@@ -20,16 +22,16 @@ This handbook explains how a team can prepare and run its **own deployment EVM p
 
 Do not make one unreviewed private key the sole control for all deployment roles.
 
-## 2. Prepare the deployment environment
+## 2. Prepare the target network
 
 1. Pin the repository commit, Foundry compiler configuration and Node dependencies.
-2. Review [deployment feature catalog](/docs/FEATURE_CATALOG) and [deployment architecture](/docs/SYSTEM_ARCHITECTURE).
+2. Review [feature catalog](/docs/FEATURE_CATALOG) and [architecture](/docs/SYSTEM_ARCHITECTURE).
 3. Select collateral token, market parameters, mark oracle, extrema history and funding calculation. A single trusted oracle provider is permitted if your risk approval accepts it.
-4. Allocate a deployment admin Safe/timelock, funding operator, keeper transaction accounts and independent monitoring.
+4. Allocate a protocol admin Safe/timelock, funding operator, keeper transaction accounts and independent monitoring.
 5. Set an executable liquidity policy with participating market makers and a liquidation reserve plan.
 6. Record supported chain, RPC finality assumptions, block gas constraints and sequencer policy where relevant.
 
-## 3. Validate the deployment repository
+## 3. Validate the repository
 
 From the repository root:
 
@@ -45,10 +47,10 @@ The `ETH_RPC` value must be a real, trusted Ethereum mainnet RPC endpoint. The f
 
 Run package tests according to the package scripts in `sdk/package.json` and `operator/package.json`. Ensure every required GitHub Actions gate is green on the exact release commit.
 
-## 4. Build and deploy a deployment market
+## 4. Build and deploy a market
 
 1. Start with one standalone market. Do not enable portfolio margin during the first acceptance cycle.
-2. Copy the *structure* of `deployments/spec/example.json`, not its non-deployment addresses.
+2. Copy the *structure* of `deployments/spec/example.json`, not its non-deployed addresses.
 3. Validate the spec with `validateDeploymentSpec`.
 4. Use `compileDeploymentEnvironments` to produce the inputs expected by `script/DeployStandalone.s.sol`. Review chain IDs, collateral accounting scale, oracle address, fee schedule, margin and liquidation settings.
 5. Dry-run Foundry deployment and review gas, ownership and initialization outcomes.
@@ -59,7 +61,7 @@ Run package tests according to the package scripts in `sdk/package.json` and `op
 
 See [self-hosted deployment](/docs/SELF_HOSTED_DEPLOYMENT) for full Foundry environment variables, scripts, schemas and authority handoff.
 
-## 5. Bring up the deployment operator
+## 5. Bring up the operator
 
 1. Implement RPC, decoded event transport, durable checkpoint store, simulation and transaction submission.
 2. Configure confirmation depth and bounded block catch-up.
@@ -71,7 +73,7 @@ See [self-hosted deployment](/docs/SELF_HOSTED_DEPLOYMENT) for full Foundry envi
 
 The reference operator is a **library**, not a deployment hosted keeper service. See [operator runbook](/docs/OPERATOR_RUNBOOK).
 
-## 6. Qualify deployment market makers
+## 6. Qualify market makers
 
 - Test quote placement, packed and typed quote updates, cancellations and settlements.
 - Test pro-rata partial fills with multiple makers at one price.
@@ -101,7 +103,7 @@ The reference operator is a **library**, not a deployment hosted keeper service.
 - Alert when the Core funding updater changes or the bounded wrapper is no longer the approved active authority.
 - During outage, stop unsafe risk-increasing actions according to the team incident plan; maintain the owner-only process for unpause.
 - After recovery, reconcile canonical logs, direct Core state, vault/token balances and maker inventory before resuming deployment automation.
-- Store postmortems and changes to thresholds in deployment release records.
+- Store postmortems and changes to thresholds in release records.
 
 ## 9. Expand after the deployment pilot
 
