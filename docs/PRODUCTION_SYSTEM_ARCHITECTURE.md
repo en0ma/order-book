@@ -1,14 +1,14 @@
-# Production System Architecture and Trust Boundaries
+# System System Architecture and Trust Boundaries
 
-The authoritative production market state resides in EVM contracts. The off-chain systems observe state and submit transactions. They do not replace Core custody or matching.
+The authoritative deployment market state resides in EVM contracts. The off-chain systems observe state and submit transactions. They do not replace Core custody or matching.
 
-> **Production integration diagrams:** See [production integration flows](PRODUCTION_INTEGRATION_FLOWS.md) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
+> **System integration diagrams:** See [deployment integration flows](PRODUCTION_INTEGRATION_FLOWS.md) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
 
-## 1. Production component diagram
+## 1. System component diagram
 
 ```mermaid
 flowchart TD
-    T["Production trader or market maker"] --> UI["Frontend / API / SDK"]
+    T["System trader or market maker"] --> UI["Frontend / API / SDK"]
     UI --> RPC["Team-owned RPC and transaction sender"]
     RPC --> CORE["OrderBookCore: ticks, matching, ledger and margin"]
     RPC --> ADV["AdvancedOrderModule: conditional and linked orders"]
@@ -29,9 +29,9 @@ flowchart TD
     OPS --> RPC
 ```
 
-For standalone production markets, custody is in each `OrderBookCore`. In portfolio production mode, the shared vault holds collateral and the coordinator controls risk admission. These are distinct production deployment modes.
+For standalone deployment markets, custody is in each `OrderBookCore`. In portfolio deployment mode, the shared vault holds collateral and the coordinator controls risk admission. These are distinct deployment deployment modes.
 
-## 2. Production trade and settlement flow
+## 2. System trade and settlement flow
 
 ```mermaid
 sequenceDiagram
@@ -50,9 +50,9 @@ sequenceDiagram
     Core-->>Indexer: MakerSettled event
 ```
 
-**Production invariant:** Matching does not execute a per-maker write for each taker fill at one tick. Maker inventory must account for fills before materialization.
+**System invariant:** Matching does not execute a per-maker write for each taker fill at one tick. Maker inventory must account for fills before materialization.
 
-## 3. Production liquidation flow
+## 3. System liquidation flow
 
 ```mermaid
 flowchart TD
@@ -70,9 +70,9 @@ flowchart TD
     J -- Yes --> L["Assess terminal debt and available insurance"]
 ```
 
-A production liquidator cannot close more lots than the order book can execute. Correct risk accounting does not guarantee adequate exit liquidity.
+A deployment liquidator cannot close more lots than the order book can execute. Correct risk accounting does not guarantee adequate exit liquidity.
 
-## 4. Production operator recovery flow
+## 4. System operator recovery flow
 
 ```mermaid
 flowchart LR
@@ -88,9 +88,9 @@ flowchart LR
     I --> B
 ```
 
-Use a transaction store with durable nonces and idempotency. The reference operator library is not a managed production RPC, database or signing service.
+Use a transaction store with durable nonces and idempotency. The reference operator library is not a managed deployment RPC, database or signing service.
 
-## 5. Production security authority matrix
+## 5. System security authority matrix
 
 | Actor | Authorized capability | Risk boundary |
 | --- | --- | --- |
@@ -103,13 +103,13 @@ Use a transaction store with durable nonces and idempotency. The reference opera
 | Portfolio coordinator | Route risk admission and shared collateral changes | Cross-market system has additional correlated risk |
 | Indexer | Reconstruct observable state | Reorgs and omissions must not authorize unsafe action |
 
-## 6. Production failure rules
+## 6. System failure rules
 
-- If the deployment manifest, bytecode identity or wiring does not match, do not start production keepers.
-- If oracle freshness or funding calculations are unsafe, stop production risk-increasing activity under the approved response policy.
+- If the deployment manifest, bytecode identity or wiring does not match, do not start deployment keepers.
+- If oracle freshness or funding calculations are unsafe, stop deployment risk-increasing activity under the approved response policy.
 - If the keeper cannot reconstruct active orders, do not assume the account has no orders. Reconcile and alert.
 - If liquidation liquidity is absent, preserve residual exposure in operational metrics. Do not report a completed closeout.
 - If a fork or reorg invalidates a checkpoint, replay the canonical branch before publishing keeper actions.
-- Do not authorize production operation solely because unit tests and a mainnet fork passed.
+- Do not authorize deployment operation solely because unit tests and a mainnet fork passed.
 
-See [architecture internals](ARCHITECTURE.md), [production team handbook](PRODUCTION_TEAM_HANDBOOK.md), [operator runbook](OPERATOR_RUNBOOK.md) and [WETH fork review](https://github.com/en0ma/order-book/blob/main/docs/SECURITY_REVIEW_WETH_FORK.md).
+See [architecture internals](ARCHITECTURE.md), [deployment team handbook](PRODUCTION_TEAM_HANDBOOK.md), [operator runbook](OPERATOR_RUNBOOK.md) and [WETH fork review](https://github.com/en0ma/order-book/blob/main/docs/SECURITY_REVIEW_WETH_FORK.md).
