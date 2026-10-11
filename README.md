@@ -8,10 +8,10 @@
 
 | System task | Document |
 | --- | --- |
-| Review all deployment features by subsystem | [System feature catalog](docs/PRODUCTION_FEATURE_CATALOG.md) |
-| See how teams connect frontends, indexers, keepers, makers and liquidators | [System integration flows](docs/PRODUCTION_INTEGRATION_FLOWS.md) |
-| Understand deployment contracts, trust boundaries and transaction flows | [System system architecture](docs/PRODUCTION_SYSTEM_ARCHITECTURE.md) |
-| Plan, deploy and operate a deployment DEX as a team | [System team handbook](docs/PRODUCTION_TEAM_HANDBOOK.md) |
+| Review all deployment features by subsystem | [System feature catalog](docs/FEATURE_CATALOG.md) |
+| See how teams connect frontends, indexers, keepers, makers and liquidators | [System integration flows](docs/INTEGRATION_FLOWS.md) |
+| Understand deployment contracts, trust boundaries and transaction flows | [System system architecture](docs/SYSTEM_ARCHITECTURE.md) |
+| Plan, deploy and operate a deployment DEX as a team | [System team handbook](docs/TEAM_HANDBOOK.md) |
 | Build a deployment deployment | [Self-hosted deployment](docs/SELF_HOSTED_DEPLOYMENT.md) |
 | Integrate a deployment frontend and market maker | [Perp DEX integration guide](docs/PERP_DEX_INTEGRATION_GUIDE.md) |
 | Operate deployment keepers and recover from faults | [Operator runbook](docs/OPERATOR_RUNBOOK.md) |
@@ -28,7 +28,7 @@ forge snapshot
 ETH_RPC=https://YOUR_MAINNET_RPC forge test --match-contract PerpLifecycleWethMainnetForkTest -vvv
 ```
 
-See the [deployment team handbook](docs/PRODUCTION_TEAM_HANDBOOK.md) for deployment preparation, verification, market-maker onboarding, operational recovery, and release gates. The example deployment manifests use non-deployment addresses.
+See the [deployment team handbook](docs/TEAM_HANDBOOK.md) for deployment preparation, verification, market-maker onboarding, operational recovery, and release gates. The example deployment manifests use non-deployment addresses.
 
 ---
 ## System protocol reference
