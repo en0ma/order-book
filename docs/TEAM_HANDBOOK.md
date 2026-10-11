@@ -2,7 +2,7 @@
 
 This handbook explains how a team can prepare and run its **own deployment EVM perpetual DEX** with this repository. The repository supplies the contracts and reference integration primitives. The team supplies keys, liquidity, funding and oracle policy, infrastructure, compliance decisions and an independently approved deployment release.
 
-> **System integration diagrams:** See [deployment integration flows](PRODUCTION_INTEGRATION_FLOWS.md) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
+> **System integration diagrams:** See [deployment integration flows](INTEGRATION_FLOWS.md) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
 
 ## 1. Assign deployment owners
 
@@ -21,7 +21,7 @@ Do not make one unreviewed private key the sole control for all deployment roles
 ## 2. Prepare the deployment environment
 
 1. Pin the repository commit, Foundry compiler configuration and Node dependencies.
-2. Review [deployment feature catalog](PRODUCTION_FEATURE_CATALOG.md) and [deployment architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md).
+2. Review [deployment feature catalog](FEATURE_CATALOG.md) and [deployment architecture](SYSTEM_ARCHITECTURE.md).
 3. Select collateral token, market parameters, mark oracle, extrema history and funding calculation. A single trusted oracle provider is permitted if your risk approval accepts it.
 4. Allocate a deployment admin Safe/timelock, funding operator, keeper transaction accounts and independent monitoring.
 5. Set an executable liquidity policy with participating market makers and a liquidation reserve plan.
@@ -107,4 +107,4 @@ Scale markets, maker capacity and operator replicas only after the first market 
 
 ## Additional deployment references
 
-[Integration guide](PERP_DEX_INTEGRATION_GUIDE.md) · [Operator runbook](OPERATOR_RUNBOOK.md) · [Architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md) · [Feature catalog](PRODUCTION_FEATURE_CATALOG.md) · [Bounded funding](BOUNDED_FUNDING_UPDATER.md) · [Mainnet fork review](https://github.com/en0ma/order-book/pull/130)
+[Integration guide](PERP_DEX_INTEGRATION_GUIDE.md) · [Operator runbook](OPERATOR_RUNBOOK.md) · [Architecture](SYSTEM_ARCHITECTURE.md) · [Feature catalog](FEATURE_CATALOG.md) · [Bounded funding](BOUNDED_FUNDING_UPDATER.md) · [Mainnet fork review](https://github.com/en0ma/order-book/pull/130)
