@@ -4,6 +4,12 @@ The authoritative deployment market state resides in EVM contracts. The off-chai
 
 > **System integration diagrams:** See [deployment integration flows](INTEGRATION_FLOWS.md) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
 
+> **Integration guides:** [List a market](MARKET_LISTING.md) · [Parameter reference](PARAMETER_REFERENCE.md) · [Governance and keys](GOVERNANCE_AND_KEYS.md).
+
+![DEX integration architecture](assets/diagrams/dex-integration.svg)
+
+[Edit the architecture diagram](assets/diagrams/source/dex-integration.drawio).
+
 ## 1. System component diagram
 
 ```mermaid
