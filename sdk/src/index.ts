@@ -1412,3 +1412,83 @@ export async function executeDeploymentVerification(
   };
 }
 
+
+
+/** Runtime bytecode after immutable constructor values and library links are resolved.
+ * Provide this from a reproducible, independently reviewed deployment build.
+ * All supplied addresses are mandatory: this is not a best-effort check.
+ */
+export interface ExpectedRuntimeCode {
+  address: Address;
+  runtimeCode: Hex;
+  label?: string;
+}
+
+export interface RuntimeCodeAttestationAdapter {
+  chainId(): Promise<number>;
+  getCode(address: Address): Promise<string>;
+}
+
+export class RuntimeCodeAttestationError extends Error {
+  readonly failures: readonly { address?: Address; label: string; reason: string }[];
+  constructor(failures: readonly { address?: Address; label: string; reason: string }[]) {
+    super(`runtime code attestation failed: ${failures.length} issue(s)`);
+    this.failures = failures;
+  }
+}
+
+/** Compare exact deployed runtime bytes with reviewed, deployment-specific artifacts.
+ * No normalization, metadata stripping, or wildcard matches are permitted.
+ * Call separately from verifyDeploymentOrThrow; wiring verification is not code identity.
+ */
+export async function attestRuntimeCodeOrThrow(
+  chainId: number,
+  expected: readonly ExpectedRuntimeCode[],
+  adapter: RuntimeCodeAttestationAdapter,
+): Promise<void> {
+  if (!Number.isSafeInteger(chainId) || chainId <= 0 || expected.length === 0) {
+    throw new TypeError("expected chain and nonempty reviewed runtime code set required");
+  }
+  const seen = new Set<string>();
+  for (const entry of expected) {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(entry.address) ||
+        !/^0x(?:[0-9a-fA-F]{2})+$/.test(entry.runtimeCode)) {
+      throw new TypeError("invalid reviewed address or runtime code");
+    }
+    const normalized = entry.address.toLowerCase();
+    if (seen.has(normalized)) throw new TypeError("duplicate attested address");
+    seen.add(normalized);
+  }
+  if (typeof adapter?.chainId !== "function" || typeof adapter.getCode !== "function") {
+    throw new TypeError("chainId and getCode are mandatory for attestation");
+  }
+  const failures: { address?: Address; label: string; reason: string }[] = [];
+  try {
+    const actualChainId = await adapter.chainId();
+    if (actualChainId !== chainId) {
+      failures.push({ label: "chain", reason: `expected ${chainId}, received ${actualChainId}` });
+    }
+  } catch (error) {
+    failures.push({ label: "chain", reason: error instanceof Error ? error.message : String(error) });
+  }
+  // Never attest contracts against an unverified chain.
+  if (failures.length !== 0) throw new RuntimeCodeAttestationError(failures);
+  for (const entry of expected) {
+    try {
+      const actual = await adapter.getCode(entry.address);
+      if (!/^0x(?:[0-9a-fA-F]{2})+$/.test(actual) ||
+          actual.toLowerCase() !== entry.runtimeCode.toLowerCase()) {
+        failures.push({
+          address: entry.address, label: entry.label ?? entry.address,
+          reason: "runtime bytecode differs from reviewed artifact",
+        });
+      }
+    } catch (error) {
+      failures.push({
+        address: entry.address, label: entry.label ?? entry.address,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  if (failures.length !== 0) throw new RuntimeCodeAttestationError(failures);
+}
