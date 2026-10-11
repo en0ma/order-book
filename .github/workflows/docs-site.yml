@@ -1,0 +1,37 @@
+name: docs-site
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'docs.json'
+      - 'README.md'
+      - 'scripts/check-docs.mjs'
+      - '.github/workflows/docs-site.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'docs.json'
+      - 'README.md'
+      - 'scripts/check-docs.mjs'
+      - '.github/workflows/docs-site.yml'
+permissions:
+  contents: read
+jobs:
+  docs:
+    name: Docs navigation and Mintlify build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check repository pages and assets
+        run: node scripts/check-docs.mjs
+      - name: Install Mintlify CLI
+        run: npm install --global mint
+      - name: Validate Mintlify site
+        run: mint validate
+      - name: Check Mintlify links
+        run: mint broken-links
