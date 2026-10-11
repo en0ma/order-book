@@ -9,6 +9,7 @@
 | Production task | Document |
 | --- | --- |
 | Review all production features by subsystem | [Production feature catalog](docs/PRODUCTION_FEATURE_CATALOG.md) |
+| See how teams connect frontends, indexers, keepers, makers and liquidators | [Production integration flows](docs/PRODUCTION_INTEGRATION_FLOWS.md) |
 | Understand production contracts, trust boundaries and transaction flows | [Production system architecture](docs/PRODUCTION_SYSTEM_ARCHITECTURE.md) |
 | Plan, deploy and operate a production DEX as a team | [Production team handbook](docs/PRODUCTION_TEAM_HANDBOOK.md) |
 | Build a production deployment | [Self-hosted deployment](docs/SELF_HOSTED_DEPLOYMENT.md) |
