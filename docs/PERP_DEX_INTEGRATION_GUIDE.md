@@ -12,7 +12,7 @@ This is an **operator-owned deployment guide**, not a hosted turnkey DEX and not
 | Risk and liquidation | Maintenance check, bounded reduce-only liquidation, reserve accounting | Liquidation bots, executable opposing liquidity, insurance funding policy |
 | Indexer/API | Reference event decoder, indexer, replay/checkpoint, operator read model | Reliable RPC/database, canonical-state reconciliation, frontend API |
 | Operator | Supervised replay and guarded keeper dispatch | Durable idempotency, RPC redundancy, observability, signers and uptime |
-| Oracles | Compatible mark interface and optional reference feed adapters | **Choose one provider or multiple**, verify source precision/staleness/sequencer policy |
+| Oracles | Compatible mark interface and optional reference feed adapters | **Choose one provider or multiple**, verify source precision/staleness/sequencer policy, and supply `IExtremaOracle` history for trailing orders |
 
 Do not install a cross-source oracle unless the deployment itself calls for one. The single-source path is supported.
 
@@ -21,7 +21,7 @@ Do not install a cross-source oracle unless the deployment itself calls for one.
 1. Clone the repository and pin a reviewed release commit, Solidity compiler `0.8.24`, Foundry and Node versions.
 2. Install the dependencies actually declared by the repository. Run `forge test -vvv`, `forge test --gas-report`, and the SDK/indexer/operator package test commands from their respective package directories.
 3. Create a declarative spec using `deployments/spec/schema/v1.json`. The sample at `deployments/spec/example.json` contains non-production addresses; **do not reuse them**.
-4. Choose a vetted ERC-20, desired market symbol, matching chain, mark oracle, funding updater, governance Safe/timelock, execution band, initial/maintenance margins, tick/lot accounting scale, fee schedule and liquidator incentive.
+4. Choose a vetted ERC-20, desired market symbol, matching chain, compatible mark oracle **with the extrema history interface required by `AdvancedOrderModule` when trailing orders are enabled**, funding updater, governance Safe/timelock, execution band, initial/maintenance margins, tick/lot accounting scale, fee schedule and liquidator incentive.
 5. Run the SDK `validateDeploymentSpec` and `compileDeploymentEnvironments` functions; apply the output to the Foundry broadcast environment. The exact standalone fields are in [SELF_HOSTED_DEPLOYMENT.md](SELF_HOSTED_DEPLOYMENT.md).
 6. Simulate, inspect, then broadcast:
 
@@ -32,7 +32,7 @@ forge script script/DeployStandalone.s.sol:DeployStandalone --rpc-url "$RPC_URL"
 forge script script/DeployStandalone.s.sol:DeployStandalone --rpc-url "$RPC_URL" --broadcast -vvvv
 ```
 
-7. Collect actual deployed addresses and the deployment block. Use the SDK `buildDeploymentManifest` to generate `deployments/schema/v1.json`-compatible output. Run `verifyDeploymentOrThrow` / `executeDeploymentVerification` against the intended chain; **fail closed** on bytecode, ownership, oracle, scale, margin, module or chain mismatches.
+7. Collect actual deployed addresses and the deployment block. Use the SDK `buildDeploymentManifest` to generate `deployments/schema/v1.json`-compatible output. Run `verifyDeploymentOrThrow` / `executeDeploymentVerification` against the intended chain; **fail closed** on missing code, ownership, oracle, scale, margin, module or chain mismatches. **The SDK only verifies bytecode presence, not code identity.** Independently compare each deployed contract's runtime bytecode hash (including linked-library/immutable normalization as appropriate) with the reviewed, reproducible compiler artifact before any production sign-off.
 8. Record admin/funding powers. Never leave privileged production ownership on a throwaway broadcaster key.
 
 For cross-market shared collateral use `DeployPortfolio` only after isolated-mode validation. Portfolio admission and liquidation introduce additional operational dependencies.
@@ -89,7 +89,7 @@ A green unit test suite is necessary but does not prove liveness or market econo
 **Do not launch unrestricted real-money trading until:**
 
 - Independent security audits and remediation have been completed on the *deployed* build/configuration.
-- Final deployed bytecode, authority handoffs, fee schedule and oracle freshness/scale are verified on-chain.
+- Final deployed runtime bytecode hashes are compared with independently reviewed reproducible artifacts; separately verify authority handoffs, fee schedule and oracle freshness/scale on-chain.
 - Liquidator profitability and market-maker depth have been tested against severe but plausible jumps.
 - Insurance policy, known residual debt states, and deficit management are documented.
 - Keeper/indexer failover, finality, persistence and RPC divergence are rehearsed.
