@@ -1,0 +1,49 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Order Book",
+  "description": "On-chain perpetual order book, risk, and integration documentation",
+  "colors": {
+    "primary": "#285D79",
+    "light": "#3386A7",
+    "dark": "#7BC1DF"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Start here",
+        "pages": [
+          "docs/TEAM_HANDBOOK",
+          "docs/MARKET_LISTING",
+          "docs/FEATURE_CATALOG"
+        ]
+      },
+      {
+        "group": "Concepts and architecture",
+        "pages": [
+          "docs/SYSTEM_ARCHITECTURE",
+          "docs/INTEGRATION_FLOWS",
+          "docs/ARCHITECTURE"
+        ]
+      },
+      {
+        "group": "Build your DEX",
+        "pages": [
+          "docs/SELF_HOSTED_DEPLOYMENT",
+          "docs/PERP_DEX_INTEGRATION_GUIDE",
+          "docs/PARAMETER_REFERENCE",
+          "docs/GOVERNANCE_AND_KEYS"
+        ]
+      },
+      {
+        "group": "Operate and secure",
+        "pages": [
+          "docs/OPERATOR_RUNBOOK",
+          "docs/BOUNDED_FUNDING_UPDATER",
+          "docs/SECURITY_REVIEW_WETH_FORK",
+          "docs/DOCS_CONTRIBUTING"
+        ]
+      }
+    ]
+  }
+}
