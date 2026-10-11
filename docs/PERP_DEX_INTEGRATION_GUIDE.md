@@ -108,3 +108,8 @@ A green unit test suite is necessary but does not prove liveness or market econo
 - `test/MainnetFork.t.sol`: real mainnet WETH custody baseline
 
 The reference integration is modular intentionally: a team can select its preferred RPC, signer, database, and single oracle without changing the fully on-chain matching architecture.
+
+
+### Executable code-identity gate
+
+In addition to the SDK's wiring and code-presence checks, call `attestRuntimeCodeOrThrow` with **every** protocol contract's deployment-specific, independently reviewed runtime artifact. Runtime bytecode must be the final linked code with constructor immutables resolved. The helper rejects a wrong chain, missing code, byte mismatch and RPC errors. Teams must independently review proxy implementation identities and any unlisted tokens/oracles. The helper does not generate reproducible artifacts or replace independent contract audits.
