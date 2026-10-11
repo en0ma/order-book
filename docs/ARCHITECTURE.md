@@ -1,8 +1,8 @@
 # Architecture
 
-> **Production documentation:** See [production feature catalog](PRODUCTION_FEATURE_CATALOG.md), [production system architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md), and [production team handbook](PRODUCTION_TEAM_HANDBOOK.md). These explain production interfaces, team duties and release checks. An external audit and a deployment-specific production approval are still required before unrestricted customer funds.
+> **System documentation:** See [deployment feature catalog](PRODUCTION_FEATURE_CATALOG.md), [deployment system architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md), and [deployment team handbook](PRODUCTION_TEAM_HANDBOOK.md). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
 
-This repository implements a production-bound fully on-chain derivatives order book optimized around one defining constraint:
+This repository implements a deployment-bound fully on-chain derivatives order book optimized around one defining constraint:
 
 Taker execution should scale with the number of price levels crossed, not the number of makers filled.
 
@@ -125,11 +125,11 @@ Implemented in the deployable architecture:
 - ERC-20 custody, realized-PnL withdrawals, fee/insurance settlement and terminal bad-debt coverage
 - fuzz/property/state-machine tests, gas ceilings, strict bytecode budgets and Ethereum mainnet-fork custody tests
 
-Production hardening still required before deployment:
+System hardening still required before deployment:
 - independent security audits and remediation
 - deployment/configuration validation and operational runbooks
 - emergency/guardian controls with narrowly defined authority
-- production token decimal/price-scale normalization
+- deployment token decimal/price-scale normalization
 - oracle liveness/failure-mode hardening for deployment-specific adapters
 - broader adversarial invariant, fork and long-horizon economic testing
 
@@ -188,7 +188,7 @@ This gives a mark-to-market equity identity in protocol-native tick/lot units:
 
 equity = collateral + tradeCashflow + fundingCashflow + position * markTick
 
-Production deployments must normalize token decimals and price scales explicitly.
+System deployments must normalize token decimals and price scales explicitly.
 
 ## Reduce-only
 
@@ -311,7 +311,7 @@ Measured runtime sizes demonstrated the problem:
 - reference monolith, size profile: about 40.6 KB;
 - EIP-170 limit: 24,576 bytes.
 
-The production-oriented architecture separates the protocol into specialized deployable contracts.
+The deployable architecture separates the protocol into specialized deployable contracts.
 
 ### OrderBookCore
 
@@ -414,7 +414,7 @@ The deployable code follows four boundaries.
 
 3. **Shared pure semantics.** OrderBookMath centralizes side inversion, price-limit comparison, bounded tick arithmetic, signed-position absolute value and share redemption. Storage-heavy matching/bitmap logic intentionally remains internal to the core so abstraction does not introduce external-call overhead on the hot path.
 
-4. **Immutable market configuration.** The deployable core receives collateral token, mark oracle, execution band and initial-margin parameters in its constructor. The research monolith retains flexible configuration for experiments, but production runtime does not carry optional token/oracle/risk branches.
+4. **Immutable market configuration.** The deployable core receives collateral token, mark oracle, execution band and initial-margin parameters in its constructor. The research monolith retains flexible configuration for experiments, but deployment runtime does not carry optional token/oracle/risk branches.
 
 Atomic minimum-fill is implemented in AdvancedOrderModule by calling the core IOC primitive and reverting if the returned fill is below the threshold. Because the entire cross-contract transaction reverts, partial core mutations are rolled back without requiring a second liquidity-scanning primitive in the core.
 
