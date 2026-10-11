@@ -1,6 +1,6 @@
 # Self-Hosted Deployment
 
-> **Production documentation:** See [production feature catalog](PRODUCTION_FEATURE_CATALOG.md), [production system architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md), and [production team handbook](PRODUCTION_TEAM_HANDBOOK.md). These explain production interfaces, team duties and release checks. An external audit and a deployment-specific production approval are still required before unrestricted customer funds.
+> **System documentation:** See [deployment feature catalog](PRODUCTION_FEATURE_CATALOG.md), [deployment system architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md), and [deployment team handbook](PRODUCTION_TEAM_HANDBOOK.md). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
 
 This repository is intended to be forked or cloned by DeFi teams that operate their own DEX deployments.
 
@@ -13,7 +13,7 @@ Each team is expected to:
 - run its own indexer, keepers, liquidators, market-making infrastructure, RPC stack and frontend/backend;
 - publish its own deployment manifest for clients and operators.
 
-The repository does not assume a hosted control plane or shared production deployment.
+The repository does not assume a hosted control plane or shared deployment deployment.
 
 ## Declarative deployment spec
 
@@ -37,7 +37,7 @@ The intended self-hosted workflow is:
 8. require the verifier to confirm the expected chain, deployed bytecode, protocol-admin handoff, per-market funding updater, module wiring, accounting scale and portfolio policy/vault/coordinator state;
 9. only then publish the manifest and start the team's indexer/keeper/MM services.
 
-`deployments/spec/example.json` is a non-production portfolio example. It intentionally contains placeholder addresses and must not be reused as a live deployment.
+`deployments/spec/example.json` is a non-deployment portfolio example. It intentionally contains placeholder addresses and must not be reused as a live deployment.
 
 ## Standalone market bootstrap
 
@@ -91,7 +91,7 @@ forge script script/DeployStandalone.s.sol:DeployStandalone \
 
 The funded broadcaster performs deployment and one-time wiring. The configured protocol admin receives the long-lived administrative authority before the script finishes, while the configured funding updater receives only the Core funding-update role.
 
-Before a production broadcast, run the script without `--broadcast` against the target RPC and verify every address and parameter.
+Before a deployment broadcast, run the script without `--broadcast` against the target RPC and verify every address and parameter.
 
 ## Market listing model
 
@@ -129,7 +129,7 @@ A deployment team should:
 7. run smoke trades and recovery checks before enabling public access;
 8. complete deployment-specific security and operational review.
 
-The example manifest under `deployments/example.json` is not a production deployment and its addresses must not be reused.
+The example manifest under `deployments/example.json` is not a deployment deployment and its addresses must not be reused.
 
 ## Portfolio deployments
 
