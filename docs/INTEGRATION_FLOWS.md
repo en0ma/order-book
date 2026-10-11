@@ -4,6 +4,12 @@ This guide shows how a team integrates the deployable contracts with its own per
 
 For full procedures, read the [deployment team handbook](TEAM_HANDBOOK.md), [system architecture](SYSTEM_ARCHITECTURE.md), [operator runbook](OPERATOR_RUNBOOK.md), and [deployment guide](SELF_HOSTED_DEPLOYMENT.md).
 
+> **Integration guides:** [List a market](MARKET_LISTING.md) · [Parameter reference](PARAMETER_REFERENCE.md) · [Governance and keys](GOVERNANCE_AND_KEYS.md).
+
+![DEX integration architecture](assets/diagrams/dex-integration.svg)
+
+[Edit the architecture diagram](assets/diagrams/source/dex-integration.drawio).
+
 ## 1. What a deployment DEX team receives and builds
 
 ```mermaid
