@@ -6,7 +6,6 @@ import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
 import {AdvancedOrderModule} from "../src/deployable/AdvancedOrderModule.sol";
 import {MarketMakerModule} from "../src/deployable/MarketMakerModule.sol";
 import {LiquidationModule} from "../src/deployable/LiquidationModule.sol";
-import {IntegrationLens} from "../src/deployable/IntegrationLens.sol";
 import {SegmentTreeExtremaOracle} from "../src/SegmentTreeExtremaOracle.sol";
 interface IWrappedEther {
     function deposit() external payable;
@@ -32,8 +31,10 @@ contract PerpLifecycleWethMainnetForkTest is TestBase {
         _fund(MAKER, core);
         _fund(TRADER, core);
         _fund(OTHER_MAKER, core);
+        MarketMakerModule.QuoteUpdate[] memory asks = new MarketMakerModule.QuoteUpdate[](1);
+        asks[0] = MarketMakerModule.QuoteUpdate({side: IOrderBookCore.Side.Ask, tick: 100, lots: 40});
         vm.prank(MAKER);
-        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 40);
+        mm.batchReplaceQuotes(asks);
         vm.prank(TRADER);
         assertEq(core.take(IOrderBookCore.Side.Bid, 100, 40, IOrderBookCore.FillPolicy.IOC), 40, "opening trade");
         vm.prank(MAKER);
@@ -43,8 +44,10 @@ contract PerpLifecycleWethMainnetForkTest is TestBase {
         (int80 shortPosition,,) = core.accountRisk(MAKER);
         assertEq(int256(shortPosition), -40, "short counterparty");
         core.setFundingIndex(1e18);
+        MarketMakerModule.QuoteUpdate[] memory bids = new MarketMakerModule.QuoteUpdate[](1);
+        bids[0] = MarketMakerModule.QuoteUpdate({side: IOrderBookCore.Side.Bid, tick: 100, lots: 40});
         vm.prank(OTHER_MAKER);
-        core.addLiquidity(IOrderBookCore.Side.Bid, 100, 40);
+        mm.batchReplaceQuotes(bids);
         vm.prank(TRADER);
         assertEq(core.take(IOrderBookCore.Side.Ask, 100, 40, IOrderBookCore.FillPolicy.IOC), 40, "closing trade");
         vm.prank(OTHER_MAKER);
