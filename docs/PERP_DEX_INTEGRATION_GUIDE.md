@@ -39,7 +39,7 @@ For cross-market shared collateral use `DeployPortfolio` only after isolated-mod
 
 ## 3. Required maker integration
 
-Each maker should verify the market addresses and current mark, fund collateral, and approve the Core ERC-20 spending path before submitting quotes. Use the SDK's canonical packed quote encoding or typed `MarketMakerModule.batchReplaceQuotes` transaction plans. Batches must be **strictly ordered by side and tick with no duplicates**. `batchReplaceQuotesPacked` uses one 16-byte record per quote: 96-bit quantity, 16-bit tick, one side bit, and zero reserved bits.
+Each maker must verify market addresses and the current mark before funding. In **standalone mode**, approve the collateral ERC-20 spender at `OrderBookCore` and deposit through Core. In **portfolio mode**, approve `PortfolioCollateralVault` as spender and deposit through the vault or SDK portfolio deposit route; Core direct deposits revert once portfolio mode is enabled. Use the SDK's canonical packed quote encoding or typed `MarketMakerModule.batchReplaceQuotes` transaction plans. Batches must be **strictly ordered by side and tick with no duplicates**. `batchReplaceQuotesPacked` uses one 16-byte record per quote: 96-bit quantity, 16-bit tick, one side bit, and zero reserved bits.
 
 A maker should **not** infer its executed inventory solely from deposited shares, order placement events or off-chain target quotes. Fills are **lazy**: read the Core / IntegrationLens and the appropriate generation; settle or reconcile on-chain before making withdrawal or liquidation assumptions.
 
