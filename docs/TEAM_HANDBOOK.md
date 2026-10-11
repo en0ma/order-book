@@ -2,9 +2,9 @@
 
 This handbook explains how a team can prepare and run its **own deployment EVM perpetual DEX** with this repository. The repository supplies the contracts and reference integration primitives. The team supplies keys, liquidity, funding and oracle policy, infrastructure, compliance decisions and an independently approved deployment release.
 
-> **System integration diagrams:** See [deployment integration flows](INTEGRATION_FLOWS.md) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
+> **System integration diagrams:** See [deployment integration flows](/docs/INTEGRATION_FLOWS) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
 
-> **Integration guides:** [List a market](MARKET_LISTING.md) · [Parameter reference](PARAMETER_REFERENCE.md) · [Governance and keys](GOVERNANCE_AND_KEYS.md).
+> **Integration guides:** [List a market](/docs/MARKET_LISTING) · [Parameter reference](/docs/PARAMETER_REFERENCE) · [Governance and keys](/docs/GOVERNANCE_AND_KEYS).
 
 ## 1. Assign deployment owners
 
@@ -23,7 +23,7 @@ Do not make one unreviewed private key the sole control for all deployment roles
 ## 2. Prepare the deployment environment
 
 1. Pin the repository commit, Foundry compiler configuration and Node dependencies.
-2. Review [deployment feature catalog](FEATURE_CATALOG.md) and [deployment architecture](SYSTEM_ARCHITECTURE.md).
+2. Review [deployment feature catalog](/docs/FEATURE_CATALOG) and [deployment architecture](/docs/SYSTEM_ARCHITECTURE).
 3. Select collateral token, market parameters, mark oracle, extrema history and funding calculation. A single trusted oracle provider is permitted if your risk approval accepts it.
 4. Allocate a deployment admin Safe/timelock, funding operator, keeper transaction accounts and independent monitoring.
 5. Set an executable liquidity policy with participating market makers and a liquidation reserve plan.
@@ -57,7 +57,7 @@ Run package tests according to the package scripts in `sdk/package.json` and `op
 8. Compare each required deployed runtime bytecode against the reviewed build with `attestRuntimeCodeOrThrow`. The caller must provide a **complete** expected address set; the helper does not discover omitted contracts.
 9. Publish the reviewed manifest and store its digest with operator checkpoints. Repeat the procedure for a later approved deployment chain release.
 
-See [self-hosted deployment](SELF_HOSTED_DEPLOYMENT.md) for full Foundry environment variables, scripts, schemas and authority handoff.
+See [self-hosted deployment](/docs/SELF_HOSTED_DEPLOYMENT) for full Foundry environment variables, scripts, schemas and authority handoff.
 
 ## 5. Bring up the deployment operator
 
@@ -69,7 +69,7 @@ See [self-hosted deployment](SELF_HOSTED_DEPLOYMENT.md) for full Foundry environ
 6. Put transaction simulation before signing. Use durable nonce tracking and idempotent task keys.
 7. Run a controlled outage and restart drill. Record recovery time and missed-action counts.
 
-The reference operator is a **library**, not a deployment hosted keeper service. See [operator runbook](OPERATOR_RUNBOOK.md).
+The reference operator is a **library**, not a deployment hosted keeper service. See [operator runbook](/docs/OPERATOR_RUNBOOK).
 
 ## 6. Qualify deployment market makers
 
@@ -109,4 +109,4 @@ Scale markets, maker capacity and operator replicas only after the first market 
 
 ## Additional deployment references
 
-[Integration guide](PERP_DEX_INTEGRATION_GUIDE.md) · [Operator runbook](OPERATOR_RUNBOOK.md) · [Architecture](SYSTEM_ARCHITECTURE.md) · [Feature catalog](FEATURE_CATALOG.md) · [Bounded funding](BOUNDED_FUNDING_UPDATER.md) · [Mainnet fork review](https://github.com/en0ma/order-book/pull/130)
+[Integration guide](/docs/PERP_DEX_INTEGRATION_GUIDE) · [Operator runbook](/docs/OPERATOR_RUNBOOK) · [Architecture](/docs/SYSTEM_ARCHITECTURE) · [Feature catalog](/docs/FEATURE_CATALOG) · [Bounded funding](/docs/BOUNDED_FUNDING_UPDATER) · [Mainnet fork review](https://github.com/en0ma/order-book/pull/130)
