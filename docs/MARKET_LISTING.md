@@ -2,6 +2,10 @@
 
 Use this procedure to add a market to a DEX that uses the order-book contracts. A market is a **perpetual instrument**, not a spot token pair. Listing a token as an underlying asset does not mint or transfer that underlying token. Collateral is a separate ERC-20 selected for the deployment.
 
+![market listing lifecycle](assets/diagrams/market-listing-lifecycle.svg)
+
+[Edit the diagram source](assets/diagrams/source/market-listing-lifecycle.drawio).
+
 ## 1. Choose the deployment mode
 
 - **Standalone:** Deploy a new `OrderBookCore` and its associated modules for each market. Collateral is held by that Core. This is the least coupled listing route.
