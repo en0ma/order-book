@@ -1,5 +1,7 @@
 # Architecture
 
+> **Production documentation:** See [production feature catalog](PRODUCTION_FEATURE_CATALOG.md), [production system architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md), and [production team handbook](PRODUCTION_TEAM_HANDBOOK.md). These explain production interfaces, team duties and release checks. An external audit and a deployment-specific production approval are still required before unrestricted customer funds.
+
 This repository implements a production-bound fully on-chain derivatives order book optimized around one defining constraint:
 
 Taker execution should scale with the number of price levels crossed, not the number of makers filled.
