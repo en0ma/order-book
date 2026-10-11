@@ -26,7 +26,7 @@ contract BoundedFundingUpdaterTest is TestBase {
         assertTrue(!unauthorized, "unauthorized updater accepted");
         vm.prank(OPERATOR);
         updater.publish(1);
-        assertEq(int256(core.fundingIndexX18()), 1, "funding not published");
+        assertEq(int256(core.fundingIndex()), 1, "funding not published");
     }
 
     function testRejectsLargePositiveAndNegativeIndexMoves() public {
