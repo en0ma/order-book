@@ -291,9 +291,9 @@ A trailing order stores:
 
 The order itself does not receive watermark updates. At execution the contract asks the extrema oracle for the highest and lowest observed ticks since the stored observation ID.
 
-For a trailing sell, execution is allowed when currentTick + trailTicks <= highSinceActivation.
+For a trailing sell, execution is allowed when `currentTick + trailTicks <= highSinceActivation`.
 
-For a trailing buy, execution is allowed when currentTick >= lowSinceActivation + trailTicks.
+For a trailing buy, execution is allowed when `currentTick >= lowSinceActivation + trailTicks`.
 
 This keeps trigger truth on-chain without one storage write per trailing order whenever the market moves.
 
