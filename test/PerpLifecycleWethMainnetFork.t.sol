@@ -54,6 +54,7 @@ contract PerpLifecycleWethMainnetForkTest is TestBase {
         core.settle(IOrderBookCore.Side.Bid, 100);
         (longPosition,,) = core.accountRisk(TRADER);
         assertEq(int256(longPosition), 0, "position not closed");
+        assertEq(core.accountEquity(TRADER), int256(1 ether) - 40, "funding debit not realized");
         assertEq(IWrappedEther(WETH).balanceOf(address(core)), 3 ether, "WETH custody drift");
         vm.prank(TRADER);
         core.withdrawCollateral(1);
