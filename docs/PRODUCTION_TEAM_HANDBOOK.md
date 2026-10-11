@@ -105,4 +105,4 @@ Scale markets, maker capacity and operator replicas only after the first market 
 
 ## Additional production references
 
-[Integration guide](PERP_DEX_INTEGRATION_GUIDE.md) · [Operator runbook](OPERATOR_RUNBOOK.md) · [Architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md) · [Feature catalog](PRODUCTION_FEATURE_CATALOG.md) · [Bounded funding](BOUNDED_FUNDING_UPDATER.md) · [Mainnet fork review](SECURITY_REVIEW_WETH_FORK.md)
+[Integration guide](PERP_DEX_INTEGRATION_GUIDE.md) · [Operator runbook](OPERATOR_RUNBOOK.md) · [Architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md) · [Feature catalog](PRODUCTION_FEATURE_CATALOG.md) · [Bounded funding](BOUNDED_FUNDING_UPDATER.md) · [Mainnet fork review](https://github.com/en0ma/order-book/pull/130)
