@@ -2,13 +2,13 @@
 
 The authoritative deployment market state resides in EVM contracts. The off-chain systems observe state and submit transactions. They do not replace Core custody or matching.
 
-> **System integration diagrams:** See [deployment integration flows](INTEGRATION_FLOWS.md) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
+> **System integration diagrams:** See [deployment integration flows](/docs/INTEGRATION_FLOWS) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
 
-> **Integration guides:** [List a market](MARKET_LISTING.md) · [Parameter reference](PARAMETER_REFERENCE.md) · [Governance and keys](GOVERNANCE_AND_KEYS.md).
+> **Integration guides:** [List a market](/docs/MARKET_LISTING) · [Parameter reference](/docs/PARAMETER_REFERENCE) · [Governance and keys](/docs/GOVERNANCE_AND_KEYS).
 
-![DEX integration architecture](assets/diagrams/dex-integration.svg)
+![DEX integration architecture](/docs/assets/diagrams/dex-integration.svg)
 
-[Edit the architecture diagram](assets/diagrams/source/dex-integration.drawio).
+[Edit the architecture diagram](https://github.com/en0ma/order-book/blob/docs/site-quality-gates-and-visuals/docs/assets/diagrams/source/dex-integration.drawio).
 
 ## 1. System component diagram
 
@@ -118,4 +118,4 @@ Use a transaction store with durable nonces and idempotency. The reference opera
 - If a fork or reorg invalidates a checkpoint, replay the canonical branch before publishing keeper actions.
 - Do not authorize deployment operation solely because unit tests and a mainnet fork passed.
 
-See [architecture internals](ARCHITECTURE.md), [deployment team handbook](TEAM_HANDBOOK.md), [operator runbook](OPERATOR_RUNBOOK.md) and [WETH fork review](https://github.com/en0ma/order-book/blob/main/docs/SECURITY_REVIEW_WETH_FORK.md).
+See [architecture internals](/docs/ARCHITECTURE), [deployment team handbook](/docs/TEAM_HANDBOOK), [operator runbook](/docs/OPERATOR_RUNBOOK) and [WETH fork review](https://github.com/en0ma/order-book/blob/main/docs/SECURITY_REVIEW_WETH_FORK.md).
