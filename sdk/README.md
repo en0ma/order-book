@@ -1,5 +1,7 @@
 # Order Book Integration SDK
 
+> **System documentation:** See [deployment feature catalog](../docs/FEATURE_CATALOG.md), [deployment system architecture](../docs/SYSTEM_ARCHITECTURE.md), and [deployment team handbook](../docs/TEAM_HANDBOOK.md). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
+
 Dependency-free TypeScript helpers for teams integrating the deployable CLOB.
 
 The SDK deliberately does not own RPC transport or signing. It produces typed transaction plans that can be handed to viem, ethers, a custom relayer, or another Ethereum client.
@@ -75,7 +77,7 @@ Before starting a DEX backend or operator against a deployment, execute the mani
 
 `verifyDeploymentOrThrow(manifest, adapter)` checks the live verification report and throws `DeploymentVerificationError` when any chain, bytecode, wiring, authority, parameter, or RPC-read check fails. The error retains the full structured report for logging/alerting.
 
-This is the recommended production startup boundary: do not silently continue after a verification mismatch.
+This is the recommended deployment startup boundary: do not silently continue after a verification mismatch.
 
 
 ## Reviewed runtime bytecode attestation

@@ -1,5 +1,7 @@
 # Reference Order Book Operator
 
+> **System documentation:** See [deployment feature catalog](../docs/FEATURE_CATALOG.md), [deployment system architecture](../docs/SYSTEM_ARCHITECTURE.md), and [deployment team handbook](../docs/TEAM_HANDBOOK.md). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
+
 Dependency-free reference indexer/keeper primitives for teams that self-host deployments of this repository.
 
 This package does **not** run RPC, databases, signing, transaction submission, or hosted infrastructure. Those remain the DEX operator's responsibility. It provides deterministic protocol-specific state/recovery logic that can be embedded behind viem, ethers, a custom RPC client, Postgres, Kafka, or another stack.
@@ -35,7 +37,7 @@ Liquidation registry data is intentionally conservative. Operators must query ca
 
 ## Adapter boundary
 
-A production service should:
+A deployment service should:
 1. load and validate the deployment manifest;
 2. decode contract logs into `NormalizedEvent`;
 3. persist checkpoints/block hashes;
@@ -88,7 +90,7 @@ A typical self-hosted loop is therefore:
 No hosted registry, signer, database, RPC provider, or operator service is required by this repository.
 
 
-## Production runtime controls
+## System runtime controls
 
 The runtime adapter supports bounded and finality-aware catch-up:
 
@@ -130,13 +132,13 @@ Bigint protocol values are emitted as decimal strings so responses can be serial
 
 The Node subpath also exports `JsonlOperatorAuditJournal`, an append-only JSONL sink for cycle, submission and error records.
 
-This is not a replacement for a production database, but it gives self-hosted deployments a dependency-free durable audit trail for:
+This is not a replacement for a deployment database, but it gives self-hosted deployments a dependency-free durable audit trail for:
 - canonical/safe-head progress;
 - keeper submission idempotency keys;
 - transaction identifiers;
 - operator failures and recovery actions.
 
-Production deployments can replace it with Postgres/ClickHouse/log shipping while retaining the same record shape.
+System deployments can replace it with Postgres/ClickHouse/log shipping while retaining the same record shape.
 
 ## Self-hosted read-only integration
 
@@ -150,7 +152,7 @@ The HTTP adapter also limits concurrent in-flight requests, supports graceful dr
 
 ## Safe-head readiness gate
 
-The optional `/readiness` export and HTTP `/ready` endpoint provide a canonical-head and indexer-lag gate for fail-closed data serving. Production operators should explicitly configure `readiness: { requireDiagnostics: true, maxLagBlocks: 0 }`, run their own RPC/indexer recovery, and consult [READINESS.md](READINESS.md) before exposing market data.
+The optional `/readiness` export and HTTP `/ready` endpoint provide a canonical-head and indexer-lag gate for fail-closed data serving. System operators should explicitly configure `readiness: { requireDiagnostics: true, maxLagBlocks: 0 }`, run their own RPC/indexer recovery, and consult [READINESS.md](READINESS.md) before exposing market data.
 
 ## Canonical recovery and keeper admission
 

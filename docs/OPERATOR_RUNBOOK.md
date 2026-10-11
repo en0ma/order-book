@@ -1,8 +1,10 @@
 # Self-Hosted Operator Runbook
 
+> **System documentation:** See [deployment feature catalog](FEATURE_CATALOG.md), [deployment system architecture](SYSTEM_ARCHITECTURE.md), and [deployment team handbook](TEAM_HANDBOOK.md). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
+
 This runbook is for protocol teams that fork this repository and operate their own DEX deployment.
 
-The reference operator remains transport-neutral. Your team supplies RPC access, event decoding, persistence, simulation, signing and transaction submission. The repository supplies deterministic replay, keeper planning, bounded reorg recovery and production-oriented runtime primitives.
+The reference operator remains transport-neutral. Your team supplies RPC access, event decoding, persistence, simulation, signing and transaction submission. The repository supplies deterministic replay, keeper planning, bounded reorg recovery and deployable runtime primitives.
 
 ## Startup gate
 
@@ -41,7 +43,7 @@ The Node export `@en0ma/order-book-operator/node` provides `JsonFileCheckpointSt
 
 Writes are atomic: a temporary file is written and renamed over the checkpoint path. The file also records the canonical manifest identity and fails closed when opened with a different deployment identity.
 
-For multi-instance production systems, implement `OperatorCheckpointStore` against your own transactional database or object store. The same rules apply:
+For multi-instance deployment systems, implement `OperatorCheckpointStore` against your own transactional database or object store. The same rules apply:
 
 - checkpoint and manifest identity must be stored together;
 - only commit a checkpoint representing a fully applied canonical block;
@@ -74,7 +76,7 @@ The key binds:
 
 Use `executeKeeperTasksIdempotent` with an executor that records submitted keys. The executor must also simulate every task immediately before submission.
 
-A production transaction service should treat the idempotency key as a durable unique request key. This prevents process restart, API retry or duplicate worker delivery from intentionally creating multiple submissions for the same canonical task.
+A deployment transaction service should treat the idempotency key as a durable unique request key. This prevents process restart, API retry or duplicate worker delivery from intentionally creating multiple submissions for the same canonical task.
 
 After a reorg, the canonical head changes and therefore the key changes. The new branch may legitimately require a new task.
 
@@ -86,7 +88,7 @@ Liquidation candidates include the maker ticks and active advanced-order IDs kno
 
 ## Recommended process topology
 
-A production deployment can separate:
+A deployment deployment can separate:
 
 - canonical event ingestion / checkpoint writer;
 - read API / indexer replicas;
@@ -141,4 +143,4 @@ Public APIs should expose finalized/safe state by default. If provisional state 
 
 ## Audit journal
 
-For dependency-free deployments, `JsonlOperatorAuditJournal` can persist cycle/submission/error records with restrictive file permissions. Production teams should ship or ingest these records into their standard logging/database stack and retain idempotency keys alongside transaction hashes for incident reconstruction.
+For dependency-free deployments, `JsonlOperatorAuditJournal` can persist cycle/submission/error records with restrictive file permissions. System teams should ship or ingest these records into their standard logging/database stack and retain idempotency keys alongside transaction hashes for incident reconstruction.

@@ -1,5 +1,7 @@
 # Perpetual DEX Integration Guide: From Fork to First Maker Quotes
 
+> **System documentation:** See [deployment feature catalog](FEATURE_CATALOG.md), [deployment system architecture](SYSTEM_ARCHITECTURE.md), and [deployment team handbook](TEAM_HANDBOOK.md). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
+
 This is an **operator-owned deployment guide**, not a hosted turnkey DEX and not a claim of independent security certification. Use it alongside [SELF_HOSTED_DEPLOYMENT.md](SELF_HOSTED_DEPLOYMENT.md), [OPERATOR_RUNBOOK.md](OPERATOR_RUNBOOK.md), and [INTEGRATION_OPERATOR_AUDIT.md](INTEGRATION_OPERATOR_AUDIT.md). All contract addresses, token decimals, oracle implementations, funding policies, and admin keys belong to the integrating team.
 
 ## 1. Integration model
@@ -20,7 +22,7 @@ Do not install a cross-source oracle unless the deployment itself calls for one.
 
 1. Clone the repository and pin a reviewed release commit, Solidity compiler `0.8.24`, Foundry and Node versions.
 2. Install the dependencies actually declared by the repository. Run `forge test -vvv`, `forge test --gas-report`, and the SDK/indexer/operator package test commands from their respective package directories.
-3. Create a declarative spec using `deployments/spec/schema/v1.json`. The sample at `deployments/spec/example.json` contains non-production addresses; **do not reuse them**.
+3. Create a declarative spec using `deployments/spec/schema/v1.json`. The sample at `deployments/spec/example.json` contains non-deployment addresses; **do not reuse them**.
 4. Choose a vetted ERC-20, desired market symbol, matching chain, compatible mark oracle **with the extrema history interface required by `AdvancedOrderModule` when trailing orders are enabled**, funding updater, governance Safe/timelock, execution band, initial/maintenance margins, tick/lot accounting scale, fee schedule and liquidator incentive.
 5. Run the SDK `validateDeploymentSpec` and `compileDeploymentEnvironments` functions; apply the output to the Foundry broadcast environment. The exact standalone fields are in [SELF_HOSTED_DEPLOYMENT.md](SELF_HOSTED_DEPLOYMENT.md).
 6. Simulate, inspect, then broadcast:
@@ -32,8 +34,8 @@ forge script script/DeployStandalone.s.sol:DeployStandalone --rpc-url "$RPC_URL"
 forge script script/DeployStandalone.s.sol:DeployStandalone --rpc-url "$RPC_URL" --broadcast -vvvv
 ```
 
-7. Collect actual deployed addresses and the deployment block. Use the SDK `buildDeploymentManifest` to generate `deployments/schema/v1.json`-compatible output. Run `verifyDeploymentOrThrow` / `executeDeploymentVerification` against the intended chain; **fail closed** on missing code, ownership, oracle, scale, margin, module or chain mismatches. **The SDK only verifies bytecode presence, not code identity.** Independently compare each deployed contract's runtime bytecode hash (including linked-library/immutable normalization as appropriate) with the reviewed, reproducible compiler artifact before any production sign-off.
-8. Record admin/funding powers. Never leave privileged production ownership on a throwaway broadcaster key.
+7. Collect actual deployed addresses and the deployment block. Use the SDK `buildDeploymentManifest` to generate `deployments/schema/v1.json`-compatible output. Run `verifyDeploymentOrThrow` / `executeDeploymentVerification` against the intended chain; **fail closed** on missing code, ownership, oracle, scale, margin, module or chain mismatches. **The SDK only verifies bytecode presence, not code identity.** Independently compare each deployed contract's runtime bytecode hash (including linked-library/immutable normalization as appropriate) with the reviewed, reproducible compiler artifact before any deployment sign-off.
+8. Record admin/funding powers. Never leave privileged deployment ownership on a throwaway broadcaster key.
 
 For cross-market shared collateral use `DeployPortfolio` only after isolated-mode validation. Portfolio admission and liquidation introduce additional operational dependencies.
 
@@ -55,7 +57,7 @@ Market maker acceptance scenarios:
 
 ## 4. Operator startup and failure protocol
 
-Use the repo's reference indexer, manifest-bound checkpoints and operator tools, or a compatible independently implemented backend. Publication is only safe after verified canonical replay. A production service must:
+Use the repo's reference indexer, manifest-bound checkpoints and operator tools, or a compatible independently implemented backend. Publication is only safe after verified canonical replay. A deployment service must:
 
 - Verify chain identity, bytecode, module wiring, oracle state and admin authorities on startup.
 - Restore finalized canonical checkpoints matching deployment identity; replay from the deployment block if no valid checkpoint exists.
@@ -82,7 +84,7 @@ Complete these against the actual target-chain contracts and collateral token, w
 8. **Market-maker acceptance:** concurrent quote publishers, failed batch rollback, low-gas quote replacement, maker fills after process restart and generation rollover.
 9. **Shutdown and recovery:** risk-off prevents new risk; withdrawals/cancellations allowed subject to margin rules; verify restart from finalized checkpoint.
 
-A green unit test suite is necessary but does not prove liveness or market economics. Independent contract security review, risk-model stress, target-chain deployment verification, executable liquidity and incident rehearsal are mandatory before production fund admission.
+A green unit test suite is necessary but does not prove liveness or market economics. Independent contract security review, risk-model stress, target-chain deployment verification, executable liquidity and incident rehearsal are mandatory before deployment fund admission.
 
 ## 6. Security and economic launch gates
 
