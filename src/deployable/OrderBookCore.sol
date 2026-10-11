@@ -197,8 +197,8 @@ contract OrderBookCore is IOrderBookCore {
 
     /// @notice Funding updater may halt new risk; only owner may restore it.
     function setRiskIncreasePaused(bool paused) external {
-        if (msg.sender != owner && (msg.sender != fundingUpdater || !paused)) {
-            revert Unauthorized();
+        if (msg.sender != owner) {
+            if (!paused || msg.sender != fundingUpdater) revert Unauthorized();
         }
         riskIncreasePaused = paused;
     }
@@ -229,7 +229,8 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _requirePortfolioControllerIfEnabled() internal view {
-        if (portfolioController != address(0) && msg.sender != portfolioController) {
+        address controller = portfolioController;
+        if (controller != address(0) && msg.sender != controller) {
             revert Unauthorized();
         }
     }
@@ -263,13 +264,6 @@ contract OrderBookCore is IOrderBookCore {
         address previous = fundingUpdater;
         fundingUpdater = nextUpdater;
         emit FundingUpdaterChanged(previous, nextUpdater);
-    }
-
-    function fundingIndexX18Value() external view returns (int128) {
-        assembly {
-            mstore(0, signextend(15, sload(fundingIndexX18.slot)))
-            return(0, 32)
-        }
     }
 
     function setFundingIndex(int128 nextFundingIndexX18) external {
