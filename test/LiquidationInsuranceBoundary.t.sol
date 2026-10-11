@@ -62,7 +62,7 @@ contract LiquidationInsuranceBoundaryTest is TestBase {
         assertEq(repeated, 0, "solvent account received repeated insurance");
         assertEq(core.insuranceReserves(), 400, "repeat coverage consumed reserves");
 
-        core.setAccountDeficit(debtor, 0, -900);
+        core.setAccountDeficit(debtor, 0, -1_500);
         vm.prank(address(advanced));
         uint256 second = core.moduleCoverBadDebt(debtor, 900);
         assertEq(second, 400, "insurance coverage exceeded available reserve");
