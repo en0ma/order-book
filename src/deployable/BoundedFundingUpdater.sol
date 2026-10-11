@@ -6,6 +6,7 @@ pragma solidity ^0.8.24;
 interface IFundingIndexCore {
     function fundingIndex() external view returns (int128);
     function setFundingIndex(int128 nextFundingIndexX18) external;
+    function setRiskIncreasePaused(bool paused) external;
 }
 
 contract BoundedFundingUpdater {
@@ -37,13 +38,19 @@ contract BoundedFundingUpdater {
         lastUpdateTime = block.timestamp;
     }
 
+    /// @notice Operator-only, one-way emergency risk-off forwarding; unpause stays with Core owner.
+    function pauseRiskIncrease() external {
+        if (msg.sender != operator) revert Unauthorized();
+        core.setRiskIncreasePaused(true);
+    }
+
     function publish(int128 nextIndex) external {
         if (msg.sender != operator) revert Unauthorized();
         uint256 elapsed = block.timestamp - lastUpdateTime;
         if (elapsed < minIntervalSeconds) revert UpdateTooEarly();
 
         // Never silently overwrite funding published through a different authority.
-        int128 previous = core.fundingIndexX18();
+        int128 previous = core.fundingIndex();
         if (previous != lastIndexX18) revert FundingIndexChangedExternally();
 
         int256 signedDelta = int256(nextIndex) - int256(previous);
