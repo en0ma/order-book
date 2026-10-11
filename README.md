@@ -1,24 +1,24 @@
-# Production-Oriented On-Chain Perpetual DEX Infrastructure
+# deployable On-Chain Perpetual DEX Infrastructure
 
-**Production integration toolkit for team-owned EVM perpetual exchanges.** The system keeps the order book, matching, collateral ledger, funding accounting, and market risk on-chain. Each production DEX team deploys its own markets, supplies its own market makers, and operates its own infrastructure.
+**System integration toolkit for team-owned EVM perpetual exchanges.** The system keeps the order book, matching, collateral ledger, funding accounting, and market risk on-chain. Each deployment DEX team deploys its own markets, supplies its own market makers, and operates its own infrastructure.
 
-> **Production readiness boundary:** The repository provides production-oriented contracts, tests, SDK and operator primitives. It does not provide a hosted production exchange, a deployment-specific security certification, or a guarantee of safety for unrestricted production funds. Each team must complete an independent audit, production market-risk assessment, authority review, and sustained staging trial before it launches with customer collateral.
+> **System readiness boundary:** The repository provides deployable contracts, tests, SDK and operator primitives. It does not provide a hosted deployment exchange, a deployment-specific security certification, or a guarantee of safety for unrestricted deployment funds. Each team must complete an independent audit, deployment market-risk assessment, authority review, and sustained staging trial before it launches with customer collateral.
 
-## Production documentation map
+## System documentation map
 
-| Production task | Document |
+| System task | Document |
 | --- | --- |
-| Review all production features by subsystem | [Production feature catalog](docs/PRODUCTION_FEATURE_CATALOG.md) |
-| See how teams connect frontends, indexers, keepers, makers and liquidators | [Production integration flows](docs/PRODUCTION_INTEGRATION_FLOWS.md) |
-| Understand production contracts, trust boundaries and transaction flows | [Production system architecture](docs/PRODUCTION_SYSTEM_ARCHITECTURE.md) |
-| Plan, deploy and operate a production DEX as a team | [Production team handbook](docs/PRODUCTION_TEAM_HANDBOOK.md) |
-| Build a production deployment | [Self-hosted deployment](docs/SELF_HOSTED_DEPLOYMENT.md) |
-| Integrate a production frontend and market maker | [Perp DEX integration guide](docs/PERP_DEX_INTEGRATION_GUIDE.md) |
-| Operate production keepers and recover from faults | [Operator runbook](docs/OPERATOR_RUNBOOK.md) |
-| Assess production assurance gaps and WETH fork evidence | [Security review](https://github.com/en0ma/order-book/pull/130) |
+| Review all deployment features by subsystem | [System feature catalog](docs/PRODUCTION_FEATURE_CATALOG.md) |
+| See how teams connect frontends, indexers, keepers, makers and liquidators | [System integration flows](docs/PRODUCTION_INTEGRATION_FLOWS.md) |
+| Understand deployment contracts, trust boundaries and transaction flows | [System system architecture](docs/PRODUCTION_SYSTEM_ARCHITECTURE.md) |
+| Plan, deploy and operate a deployment DEX as a team | [System team handbook](docs/PRODUCTION_TEAM_HANDBOOK.md) |
+| Build a deployment deployment | [Self-hosted deployment](docs/SELF_HOSTED_DEPLOYMENT.md) |
+| Integrate a deployment frontend and market maker | [Perp DEX integration guide](docs/PERP_DEX_INTEGRATION_GUIDE.md) |
+| Operate deployment keepers and recover from faults | [Operator runbook](docs/OPERATOR_RUNBOOK.md) |
+| Assess deployment assurance gaps and WETH fork evidence | [Security review](https://github.com/en0ma/order-book/pull/130) |
 | Review detailed matching and risk internals | [Architecture reference](docs/ARCHITECTURE.md) |
 
-## Production quick start
+## System quick start
 
 ```sh
 forge test -vvv
@@ -28,10 +28,10 @@ forge snapshot
 ETH_RPC=https://YOUR_MAINNET_RPC forge test --match-contract PerpLifecycleWethMainnetForkTest -vvv
 ```
 
-See the [production team handbook](docs/PRODUCTION_TEAM_HANDBOOK.md) for deployment preparation, verification, market-maker onboarding, operational recovery, and release gates. The example deployment manifests use non-production addresses.
+See the [deployment team handbook](docs/PRODUCTION_TEAM_HANDBOOK.md) for deployment preparation, verification, market-maker onboarding, operational recovery, and release gates. The example deployment manifests use non-deployment addresses.
 
 ---
-## Production protocol reference
+## System protocol reference
 
 The design keeps authoritative liquidity and matching entirely on-chain, but replaces FIFO within a price level with pro-rata allocation. That lets one taker fill an arbitrary number of makers at the same tick by updating aggregate tick state rather than every maker.
 
@@ -91,9 +91,9 @@ See docs/SELF_HOSTED_DEPLOYMENT.md for the clone/fork, deploy, administer, list-
 See sdk/README.md and deployments/schema/v1.json for the dependency-free TypeScript integration SDK and versioned deployment manifest.
 See reference/indexer/README.md for the transport-neutral reference indexer, checkpoint and reorg-recovery core.
 See operator/README.md for dependency-free keeper/liquidator planning primitives and replay registries for self-hosted operators.
-See docs/OPERATOR_RUNBOOK.md for production startup verification, checkpoint persistence, finality, reorg recovery, keeper idempotency, and failure policy.
+See docs/OPERATOR_RUNBOOK.md for deployment startup verification, checkpoint persistence, finality, reorg recovery, keeper idempotency, and failure policy.
 
-The deployable architecture is production-bound, but production deployment still requires completed independent security audits and deployment-specific operational review.
+The deployable architecture is deployment-bound, but deployment deployment still requires completed independent security audits and deployment-specific operational review.
 
 
 ## Current bracket semantics
@@ -113,11 +113,11 @@ At execution, the contract derives the high/low since activation from the oracle
 
 The repository is an open-source execution engine for protocol teams to deploy and operate themselves. A DEX team chooses its own collateral, oracle, market list, risk/fee configuration and protocol admin; deploys its own contracts; publishes its own manifest; and runs its own indexer, keepers, liquidators, market-making infrastructure and application stack.
 
-There is no repository-controlled production registry or hosted execution dependency. The reference standalone Foundry bootstrap deploys and wires a market, hands administration to the deploying team's configured Safe/timelock/governance address, and assigns routine funding updates to a separately configured operator.
+There is no repository-controlled deployment registry or hosted execution dependency. The reference standalone Foundry bootstrap deploys and wires a market, hands administration to the deploying team's configured Safe/timelock/governance address, and assigns routine funding updates to a separately configured operator.
 
 ## Deployable architecture
 
-The original `ProRataOrderBook` remains a reference monolith. It exceeds Ethereum's EIP-170 runtime bytecode limit and is not the production deployment shape.
+The original `ProRataOrderBook` remains a reference monolith. It exceeds Ethereum's EIP-170 runtime bytecode limit and is not the deployment deployment shape.
 
 The deployable path is split into:
 
