@@ -2,7 +2,7 @@
 
 This guide shows how a team integrates the deployable contracts with its own perpetual DEX. The on-chain state is authoritative. An indexer makes it easy to read. A keeper submits transactions when a task is due. Neither service owns matching or collateral.
 
-For full procedures, read the [deployment team handbook](PRODUCTION_TEAM_HANDBOOK.md), [system architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md), [operator runbook](OPERATOR_RUNBOOK.md), and [deployment guide](SELF_HOSTED_DEPLOYMENT.md).
+For full procedures, read the [deployment team handbook](TEAM_HANDBOOK.md), [system architecture](SYSTEM_ARCHITECTURE.md), [operator runbook](OPERATOR_RUNBOOK.md), and [deployment guide](SELF_HOSTED_DEPLOYMENT.md).
 
 ## 1. What a deployment DEX team receives and builds
 
