@@ -10,6 +10,10 @@ For full procedures, read the [deployment team handbook](TEAM_HANDBOOK.md), [sys
 
 [Edit the architecture diagram](assets/diagrams/source/dex-integration.drawio).
 
+![indexer keeper loop](assets/diagrams/indexer-keeper-loop.svg)
+
+[Edit the diagram source](assets/diagrams/source/indexer-keeper-loop.drawio).
+
 ## 1. What a deployment DEX team receives and builds
 
 ```mermaid
