@@ -219,8 +219,9 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _requireRiskModule() internal view {
-        if (msg.sender == advancedModule || msg.sender == portfolioController) return;
-        revert Unauthorized();
+        if (msg.sender != advancedModule && msg.sender != portfolioController) {
+            revert Unauthorized();
+        }
     }
 
     function _requireStandalone() internal view {
@@ -264,9 +265,10 @@ contract OrderBookCore is IOrderBookCore {
         emit FundingUpdaterChanged(previous, nextUpdater);
     }
 
-    function fundingIndexX18Value() external view returns (int128 result) {
+    function fundingIndexX18Value() external view returns (int128) {
         assembly {
-            result := signextend(15, sload(fundingIndexX18.slot))
+            mstore(0, signextend(15, sload(fundingIndexX18.slot)))
+            return(0, 32)
         }
     }
 
