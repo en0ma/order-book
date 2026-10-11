@@ -1,5 +1,7 @@
 # Reference Order Book Operator
 
+> **Production documentation:** See [production feature catalog](../docs/PRODUCTION_FEATURE_CATALOG.md), [production system architecture](../docs/PRODUCTION_SYSTEM_ARCHITECTURE.md), and [production team handbook](../docs/PRODUCTION_TEAM_HANDBOOK.md). These explain production interfaces, team duties and release checks. An external audit and a deployment-specific production approval are still required before unrestricted customer funds.
+
 Dependency-free reference indexer/keeper primitives for teams that self-host deployments of this repository.
 
 This package does **not** run RPC, databases, signing, transaction submission, or hosted infrastructure. Those remain the DEX operator's responsibility. It provides deterministic protocol-specific state/recovery logic that can be embedded behind viem, ethers, a custom RPC client, Postgres, Kafka, or another stack.
