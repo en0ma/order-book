@@ -4,6 +4,8 @@ This handbook explains how a team can prepare and run its **own deployment EVM p
 
 > **System integration diagrams:** See [deployment integration flows](INTEGRATION_FLOWS.md) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
 
+> **Integration guides:** [List a market](MARKET_LISTING.md) · [Parameter reference](PARAMETER_REFERENCE.md) · [Governance and keys](GOVERNANCE_AND_KEYS.md).
+
 ## 1. Assign deployment owners
 
 | System role | Required duty | Evidence before launch |
