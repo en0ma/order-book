@@ -2,6 +2,10 @@
 
 The DEX team manages its own keys and protocol administration. The reference deployment script initially wires the contracts and then transfers authority to `PROTOCOL_ADMIN`.
 
+![governance funding flow](assets/diagrams/governance-funding-flow.svg)
+
+[Edit the diagram source](assets/diagrams/source/governance-funding-flow.drawio).
+
 ## Permission matrix
 
 | Role | Contract / entrypoint | Authorized action | Important restriction |
