@@ -1,8 +1,8 @@
 # Perpetual DEX Integration Guide: From Fork to First Maker Quotes
 
-> **System documentation:** See [deployment feature catalog](FEATURE_CATALOG.md), [deployment system architecture](SYSTEM_ARCHITECTURE.md), and [deployment team handbook](TEAM_HANDBOOK.md). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
+> **System documentation:** See [deployment feature catalog](/docs/FEATURE_CATALOG), [deployment system architecture](/docs/SYSTEM_ARCHITECTURE), and [deployment team handbook](/docs/TEAM_HANDBOOK). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
 
-This is an **operator-owned deployment guide**, not a hosted turnkey DEX and not a claim of independent security certification. Use it alongside [SELF_HOSTED_DEPLOYMENT.md](SELF_HOSTED_DEPLOYMENT.md), [OPERATOR_RUNBOOK.md](OPERATOR_RUNBOOK.md), and [INTEGRATION_OPERATOR_AUDIT.md](INTEGRATION_OPERATOR_AUDIT.md). All contract addresses, token decimals, oracle implementations, funding policies, and admin keys belong to the integrating team.
+This is an **operator-owned deployment guide**, not a hosted turnkey DEX and not a claim of independent security certification. Use it alongside [SELF_HOSTED_DEPLOYMENT.md](/docs/SELF_HOSTED_DEPLOYMENT), [OPERATOR_RUNBOOK.md](/docs/OPERATOR_RUNBOOK), and [INTEGRATION_OPERATOR_AUDIT.md](/docs/INTEGRATION_OPERATOR_AUDIT). All contract addresses, token decimals, oracle implementations, funding policies, and admin keys belong to the integrating team.
 
 ## 1. Integration model
 
@@ -24,7 +24,7 @@ Do not install a cross-source oracle unless the deployment itself calls for one.
 2. Install the dependencies actually declared by the repository. Run `forge test -vvv`, `forge test --gas-report`, and the SDK/indexer/operator package test commands from their respective package directories.
 3. Create a declarative spec using `deployments/spec/schema/v1.json`. The sample at `deployments/spec/example.json` contains non-deployment addresses; **do not reuse them**.
 4. Choose a vetted ERC-20, desired market symbol, matching chain, compatible mark oracle **with the extrema history interface required by `AdvancedOrderModule` when trailing orders are enabled**, funding updater, governance Safe/timelock, execution band, initial/maintenance margins, tick/lot accounting scale, fee schedule and liquidator incentive.
-5. Run the SDK `validateDeploymentSpec` and `compileDeploymentEnvironments` functions; apply the output to the Foundry broadcast environment. The exact standalone fields are in [SELF_HOSTED_DEPLOYMENT.md](SELF_HOSTED_DEPLOYMENT.md).
+5. Run the SDK `validateDeploymentSpec` and `compileDeploymentEnvironments` functions; apply the output to the Foundry broadcast environment. The exact standalone fields are in [SELF_HOSTED_DEPLOYMENT.md](/docs/SELF_HOSTED_DEPLOYMENT).
 6. Simulate, inspect, then broadcast:
 
 ```bash
