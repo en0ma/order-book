@@ -1,220 +1,78 @@
-# deployable On-Chain Perpetual DEX Infrastructure
+# Order Book
 
-**System integration toolkit for team-owned EVM perpetual exchanges.** The system keeps the order book, matching, collateral ledger, funding accounting, and market risk on-chain. Each deployment DEX team deploys its own markets, supplies its own market makers, and operates its own infrastructure.
+**A fully on-chain, pro-rata central limit order book for perpetual futures on EVM chains.**
 
-> **System readiness boundary:** The repository provides deployable contracts, tests, SDK and operator primitives. It does not provide a hosted deployment exchange, a deployment-specific security certification, or a guarantee of safety for unrestricted deployment funds. Each team must complete an independent audit, deployment market-risk assessment, authority review, and sustained staging trial before it launches with customer collateral.
+Order Book provides smart contracts and integration tooling for teams building their own perpetual DEX. Trading, matching, collateral accounting, margin checks, funding and liquidation rules execute on-chain. Teams bring their own frontend, market makers, oracle source, infrastructure and governance.
 
-## System documentation map
+The matching engine allocates fills **pro rata among makers at the same price**. It updates aggregate tick state during a trade and settles each maker's fills when that maker interacts. This avoids a per-maker write during taker execution.
 
-| System task | Document |
+## Architecture
+
+![Exchange integration architecture](docs/assets/diagrams/dex-integration.svg)
+
+*Blue: applications and services operated by the exchange team. Green: reusable integration libraries. Purple: EVM contracts. The contracts hold the authoritative order and account state; indexers provide read models and keepers submit eligible transactions.*
+
+[Architecture and trust boundaries](docs/SYSTEM_ARCHITECTURE.md) · [End-to-end integration flows](docs/INTEGRATION_FLOWS.md) · [Editable diagram source](docs/assets/diagrams/source/dex-integration.drawio)
+
+## What the engine includes
+
+| Layer | Capabilities |
 | --- | --- |
-| Review all deployment features by subsystem | [System feature catalog](docs/FEATURE_CATALOG.md) |
-| List a new perpetual market | [Market listing](docs/MARKET_LISTING.md) |
-| Configure risk and other market parameters | [Parameter reference](docs/PARAMETER_REFERENCE.md) |
-| Secure admin and funding authority | [Governance and keys](docs/GOVERNANCE_AND_KEYS.md) |
-| See how teams connect frontends, indexers, keepers, makers and liquidators | [System integration flows](docs/INTEGRATION_FLOWS.md) |
-| Understand deployment contracts, trust boundaries and transaction flows | [System system architecture](docs/SYSTEM_ARCHITECTURE.md) |
-| Plan, deploy and operate a deployment DEX as a team | [System team handbook](docs/TEAM_HANDBOOK.md) |
-| Build a deployment deployment | [Self-hosted deployment](docs/SELF_HOSTED_DEPLOYMENT.md) |
-| Integrate a deployment frontend and market maker | [Perp DEX integration guide](docs/PERP_DEX_INTEGRATION_GUIDE.md) |
-| Operate deployment keepers and recover from faults | [Operator runbook](docs/OPERATOR_RUNBOOK.md) |
-| Assess deployment assurance gaps and WETH fork evidence | [Security review](https://github.com/en0ma/order-book/pull/130) |
-| Review detailed matching and risk internals | [Architecture reference](docs/ARCHITECTURE.md) |
+| **Order book** | 65,536 ticks, two-level occupancy bitmap, pro-rata price-level matching, maker shares, lazy maker settlement, IOC and FOK taker orders |
+| **Order management** | Conditional orders, triggered limits, OCO/OTO orders, brackets, trailing stops, reduce-only constraints |
+| **Markets and risk** | ERC-20 collateral, initial and maintenance margin, funding, execution bands, maker fees/rebates, liquidation and insurance accounting |
+| **Market makers** | Managed quotes and batch refresh/cancel workflows, fills reconciled through share settlement |
+| **Multi-market option** | Portfolio margin policy, collateral vault, admission coordinator and portfolio liquidations |
+| **Integration** | TypeScript SDK, on-chain read lens, reference event indexer, keeper/liquidator planning libraries and versioned deployment specifications |
 
-## System quick start
+[Full feature catalog](docs/FEATURE_CATALOG.md) · [Contract internals](docs/ARCHITECTURE.md)
+
+## How an exchange uses it
+
+1. **Design a market.** Choose the chain, underlying price source, collateral token, order size, fees, margin rules and funding policy.
+2. **Deploy contracts to the target chain.** Use the standalone deployment script or the reviewed portfolio deployment route. Transfer ownership to the team's governance address.
+3. **Verify the deployment.** Check chain ID, module wiring, deployed bytecode, oracle, collateral, risk parameters and signers. Publish a deployment manifest.
+4. **Connect the exchange.** Use the SDK for transaction plans, index on-chain events for the trading API, and integrate maker strategies.
+5. **Operate the market.** Run keeper and liquidation services; monitor oracle state, indexer lag, funding, book depth, account risk and incident controls.
+
+**This is a real-chain deployment model, not a Foundry fork deployment.** Foundry simulations and mainnet-fork tests are pre-deployment checks. Live contracts are deployed by broadcasting signed transactions to the intended network.
+
+[Deploy to an EVM network](docs/NETWORK_DEPLOYMENT.md) · [List a market](docs/MARKET_LISTING.md) · [Parameters](docs/PARAMETER_REFERENCE.md) · [Governance and keys](docs/GOVERNANCE_AND_KEYS.md)
+
+## Run the tests
+
+Install the repository's configured Foundry toolchain, then run from the repository root:
 
 ```sh
 forge test -vvv
 forge test --gas-report
 forge snapshot
-# Requires your own Ethereum mainnet RPC endpoint.
-ETH_RPC=https://YOUR_MAINNET_RPC forge test --match-contract PerpLifecycleWethMainnetForkTest -vvv
 ```
 
-See the [deployment team handbook](docs/TEAM_HANDBOOK.md) for deployment preparation, verification, market-maker onboarding, operational recovery, and release gates. The example deployment manifests use non-deployment addresses.
+The Ethereum mainnet-fork suite uses an RPC endpoint and the real WETH contract **on a local simulated fork**. It does not deploy the exchange to Ethereum mainnet.
 
----
-## System protocol reference
+```sh
+ETH_RPC="$ETHEREUM_MAINNET_RPC" forge test --match-contract PerpLifecycleWethMainnetForkTest -vvv
+```
 
-The design keeps authoritative liquidity and matching entirely on-chain, but replaces FIFO within a price level with pro-rata allocation. That lets one taker fill an arbitrary number of makers at the same tick by updating aggregate tick state rather than every maker.
+For an actual deployment, follow the [network deployment guide](docs/NETWORK_DEPLOYMENT.md) instead.
 
-## Core properties
+## Documentation
 
-- 65,536 discrete ticks.
-- Two-level occupancy bitmap for bounded best-price discovery.
-- Exact integer lot accounting for executable liquidity.
-- Pro-rata shares at the same tick.
-- Lazy maker fill settlement.
-- O(1) maker cancellation with respect to maker count.
-- No linked-list tombstones or stale-order cleanup.
-- IOC and FOK taker flow.
-- Immediate aggressive-taker position and execution-notional accounting.
-- Reduce-only execution that cannot cross through zero.
-- Fully on-chain conditional trigger state with permissionless execution.
-- Pairwise OCO conditional orders.
-- True triggered-limit activation: take up to the limit, then rest the remainder.
-- Minimum-fill and reduce-only minimum-fill aggressive execution.
-- OTO child activation and TP/SL bracket composition with OCO exits.
-- Extrema-oracle trailing stops without per-order watermark writes.
-- One-slot packed risk envelope and one-slot packed account metadata.
-- Exposure-envelope margin reservation.
-- Oracle-bounded execution with per-pool risk ceilings.
-- ERC-20 collateral custody.
-- Pluggable mark-oracle adapter.
-- Lazy funding attribution without maker writes during fills.
-- Immutable taker-fee / maker-rebate accounting with lazy maker rebates.
-- Mark-to-market equity and configurable maintenance margin.
-- Atomic liquidation with caller-supplied maker tick / conditional IDs.
-- Active-order withdrawal safety.
-- Foundry fuzz tests and explicit gas ceilings.
-- GitHub Actions mainnet-fork test using real WETH custody.
+| Task | Guide |
+| --- | --- |
+| Understand the modules and flows | [System architecture](docs/SYSTEM_ARCHITECTURE.md) |
+| Integrate a frontend, API, indexer and keepers | [Integration flows](docs/INTEGRATION_FLOWS.md) |
+| Configure and deploy to a real chain | [Network deployment](docs/NETWORK_DEPLOYMENT.md) |
+| Add a perpetual market | [Market listing](docs/MARKET_LISTING.md) |
+| Configure fee, margin and funding policy | [Parameter reference](docs/PARAMETER_REFERENCE.md) |
+| Manage authority and emergency actions | [Governance and keys](docs/GOVERNANCE_AND_KEYS.md) |
+| Run indexers, keepers and incident response | [Operator runbook](docs/OPERATOR_RUNBOOK.md) |
+| Plan team responsibilities | [Team handbook](docs/TEAM_HANDBOOK.md) |
+| Explore SDK and operator packages | [SDK](sdk/README.md) · [Operator](operator/README.md) · [Indexer](reference/indexer/README.md) |
 
-## Conditional semantics
+### Design boundaries
 
-Conditional orders support two activation modes after the on-chain mark satisfies the trigger:
+The exchange team controls deployment, liquidity, token/oracle selection, keys and infrastructure. No hosted indexer, keeper or market maker is included. On-chain conditional orders still require transactions to execute. A liquidation cannot fill an order without opposite-side liquidity. The Core owner can rotate the funding updater; the optional bounded updater does not prevent that governance action.
 
-- bounded aggressive IOC/FOK execution for stop-market / take-profit-market behavior;
-- triggered limit execution that first takes marketable liquidity up to the limit and then rests any unfilled quantity in the ordinary maker pool.
-
-Both modes are fully on-chain and permissionlessly executable.
-
-## Run
-
-forge test -vvv
-
-forge test --gas-report
-
-forge snapshot
-
-ETH_RPC=<mainnet-rpc> forge test --match-contract MainnetForkTest -vvv
-
-See docs/ARCHITECTURE.md for the design, accounting model, liquidation flow, and current limitations.
-See docs/INTEGRATION_OPERATOR_AUDIT.md for the DEX integration, indexer, keeper, market-maker, SDK, and recovery surface audit.
-See docs/SELF_HOSTED_DEPLOYMENT.md for the clone/fork, deploy, administer, list-markets, and operator bootstrap model.
-See sdk/README.md and deployments/schema/v1.json for the dependency-free TypeScript integration SDK and versioned deployment manifest.
-See reference/indexer/README.md for the transport-neutral reference indexer, checkpoint and reorg-recovery core.
-See operator/README.md for dependency-free keeper/liquidator planning primitives and replay registries for self-hosted operators.
-See docs/OPERATOR_RUNBOOK.md for deployment startup verification, checkpoint persistence, finality, reorg recovery, keeper idempotency, and failure policy.
-
-The deployable architecture is deployment-bound, but deployment deployment still requires completed independent security audits and deployment-specific operational review.
-
-
-## Current bracket semantics
-
-OTO children are dormant reduce-only conditionals. They activate only after the parent receives an actual aggressive fill and are resized to that filled quantity. Linking two children with OCO gives a take-profit / stop-loss bracket.
-
-Maker fills from a triggered-limit remainder now expand bracket children lazily when the maker settles or the module explicitly syncs the resting order. Matching still updates only aggregate tick state.
-
-## Trailing stops
-
-Trailing stops use an extrema-capable on-chain oracle. Each order stores an activation observation ID and trail distance rather than a mutable watermark.
-
-At execution, the contract derives the high/low since activation from the oracle and verifies the retracement entirely on-chain. The repository now includes a bounded 4,096-observation segment-tree oracle with O(log N) append/query; the older mock remains test-only.
-
-
-## Self-hosted DEX model
-
-The repository is an open-source execution engine for protocol teams to deploy and operate themselves. A DEX team chooses its own collateral, oracle, market list, risk/fee configuration and protocol admin; deploys its own contracts; publishes its own manifest; and runs its own indexer, keepers, liquidators, market-making infrastructure and application stack.
-
-There is no repository-controlled deployment registry or hosted execution dependency. The reference standalone Foundry bootstrap deploys and wires a market, hands administration to the deploying team's configured Safe/timelock/governance address, and assigns routine funding updates to a separately configured operator.
-
-## Deployable architecture
-
-The original `ProRataOrderBook` remains a reference monolith. It exceeds Ethereum's EIP-170 runtime bytecode limit and is not the deployment deployment shape.
-
-The deployable path is split into:
-
-- `OrderBookCore`: hot CLOB matching, maker shares, custody, risk envelopes, margin, funding, and narrow module hooks. Token/oracle/risk parameters are immutable deployment configuration.
-- `AdvancedOrderModule`: reduce-only/min-fill wrappers, conditional orders, triggered limits, OCO/OTO, lazy bracket resizing, trailing stops, and authenticated forwarding to specialized modules.
-- `MarketMakerModule`: managed maker-quote metadata plus atomic batch refresh/cancel policy.
-- `LiquidationModule`: maintenance-margin policy and liquidation orchestration.
-- `PortfolioMarginPolicy`: read-side cross-market risk aggregation with bounded hedge credits only for exposure guaranteed across each market's full risk envelope.
-- `PortfolioLiquidationModule`: portfolio-wide health enforcement and atomic multi-market order cleanup / position reduction; it deliberately does not provide cross-market collateral transfer or admission credit.
-- `PortfolioCollateralVault`: shared ERC-20 custody for portfolio deployments. Users retain ownership of deposited collateral; the configured controller may only lock/unlock balances for margin and cannot transfer user funds.
-- `PortfolioAdmissionCoordinator`: sole risk-increasing gateway for portfolio-mode markets. It executes a market action and atomically synchronizes the shared vault lock against aggregate portfolio equity/requirement; insufficient collateral reverts the whole action.
-- `OrderBookMath`: shared pure side/tick/share/risk arithmetic used by the deployable contracts.
-- `SegmentTreeExtremaOracle`: bounded on-chain range high/low observations for trailing triggers.
-- `IntegrationLens`: bounded, view-only market/account/maker/advanced-order/MM reads for DEX UIs, APIs, indexers and keepers. Callers supply keys/IDs; the protocol still owns no global enumerable order registry.
-
-CI measures deployable runtime sizes under the `size` Foundry profile (`optimizer_runs = 1`) and enforces project budgets below EIP-170. The exact current measurements are emitted by every CI run rather than duplicated here.
-
-CI enforces stricter project budgets than EIP-170: 22,000 bytes for the core, 19,500 bytes for the advanced module, 5,000 bytes each for the market-maker, liquidation, and portfolio-margin modules, 6,000 bytes for the portfolio-liquidation module, 4,000 bytes for the portfolio-collateral vault, 7,000 bytes for the portfolio-admission coordinator, 4,000 bytes for the extrema oracle, and 8,000 bytes for the integration lens. New order-type or execution-policy logic should normally be added to specialized modules rather than expanding the matching core.
-
-
-The advanced-order module is constructor-bound to the same oracle contract used by the core. Trailing-history verification therefore cannot silently use a different price source from execution.
-
-
-## Market-maker quote refresh
-
-Managed quotes live in MarketMakerModule while canonical liquidity remains in OrderBookCore.
-
-A batch refresh:
-- removes or reconciles only managed share slices;
-- aggregates incremental exposure once per side;
-- reserves margin once per side;
-- preserves same-generation quote shares when the target is unchanged or larger;
-- adds only the missing lots for increases;
-- uses a full remove/rebuild only for exact decreases, avoiding ambiguous integer-share rounding.
-
-Generation-aware core locks prevent a stale advanced/MM share reference from touching a fresh quote created at the same tick after pool rollover.
-
-Batches require strict side/tick ordering with unique keys, which prevents ambiguous duplicate targets and creates a deterministic path for future delta-tick compression.
-
-For latency-sensitive callers, MarketMakerModule also accepts a fixed-width packed format: each quote is one 16-byte record containing 96-bit lots, 16-bit tick, 1 side bit, and 15 reserved bits. The typed and packed entrypoints normalize into the same internal uint128 execution path.
-
-For 16 quotes, calldata shrinks from 1,604 bytes with the typed ABI to 324 bytes packed, a 79.8% reduction. The packed and typed paths have essentially the same state-execution gas; the win is calldata size rather than fewer storage operations.
-
-Dedicated gas-regression tests cover 1, 4, 8 and 16 managed levels. Current whole-test gas scales approximately 402k, 1.01m, 1.74m and 3.20m respectively, and the four-level batched replacement path is asserted to be cheaper than four separate replacement calls.
-
-
-## Fees and rebates
-
-The deployable core supports an immutable fee schedule fixed at market deployment:
-
-- taker fee in basis points;
-- maker rebate in basis points;
-- maker rebate must not exceed the taker fee.
-
-Taker fees are charged immediately from the taker's signed trading cashflow. The core reserves the net protocol fee at the same time.
-
-Maker rebates remain lazy: no maker storage is touched during matching. When a maker later settles a fill, the rebate is derived from that maker's actual materialized notional at the quote tick and credited together with the trade cashflow.
-
-The fee path does not call an external fee contract from matching and does not add a second maker write to the taker loop.
-
-Integer rounding is conservative. The taker path reserves the maximum aggregate maker rebate, while individual maker rebates are floored when they materialize. Fuzz tests verify that credited rebates never exceed the amount reserved from the taker fee. Any rounding dust remains unallocated in core custody rather than being over-distributed.
-
-Protocol fee withdrawal/distribution is not implemented yet; `protocolFeesAccrued` is accounting state only.
-
-A recurring fee-enabled taker fill has a dedicated gas regression asserting less than 20,000 gas overhead versus the equivalent zero-fee fill after the protocol-fee storage slot has already been initialized.
-
-
-### Portfolio admission boundary
-
-Portfolio-mode cores are opt-in and may only be enabled before any local user collateral exists. Direct risk-increasing `take` / `addLiquidity` paths and direct advanced-order reservation are disabled, and risk growth must pass through `PortfolioAdmissionCoordinator`. Fee-bearing portfolio cores are supported: taker fees and maker-rebate reserves remain lazy core accounting claims, so the matching hot path does not add shared-vault writes. The portfolio policy counts the shared vault balance once and adds each market's mark-to-market value, preventing duplicate collateral counting across markets.
-
-The coordinator locks enough vault collateral so that the account's post-action portfolio equity remains above its aggregate requirement. Risk-reducing actions may leave excess collateral locked until `syncAccount` is called; this is conservative.
-
-Once a vault controller is configured, direct vault withdrawals are disabled. Portfolio withdrawals must go through `PortfolioAdmissionCoordinator.withdraw`, which recomputes current settled cash equity and post-withdraw portfolio margin atomically. Realized trading/funding gains may therefore be withdrawn beyond the user's original deposit, while unrealized mark-to-market gains cannot. The vault records any withdrawal beyond gross deposits as a signed collateral claim offset by market cashflow, preserving pooled custody conservation.
-
-Protocol fees may be allocated to insurance using the existing owner-controlled accounting path. After a portfolio is fully closed and order-free, `PortfolioAdmissionCoordinator.coverBadDebt` can consume those insurance reserves against negative aggregate equity; coverage becomes user market cashflow rather than local collateral, preserving shared-custody semantics.
-
-
-## Advanced execution strategies
-
-The deployable stack includes an optional `ExecutionStrategyModule` for execution styles that should not live in Core's matching loop:
-
-- **Iceberg / display quantity:** exposes only a configured slice of a larger maker instruction and permissionlessly replenishes after lazy maker fills.
-- **TWAP / scheduled execution:** releases bounded IOC slices over time with explicit start, interval, deadline and limit tick.
-- **Pegged orders:** maintains maker liquidity at mark plus/minus a signed tick offset, constrained by a trader-defined worst price.
-
-The standalone and portfolio deployment scripts wire this module automatically. The deployment manifest may publish its address as `executionStrategy`, and the TypeScript SDK exposes placement, refresh/sync, slice execution and cancellation plans.
-
-Future/hidden quantity is admitted slice-by-slice rather than locking margin for the whole program up front. This keeps strategy capital usage predictable and lets later keeper actions fail safely if account health has changed.
-
-## Boros CLOB comparison and matching evidence
-
-See [Boros comparison and benchmark methodology](docs/BOROS_COMPARISON.md) for sourced rate-time/FIFO versus pro-rata differences, maker-count and crossed-tick gas workloads, partial-fill cancellation and conservation tests, and remaining deployment/risk parity gaps. Comparative gas or throughput advantages are not claimed without matched Boros measurements.
-
-## Source-pinned Boros comparison evidence
-
-The [Boros matched benchmark protocol](docs/BOROS_MATCHED_BENCHMARK.md) audits the public Boros FIFO tick implementation, defines equivalent gas workloads and provides a CI-tested evidence comparator that rejects unequal fixtures or compiler environments. No Boros gas advantage or disadvantage is asserted until real, comparable transactions are measured.
+This repository includes contract and fork tests, but those tests are not a substitute for an independent security assessment of a specific deployed exchange. See the [WETH fork security review](docs/SECURITY_REVIEW_WETH_FORK.md).
