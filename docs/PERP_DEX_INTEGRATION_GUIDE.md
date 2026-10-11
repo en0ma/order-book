@@ -1,6 +1,6 @@
 # Perpetual DEX Integration Guide: From Fork to First Maker Quotes
 
-> **System documentation:** See [deployment feature catalog](PRODUCTION_FEATURE_CATALOG.md), [deployment system architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md), and [deployment team handbook](PRODUCTION_TEAM_HANDBOOK.md). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
+> **System documentation:** See [deployment feature catalog](FEATURE_CATALOG.md), [deployment system architecture](SYSTEM_ARCHITECTURE.md), and [deployment team handbook](TEAM_HANDBOOK.md). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
 
 This is an **operator-owned deployment guide**, not a hosted turnkey DEX and not a claim of independent security certification. Use it alongside [SELF_HOSTED_DEPLOYMENT.md](SELF_HOSTED_DEPLOYMENT.md), [OPERATOR_RUNBOOK.md](OPERATOR_RUNBOOK.md), and [INTEGRATION_OPERATOR_AUDIT.md](INTEGRATION_OPERATOR_AUDIT.md). All contract addresses, token decimals, oracle implementations, funding policies, and admin keys belong to the integrating team.
 
