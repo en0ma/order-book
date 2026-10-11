@@ -1,6 +1,6 @@
 # Architecture
 
-> **System documentation:** See [deployment feature catalog](PRODUCTION_FEATURE_CATALOG.md), [deployment system architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md), and [deployment team handbook](PRODUCTION_TEAM_HANDBOOK.md). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
+> **System documentation:** See [deployment feature catalog](FEATURE_CATALOG.md), [deployment system architecture](SYSTEM_ARCHITECTURE.md), and [deployment team handbook](TEAM_HANDBOOK.md). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
 
 This repository implements a deployment-bound fully on-chain derivatives order book optimized around one defining constraint:
 
