@@ -33,4 +33,4 @@ These application functions are intentionally user-supplied, not bundled infrast
 
 ## Recovery and readiness
 
-Configure the optional readiness policy to fail closed when the indexer is behind its safe head or in a stalled/mismatched state. `GET /ready` exposes a reasoned HTTP 200/503 response; see [READINESS.md](READINESS.md). Readiness is a consistency check, not a finality oracle.
+Configure the optional readiness policy to fail closed when the indexer is behind its safe head or in a stalled/mismatched state. `GET /ready` exposes a reasoned HTTP 200/503 response; see [READINESS.md](https://github.com/en0ma/order-book/blob/main/operator/READINESS.md). Readiness is a consistency check, not a finality oracle.

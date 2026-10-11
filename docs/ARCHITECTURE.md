@@ -1,6 +1,6 @@
 # Architecture
 
-> **System documentation:** See [deployment feature catalog](FEATURE_CATALOG.md), [deployment system architecture](SYSTEM_ARCHITECTURE.md), and [deployment team handbook](TEAM_HANDBOOK.md). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
+> **System documentation:** See [deployment feature catalog](/docs/FEATURE_CATALOG), [deployment system architecture](/docs/SYSTEM_ARCHITECTURE), and [deployment team handbook](/docs/TEAM_HANDBOOK). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
 
 This repository implements a deployment-bound fully on-chain derivatives order book optimized around one defining constraint:
 
@@ -291,9 +291,9 @@ A trailing order stores:
 
 The order itself does not receive watermark updates. At execution the contract asks the extrema oracle for the highest and lowest observed ticks since the stored observation ID.
 
-For a trailing sell, execution is allowed when currentTick + trailTicks <= highSinceActivation.
+For a trailing sell, execution is allowed when `currentTick + trailTicks less than or equal to highSinceActivation`.
 
-For a trailing buy, execution is allowed when currentTick >= lowSinceActivation + trailTicks.
+For a trailing buy, execution is allowed when `currentTick >= lowSinceActivation + trailTicks`.
 
 This keeps trigger truth on-chain without one storage write per trailing order whenever the market moves.
 
@@ -381,11 +381,11 @@ Current measured size-profile runtime sizes:
 - SegmentTreeExtremaOracle: about 2,152 bytes.
 
 CI intentionally enforces stricter project budgets than EIP-170:
-- OrderBookCore <= 22,000 bytes;
-- AdvancedOrderModule <= 19,500 bytes;
-- MarketMakerModule <= 5,000 bytes;
-- LiquidationModule <= 5,000 bytes;
-- SegmentTreeExtremaOracle <= 4,000 bytes.
+- OrderBookCore less than or equal to 22,000 bytes;
+- AdvancedOrderModule less than or equal to 19,500 bytes;
+- MarketMakerModule less than or equal to 5,000 bytes;
+- LiquidationModule less than or equal to 5,000 bytes;
+- SegmentTreeExtremaOracle less than or equal to 4,000 bytes.
 
 This prevents gradual bytecode creep from consuming all deployment margin. The oversized reference monolith remains compiled and tested but is deliberately excluded from the deployable size gate.
 
@@ -486,8 +486,8 @@ Each fuzz seed runs a sequence mixing:
 Expected operation reverts are tolerated. Canonical invariants are checked after every attempted transition, so a reverting action cannot hide partial state corruption.
 
 Current state-machine invariants include:
-- minPosition <= settledPosition <= maxPosition for every tracked account;
-- reserved margin <= collateral;
+- minPosition less than or equal to settledPosition less than or equal to maxPosition for every tracked account;
+- reserved margin less than or equal to collateral;
 - activeQuoteCount exactly matches tracked nonzero maker quotes;
 - pool totalShares is zero iff remainingLots is zero;
 - pool generation never regresses;
@@ -566,7 +566,7 @@ The optimized Ask taker branch had accidentally dropped the non-pre-reserved min
     minPosition     = 0
     maxPosition     = -13
 
-violating minPosition <= settledPosition.
+violating minPosition less than or equal to settledPosition.
 
 The missing minPosition update was restored and a focused direct-Ask regression was added. The full randomized state-machine corpus is green again. This validates the value of checking risk-envelope invariants after every randomized transition rather than relying only on scenario tests.
 

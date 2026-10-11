@@ -1,6 +1,6 @@
 # Self-Hosted Operator Runbook
 
-> **System documentation:** See [deployment feature catalog](FEATURE_CATALOG.md), [deployment system architecture](SYSTEM_ARCHITECTURE.md), and [deployment team handbook](TEAM_HANDBOOK.md). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
+> **System documentation:** See [deployment feature catalog](/docs/FEATURE_CATALOG), [deployment system architecture](/docs/SYSTEM_ARCHITECTURE), and [deployment team handbook](/docs/TEAM_HANDBOOK). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
 
 This runbook is for protocol teams that fork this repository and operate their own DEX deployment.
 
