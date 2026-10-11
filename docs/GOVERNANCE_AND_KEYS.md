@@ -2,9 +2,9 @@
 
 The DEX team manages its own keys and protocol administration. The reference deployment script initially wires the contracts and then transfers authority to `PROTOCOL_ADMIN`.
 
-![governance funding flow](assets/diagrams/governance-funding-flow.svg)
+![governance funding flow](/docs/assets/diagrams/governance-funding-flow.svg)
 
-[Edit the diagram source](assets/diagrams/source/governance-funding-flow.drawio).
+[Edit the diagram source](https://github.com/en0ma/order-book/blob/docs/site-quality-gates-and-visuals/docs/assets/diagrams/source/governance-funding-flow.drawio).
 
 ## Permission matrix
 
@@ -66,4 +66,4 @@ The updater can call `setRiskIncreasePaused(true)` to halt new risk. It cannot r
 - Market-maker signers: independent trader/maker accounts.
 - Watcher: read-only authority, index, oracle and custody alerts.
 
-See [Parameter Reference](PARAMETER_REFERENCE.md) and [Team Handbook](TEAM_HANDBOOK.md).
+See [Parameter Reference](/docs/PARAMETER_REFERENCE) and [Team Handbook](/docs/TEAM_HANDBOOK).
