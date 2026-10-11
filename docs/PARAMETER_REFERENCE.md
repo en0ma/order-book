@@ -46,4 +46,4 @@ This page maps the deployment inputs and privileged setters to actual Solidity e
 7. Update the market manifest, configuration registry, monitoring thresholds and audit trail where applicable.
 8. Reconcile maker inventory, outstanding orders and account margin before accepting more risk.
 
-If a setting is immutable, use a controlled migration instead of suggesting a setter that does not exist. See [Governance and Keys](GOVERNANCE_AND_KEYS.md) and [Market Listing](MARKET_LISTING.md).
+If a setting is immutable, use a controlled migration instead of suggesting a setter that does not exist. See [Governance and Keys](/docs/GOVERNANCE_AND_KEYS) and [Market Listing](/docs/MARKET_LISTING).
