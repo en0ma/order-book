@@ -2,7 +2,7 @@
 
 The authoritative deployment market state resides in EVM contracts. The off-chain systems observe state and submit transactions. They do not replace Core custody or matching.
 
-> **System integration diagrams:** See [deployment integration flows](PRODUCTION_INTEGRATION_FLOWS.md) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
+> **System integration diagrams:** See [deployment integration flows](INTEGRATION_FLOWS.md) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
 
 ## 1. System component diagram
 
@@ -112,4 +112,4 @@ Use a transaction store with durable nonces and idempotency. The reference opera
 - If a fork or reorg invalidates a checkpoint, replay the canonical branch before publishing keeper actions.
 - Do not authorize deployment operation solely because unit tests and a mainnet fork passed.
 
-See [architecture internals](ARCHITECTURE.md), [deployment team handbook](PRODUCTION_TEAM_HANDBOOK.md), [operator runbook](OPERATOR_RUNBOOK.md) and [WETH fork review](https://github.com/en0ma/order-book/blob/main/docs/SECURITY_REVIEW_WETH_FORK.md).
+See [architecture internals](ARCHITECTURE.md), [deployment team handbook](TEAM_HANDBOOK.md), [operator runbook](OPERATOR_RUNBOOK.md) and [WETH fork review](https://github.com/en0ma/order-book/blob/main/docs/SECURITY_REVIEW_WETH_FORK.md).
