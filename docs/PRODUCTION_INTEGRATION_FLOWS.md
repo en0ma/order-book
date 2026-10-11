@@ -1,14 +1,14 @@
-# Production Perp DEX Integration: Concepts and Service Flows
+# System Perp DEX Integration: Concepts and Service Flows
 
-This guide shows how a team integrates the production-oriented contracts with its own perpetual DEX. The on-chain state is authoritative. An indexer makes it easy to read. A keeper submits transactions when a task is due. Neither service owns matching or collateral.
+This guide shows how a team integrates the deployable contracts with its own perpetual DEX. The on-chain state is authoritative. An indexer makes it easy to read. A keeper submits transactions when a task is due. Neither service owns matching or collateral.
 
-For full procedures, read the [production team handbook](PRODUCTION_TEAM_HANDBOOK.md), [system architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md), [operator runbook](OPERATOR_RUNBOOK.md), and [deployment guide](SELF_HOSTED_DEPLOYMENT.md).
+For full procedures, read the [deployment team handbook](PRODUCTION_TEAM_HANDBOOK.md), [system architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md), [operator runbook](OPERATOR_RUNBOOK.md), and [deployment guide](SELF_HOSTED_DEPLOYMENT.md).
 
-## 1. What a production DEX team receives and builds
+## 1. What a deployment DEX team receives and builds
 
 ```mermaid
 flowchart TB
-    subgraph TEAM["DEX team: production services to build and operate"]
+    subgraph TEAM["DEX team: deployment services to build and operate"]
       APP["Web / mobile trading UI"]
       API["Backend API / WebSocket"]
       DB["Database / read cache"]
@@ -18,7 +18,7 @@ flowchart TB
       WALLET["User wallets and keeper signers"]
       ALERT["Monitoring, alerts and incident response"]
     end
-    subgraph REPO["Repository: reusable production components"]
+    subgraph REPO["Repository: reusable deployment components"]
       SDK["TypeScript SDK: transaction plans and verification"]
       IDX["Reference indexer: event replay and reorg rollback"]
       PLAN["Operator library: sync and keeper task planning"]
@@ -28,7 +28,7 @@ flowchart TB
       LIQ["Liquidation and risk policy"]
       PORT["Optional portfolio vault / coordinator / policy"]
     end
-    subgraph EXTERNAL["Team-selected production dependencies"]
+    subgraph EXTERNAL["Team-selected deployment dependencies"]
       CHAIN["EVM chain"]
       TOKEN["Collateral token"]
       ORACLE["Mark / extrema oracle"]
@@ -56,9 +56,9 @@ flowchart TB
     ENGINE --> ALERT
 ```
 
-**Production ownership rule:** The repository contains logic and libraries. The team must host the public API, RPC adapters, database, market-making strategy, transaction signers, monitoring and incident response.
+**System ownership rule:** The repository contains logic and libraries. The team must host the public API, RPC adapters, database, market-making strategy, transaction signers, monitoring and incident response.
 
-## 2. How a production trade reaches the chain
+## 2. How a deployment trade reaches the chain
 
 ```mermaid
 sequenceDiagram
@@ -68,7 +68,7 @@ sequenceDiagram
     participant SDK as Order Book SDK
     participant RPC as Transaction transport
     participant Core as On-chain Core
-    participant Index as Production indexer
+    participant Index as System indexer
     User->>UI: Select market and order
     UI->>API: Read indicative book and account state
     API->>Index: Query indexed view
@@ -86,9 +86,9 @@ sequenceDiagram
     API-->>UI: Refresh UI after confirmations
 ```
 
-**Production safety rule:** Never treat the indexer's quote as proof that a trade can execute. Simulate against current contract state before signing when practical. Price movement and transaction ordering can change the result.
+**System safety rule:** Never treat the indexer's quote as proof that a trade can execute. Simulate against current contract state before signing when practical. Price movement and transaction ordering can change the result.
 
-## 3. How a production indexer reconstructs state
+## 3. How a deployment indexer reconstructs state
 
 ```mermaid
 flowchart TD
@@ -105,14 +105,14 @@ flowchart TD
     J --> K["Direct on-chain verification when decisions affect funds"]
 ```
 
-The production indexer must handle restarts, duplicate logs, finality delay and bounded reorgs. It must not delete a quote from the liquidation registry based on an unconfirmed event.
+The deployment indexer must handle restarts, duplicate logs, finality delay and bounded reorgs. It must not delete a quote from the liquidation registry based on an unconfirmed event.
 
-## 4. How production keepers power advanced orders
+## 4. How deployment keepers power advanced orders
 
 ```mermaid
 sequenceDiagram
     participant Chain as EVM contracts and oracle
-    participant Index as Production indexer
+    participant Index as System indexer
     participant Planner as Reference operator planner
     participant Keeper as Team keeper service
     participant RPC as Team RPC and signer
@@ -132,7 +132,7 @@ sequenceDiagram
 
 **Concept:** A conditional order is stored on-chain, but the EVM does not wake up by itself. A keeper calls the execution function when a condition is satisfied. The contract still checks eligibility. Keepers must remain available for timely execution.
 
-## 5. How production makers maintain and settle quotes
+## 5. How deployment makers maintain and settle quotes
 
 ```mermaid
 flowchart LR
@@ -147,9 +147,9 @@ flowchart LR
     I --> B
 ```
 
-At the same tick, makers share fills pro rata. Taker execution changes aggregate tick state; it does not write to every maker account. The maker's production inventory model must materialize pending fills before it makes risk decisions.
+At the same tick, makers share fills pro rata. Taker execution changes aggregate tick state; it does not write to every maker account. The maker's deployment inventory model must materialize pending fills before it makes risk decisions.
 
-## 6. How production liquidation operators coordinate cleanup
+## 6. How deployment liquidation operators coordinate cleanup
 
 ```mermaid
 sequenceDiagram
@@ -175,30 +175,30 @@ sequenceDiagram
     end
 ```
 
-**Production warning:** If no opposing liquidity exists, liquidation cannot invent fills. A production liquidator must track residual positions, insurance reserves and unfilled closeout attempts.
+**System warning:** If no opposing liquidity exists, liquidation cannot invent fills. A deployment liquidator must track residual positions, insurance reserves and unfilled closeout attempts.
 
-## 7. Standalone and portfolio production deployment choices
+## 7. Standalone and portfolio deployment deployment choices
 
 ```mermaid
 flowchart TD
-    TEAM["Team selects production risk mode"] --> CHOICE{"Shared collateral across markets?"}
+    TEAM["Team selects deployment risk mode"] --> CHOICE{"Shared collateral across markets?"}
     CHOICE -- No --> STAND["Standalone: one Core and collateral ledger per market"]
     CHOICE -- Yes --> PORT["Portfolio: approved shared vault + coordinator + policy"]
     STAND --> MARKETS["Configure mark oracle, fees, funding, modules and keepers"]
     PORT --> GUARD["Configure and validate cross-market admission and risk policy"]
     GUARD --> MARKETS
     MARKETS --> VERIFY["Verify runtime bytecode, addresses and role assignment"]
-    VERIFY --> PILOT["Stress test, audit remediation and controlled production pilot"]
+    VERIFY --> PILOT["Stress test, audit remediation and controlled deployment pilot"]
 ```
 
-Portfolio deployment requires additional review of correlated market moves, funding and shared collateral. A production team should qualify standalone operation first.
+Portfolio deployment requires additional review of correlated market moves, funding and shared collateral. A deployment team should qualify standalone operation first.
 
-## 8. How production monitoring supports incident response
+## 8. How deployment monitoring supports incident response
 
 ```mermaid
 flowchart TD
     METRICS["RPC health, chain finality, index lag, keeper queues, oracle age, funding events, liquidation residuals"] --> CHECK{"Risk threshold exceeded?"}
-    CHECK -- No --> RUN["Continue guarded production operation"]
+    CHECK -- No --> RUN["Continue guarded deployment operation"]
     CHECK -- Yes --> PAGE["Page on-call operator and risk owner"]
     PAGE --> EVAL["Verify canonical on-chain state and deployment manifest"]
     EVAL --> DECIDE{"Risk increase is unsafe?"}
@@ -209,7 +209,7 @@ flowchart TD
     RECON --> APPROVE["Authorized recovery and incident approval"]
 ```
 
-## 9. Production integration checklist
+## 9. System integration checklist
 
 1. Assign owners for contracts, risk, oracle, market makers, indexers, keepers and keys.
 2. Select standalone or portfolio deployment mode. Approve the associated margin model.
@@ -217,9 +217,9 @@ flowchart TD
 4. Build a frontend and transaction transport around SDK plans.
 5. Implement durable canonical event indexing and independent state reconciliation.
 6. Implement keeper execution with live reads, transaction simulation and failure recovery.
-7. Connect production makers with inventory accounting and signed quote workflows.
+7. Connect deployment makers with inventory accounting and signed quote workflows.
 8. Run liquidation rehearsals with missing orders, missing liquidity and keeper outages.
 9. Test funding rotation alerts, oracle faults, reorgs and emergency risk-off behavior.
-10. Obtain an external security audit and deployment-specific release approval before unrestricted production funds.
+10. Obtain an external security audit and deployment-specific release approval before unrestricted deployment funds.
 
-The repository supplies no hosted production operator and does not guarantee production liquidity.
+The repository supplies no hosted deployment operator and does not guarantee deployment liquidity.
