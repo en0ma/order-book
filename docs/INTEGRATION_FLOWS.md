@@ -2,17 +2,17 @@
 
 This guide shows how a team integrates the deployable contracts with its own perpetual DEX. The on-chain state is authoritative. An indexer makes it easy to read. A keeper submits transactions when a task is due. Neither service owns matching or collateral.
 
-For full procedures, read the [deployment team handbook](TEAM_HANDBOOK.md), [system architecture](SYSTEM_ARCHITECTURE.md), [operator runbook](OPERATOR_RUNBOOK.md), and [deployment guide](SELF_HOSTED_DEPLOYMENT.md).
+For full procedures, read the [deployment team handbook](/docs/TEAM_HANDBOOK), [system architecture](/docs/SYSTEM_ARCHITECTURE), [operator runbook](/docs/OPERATOR_RUNBOOK), and [deployment guide](/docs/SELF_HOSTED_DEPLOYMENT).
 
-> **Integration guides:** [List a market](MARKET_LISTING.md) · [Parameter reference](PARAMETER_REFERENCE.md) · [Governance and keys](GOVERNANCE_AND_KEYS.md).
+> **Integration guides:** [List a market](/docs/MARKET_LISTING) · [Parameter reference](/docs/PARAMETER_REFERENCE) · [Governance and keys](/docs/GOVERNANCE_AND_KEYS).
 
-![DEX integration architecture](assets/diagrams/dex-integration.svg)
+![DEX integration architecture](/docs/assets/diagrams/dex-integration.svg)
 
-[Edit the architecture diagram](assets/diagrams/source/dex-integration.drawio).
+[Edit the architecture diagram](https://github.com/en0ma/order-book/blob/docs/site-quality-gates-and-visuals/docs/assets/diagrams/source/dex-integration.drawio).
 
-![indexer keeper loop](assets/diagrams/indexer-keeper-loop.svg)
+![indexer keeper loop](/docs/assets/diagrams/indexer-keeper-loop.svg)
 
-[Edit the diagram source](assets/diagrams/source/indexer-keeper-loop.drawio).
+[Edit the diagram source](https://github.com/en0ma/order-book/blob/docs/site-quality-gates-and-visuals/docs/assets/diagrams/source/indexer-keeper-loop.drawio).
 
 ## 1. What a deployment DEX team receives and builds
 
