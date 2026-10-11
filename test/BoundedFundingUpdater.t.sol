@@ -29,6 +29,16 @@ contract BoundedFundingUpdaterTest is TestBase {
         assertEq(int256(core.fundingIndex()), 1, "funding not published");
     }
 
+    function testOperatorCanForwardEmergencyPauseButCannotUnpause() public {
+        vm.prank(OPERATOR);
+        updater.pauseRiskIncrease();
+        assertTrue(core.riskIncreasePaused(), "operator pause did not reach Core");
+        core.setRiskIncreasePaused(false);
+        (bool unauthorized,) = address(updater).call(abi.encodeCall(updater.pauseRiskIncrease, ()));
+        assertTrue(!unauthorized, "unauthorized caller invoked emergency pause");
+        assertTrue(!core.riskIncreasePaused(), "wrapper bypassed owner unpause");
+    }
+
     function testRejectsLargePositiveAndNegativeIndexMoves() public {
         vm.warp(block.timestamp + 3600);
         vm.prank(OPERATOR);
