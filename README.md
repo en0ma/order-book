@@ -1,6 +1,36 @@
-# Fully On-Chain Pro-Rata Order Book
+# Production-Oriented On-Chain Perpetual DEX Infrastructure
 
-Production-oriented Solidity/Foundry implementation of a gas-efficient fully on-chain derivatives order book.
+**Production integration toolkit for team-owned EVM perpetual exchanges.** The system keeps the order book, matching, collateral ledger, funding accounting, and market risk on-chain. Each production DEX team deploys its own markets, supplies its own market makers, and operates its own infrastructure.
+
+> **Production readiness boundary:** The repository provides production-oriented contracts, tests, SDK and operator primitives. It does not provide a hosted production exchange, a deployment-specific security certification, or a guarantee of safety for unrestricted production funds. Each team must complete an independent audit, production market-risk assessment, authority review, and sustained staging trial before it launches with customer collateral.
+
+## Production documentation map
+
+| Production task | Document |
+| --- | --- |
+| Review all production features by subsystem | [Production feature catalog](docs/PRODUCTION_FEATURE_CATALOG.md) |
+| Understand production contracts, trust boundaries and transaction flows | [Production system architecture](docs/PRODUCTION_SYSTEM_ARCHITECTURE.md) |
+| Plan, deploy and operate a production DEX as a team | [Production team handbook](docs/PRODUCTION_TEAM_HANDBOOK.md) |
+| Build a production deployment | [Self-hosted deployment](docs/SELF_HOSTED_DEPLOYMENT.md) |
+| Integrate a production frontend and market maker | [Perp DEX integration guide](docs/PERP_DEX_INTEGRATION_GUIDE.md) |
+| Operate production keepers and recover from faults | [Operator runbook](docs/OPERATOR_RUNBOOK.md) |
+| Assess production assurance gaps and WETH fork evidence | [Security review](docs/SECURITY_REVIEW_WETH_FORK.md) |
+| Review detailed matching and risk internals | [Architecture reference](docs/ARCHITECTURE.md) |
+
+## Production quick start
+
+```sh
+forge test -vvv
+forge test --gas-report
+forge snapshot
+# Requires your own Ethereum mainnet RPC endpoint.
+ETH_RPC=https://YOUR_MAINNET_RPC forge test --match-contract PerpLifecycleWethMainnetForkTest -vvv
+```
+
+See the [production team handbook](docs/PRODUCTION_TEAM_HANDBOOK.md) for deployment preparation, verification, market-maker onboarding, operational recovery, and release gates. The example deployment manifests use non-production addresses.
+
+---
+## Production protocol reference
 
 The design keeps authoritative liquidity and matching entirely on-chain, but replaces FIFO within a price level with pro-rata allocation. That lets one taker fill an arbitrary number of makers at the same tick by updating aggregate tick state rather than every maker.
 
