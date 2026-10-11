@@ -219,9 +219,8 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _requireRiskModule() internal view {
-        if (msg.sender != advancedModule && msg.sender != portfolioController) {
-            revert Unauthorized();
-        }
+        if (msg.sender == advancedModule || msg.sender == portfolioController) return;
+        revert Unauthorized();
     }
 
     function _requireStandalone() internal view {
@@ -229,8 +228,7 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _requirePortfolioControllerIfEnabled() internal view {
-        address controller = portfolioController;
-        if (controller != address(0) && msg.sender != controller) {
+        if (portfolioController != address(0) && msg.sender != portfolioController) {
             revert Unauthorized();
         }
     }
