@@ -87,7 +87,7 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => int256) internal fundingCashflow;
     mapping(address => int256) internal tradeCashflow;
 
-    int128 public fundingIndexX18;
+    int128 internal fundingIndexX18;
     uint32 internal immutable feeSchedulePacked;
     uint256 internal _feeAccountingPacked;
     uint256 public insuranceReserves;
@@ -264,6 +264,12 @@ contract OrderBookCore is IOrderBookCore {
         address previous = fundingUpdater;
         fundingUpdater = nextUpdater;
         emit FundingUpdaterChanged(previous, nextUpdater);
+    }
+
+    function fundingIndexX18Value() external view returns (int128 result) {
+        assembly {
+            result := signextend(15, sload(fundingIndexX18.slot))
+        }
     }
 
     function setFundingIndex(int128 nextFundingIndexX18) external {
