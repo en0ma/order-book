@@ -2,6 +2,8 @@
 
 This handbook explains how a team can prepare and run its **own production EVM perpetual DEX** with this repository. The repository supplies the contracts and reference integration primitives. The team supplies keys, liquidity, funding and oracle policy, infrastructure, compliance decisions and an independently approved production release.
 
+> **Production integration diagrams:** See [production integration flows](PRODUCTION_INTEGRATION_FLOWS.md) for frontend, SDK, indexer, keeper, market-maker, liquidation, deployment-mode and incident-response diagrams.
+
 ## 1. Assign production owners
 
 | Production role | Required duty | Evidence before launch |
