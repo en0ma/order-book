@@ -1,5 +1,7 @@
 # Self-Hosted Operator Runbook
 
+> **Production documentation:** See [production feature catalog](PRODUCTION_FEATURE_CATALOG.md), [production system architecture](PRODUCTION_SYSTEM_ARCHITECTURE.md), and [production team handbook](PRODUCTION_TEAM_HANDBOOK.md). These explain production interfaces, team duties and release checks. An external audit and a deployment-specific production approval are still required before unrestricted customer funds.
+
 This runbook is for protocol teams that fork this repository and operate their own DEX deployment.
 
 The reference operator remains transport-neutral. Your team supplies RPC access, event decoding, persistence, simulation, signing and transaction submission. The repository supplies deterministic replay, keeper planning, bounded reorg recovery and production-oriented runtime primitives.
