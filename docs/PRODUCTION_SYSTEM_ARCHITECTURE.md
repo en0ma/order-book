@@ -112,4 +112,4 @@ Use a transaction store with durable nonces and idempotency. The reference opera
 - If a fork or reorg invalidates a checkpoint, replay the canonical branch before publishing keeper actions.
 - Do not authorize production operation solely because unit tests and a mainnet fork passed.
 
-See [architecture internals](ARCHITECTURE.md), [production team handbook](PRODUCTION_TEAM_HANDBOOK.md), [operator runbook](OPERATOR_RUNBOOK.md) and [WETH fork review](SECURITY_REVIEW_WETH_FORK.md).
+See [architecture internals](ARCHITECTURE.md), [production team handbook](PRODUCTION_TEAM_HANDBOOK.md), [operator runbook](OPERATOR_RUNBOOK.md) and [WETH fork review](https://github.com/en0ma/order-book/blob/main/docs/SECURITY_REVIEW_WETH_FORK.md).
