@@ -1,6 +1,6 @@
 # Self-Hosted Deployment
 
-> **System documentation:** See [deployment feature catalog](/docs/FEATURE_CATALOG), [deployment system architecture](/docs/SYSTEM_ARCHITECTURE), and [deployment team handbook](/docs/TEAM_HANDBOOK). These explain deployment interfaces, team duties and release checks. An external audit and a deployment-specific deployment approval are still required before unrestricted customer funds.
+> **System documentation:** See [feature catalog](/docs/FEATURE_CATALOG), [system architecture](/docs/SYSTEM_ARCHITECTURE), and [team handbook](/docs/TEAM_HANDBOOK). These explain integration interfaces, team duties and release checks. An external audit and a chain-specific release approval are still required before unrestricted customer funds.
 
 This repository is intended to be forked or cloned by DeFi teams that operate their own DEX deployments.
 
@@ -13,7 +13,9 @@ Each team is expected to:
 - run its own indexer, keepers, liquidators, market-making infrastructure, RPC stack and frontend/backend;
 - publish its own deployment manifest for clients and operators.
 
-The repository does not assume a hosted control plane or shared deployment deployment.
+The repository does not assume a hosted control plane or shared live deployment.
+
+For broadcasting to Ethereum mainnet or another live chain, use the [network deployment guide](/docs/NETWORK_DEPLOYMENT). Local Foundry and fork tests do not deploy contracts.
 
 ## Declarative deployment spec
 
@@ -23,7 +25,7 @@ The TypeScript SDK exposes:
 
 - `validateDeploymentSpec(spec)` to enforce the same fee, margin, address, risk-group and market-count invariants expected by the deployment scripts;
 - `compileDeploymentEnvironments(spec)` to produce the exact environment variables for `DeployStandalone` or `DeployPortfolio`;
-- `buildDeploymentManifest(spec, deployedAddresses, metadata, portfolio?)` to turn the same source spec plus resolved deployment addresses into the canonical `deployments/schema/v1.json` manifest.
+- `buildDeploymentManifest(spec, deployedAddresses, metadata, portfolio?)` to turn the same source spec plus resolved deployed addresses into the canonical `deployments/schema/v1.json` manifest.
 
 The intended self-hosted workflow is:
 
@@ -129,7 +131,7 @@ A deployment team should:
 7. run smoke trades and recovery checks before enabling public access;
 8. complete deployment-specific security and operational review.
 
-The example manifest under `deployments/example.json` is not a deployment deployment and its addresses must not be reused.
+The example manifest under `deployments/example.json` is not a live deployment and its addresses must not be reused.
 
 ## Portfolio deployments
 
