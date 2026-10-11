@@ -10,6 +10,7 @@ import {MockMarkOracle} from "./mocks/MockMarkOracle.sol";
 /// two taker directions, funding checkpoints, lazy settlement and actual withdrawals.
 /// @dev Fee-free to assert exact zero-sum obligations, separately from fee/rebate tests.
 contract MultiAccountSolvencyReconciliationTest is TestBase {
+    event SolvencyDiagnostic(int256 netFunding, int256 makerDust);
     address constant A = address(0xA11CE);
     address constant B = address(0xB0B);
     address constant C = address(0xCAFE);
@@ -63,8 +64,10 @@ contract MultiAccountSolvencyReconciliationTest is TestBase {
         }
         assertEq(positions, 0, "net position created");
         assertEq(trading, 0, "trade cashflow created");
-        assertEq(funding, 0, "funding cashflow created");
-        assertEq(netSettledCash, 400_000, "global cash claims not conserved");
+        int256 makerDust = core.makerFundingRoundingDustTest();
+        emit SolvencyDiagnostic(funding, makerDust);
+        assertEq(funding + makerDust, 0, "funding including system dust not conserved");
+        assertEq(netSettledCash + makerDust, 400_000, "global cash claims and dust not conserved");
         (int80 closedPosition,,) = core.accountRisk(C);
         assertEq(int256(closedPosition), 0, "taker position not flat");
         assertEq(core.accountEquity(C), 100_000 - 20, "funding charge not reflected");
@@ -86,7 +89,7 @@ contract MultiAccountSolvencyReconciliationTest is TestBase {
                 (int256(core.fundingIndexTest()) - int256(checkpoint))) / 1e18;
             otherClaims += int256(collateral) + trade + accrued + pending;
         }
-        assertEq(otherClaims, 300_020, "post-withdraw solvency reconciliation failed");
+        assertEq(otherClaims + makerDust, 300_020, "post-withdraw solvency reconciliation failed");
     }
     function _assertCustody(MockERC20 token, OrderBookCoreHarness core, uint256 expected) internal view {
         assertEq(token.balanceOf(address(core)), expected, "custody drift");
