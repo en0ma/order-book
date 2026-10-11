@@ -2,9 +2,9 @@
 
 Use this procedure to add a market to a DEX that uses the order-book contracts. A market is a **perpetual instrument**, not a spot token pair. Listing a token as an underlying asset does not mint or transfer that underlying token. Collateral is a separate ERC-20 selected for the deployment.
 
-![market listing lifecycle](assets/diagrams/market-listing-lifecycle.svg)
+![market listing lifecycle](/docs/assets/diagrams/market-listing-lifecycle.svg)
 
-[Edit the diagram source](assets/diagrams/source/market-listing-lifecycle.drawio).
+[Edit the diagram source](https://github.com/en0ma/order-book/blob/docs/site-quality-gates-and-visuals/docs/assets/diagrams/source/market-listing-lifecycle.drawio).
 
 ## 1. Choose the deployment mode
 
@@ -27,7 +27,7 @@ Use this procedure to add a market to a DEX that uses the order-book contracts. 
 | Oracle history | Supply extrema input where trailing orders require it | Advanced order behavior and keeper eligibility |
 | Liquidity | Secure initial maker participation | Orders are supplied by independent market makers |
 
-See [Parameter Reference](PARAMETER_REFERENCE.md) for exact mutability, units and bounds. Do not confuse a listed underlying token with the collateral asset.
+See [Parameter Reference](/docs/PARAMETER_REFERENCE) for exact mutability, units and bounds. Do not confuse a listed underlying token with the collateral asset.
 
 ## 3. Validate the listing configuration
 
@@ -80,4 +80,4 @@ The script deploys `OrderBookCore`, `AdvancedOrderModule`, `ExecutionStrategyMod
 
 Track mark freshness, realized funding, maker depth, order count, insurance funds and outstanding liquidation positions. Because the standalone Core has no documented generic in-place market-delete switch, market retirement is an **operator-led process**: stop new risk through authorized pause, cancel orders, close risk with available liquidity, settle claims, support permitted withdrawals and archive the final manifest. Never promise forced settlement when opposing book liquidity is absent.
 
-Read [Governance and Keys](GOVERNANCE_AND_KEYS.md), [Integration Flows](INTEGRATION_FLOWS.md) and [Team Handbook](TEAM_HANDBOOK.md).
+Read [Governance and Keys](/docs/GOVERNANCE_AND_KEYS), [Integration Flows](/docs/INTEGRATION_FLOWS) and [Team Handbook](/docs/TEAM_HANDBOOK).
