@@ -76,3 +76,20 @@ Before starting a DEX backend or operator against a deployment, execute the mani
 `verifyDeploymentOrThrow(manifest, adapter)` checks the live verification report and throws `DeploymentVerificationError` when any chain, bytecode, wiring, authority, parameter, or RPC-read check fails. The error retains the full structured report for logging/alerting.
 
 This is the recommended production startup boundary: do not silently continue after a verification mismatch.
+
+
+## Reviewed runtime bytecode attestation
+
+Deployment wiring and bytecode identity are **different** trust checks. After `verifyDeploymentOrThrow`, use `attestRuntimeCodeOrThrow(chainId, reviewedArtifacts, adapter)` with the exact deployed runtime bytecode from an independently reviewed, reproducible deployment-specific build. The function checks chain identity before fetching code and rejects missing code, byte-for-byte differences, malformed expectations and RPC failures.
+
+```ts
+import { attestRuntimeCodeOrThrow } from "@en0ma/order-book-sdk";
+
+await attestRuntimeCodeOrThrow(manifest.chainId, [
+  { label: "ETH-PERP Core", address: manifest.markets[0].core, runtimeCode: reviewedCoreRuntime },
+  { label: "ETH-PERP Advanced", address: manifest.markets[0].advanced, runtimeCode: reviewedAdvancedRuntime },
+  // Include *every* deployed protocol/module contract, plus approved oracle/token implementation.
+], { chainId: () => rpc.getChainId(), getCode: address => rpc.getBytecode(address) });
+```
+
+This is **not** a bytecode compiler, constructor-argument resolver, proxy implementation tracker or audit certificate. Teams must obtain correct runtime artifacts with immutables and library links already populated; upgradeable contract proxies must be separately scrutinized. Omitted addresses are not checked. Compare *all* components of the reviewed deployment and record approvals.
