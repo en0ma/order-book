@@ -29,6 +29,7 @@
       {
         "group": "Build your DEX",
         "pages": [
+          "docs/NETWORK_DEPLOYMENT",
           "docs/SELF_HOSTED_DEPLOYMENT",
           "docs/PERP_DEX_INTEGRATION_GUIDE",
           "docs/PARAMETER_REFERENCE",
