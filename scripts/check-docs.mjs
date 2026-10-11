@@ -14,7 +14,7 @@ function checkPage(raw, source) {
   if (/^(https?:|mailto:|#)/.test(raw)) return;
   const path = raw.split("#")[0].split("?")[0];
   if (!path) return;
-  const target = resolve(source, decodeURIComponent(path));
+  const target = path.startsWith('/') ? resolve(root, '.' + decodeURIComponent(path)) : resolve(source, decodeURIComponent(path));
   const options = extname(target) ? [target] : [target, target + ".md", target + ".mdx", resolve(target,"index.md"), resolve(target,"index.mdx")];
   if (!options.some(existsSync)) errors.push(`Missing local resource: ${raw} (from ${source})`);
 }
