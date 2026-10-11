@@ -364,3 +364,22 @@ export declare function executeDeploymentVerification(
   manifest: DeploymentManifest,
   adapter: DeploymentVerificationAdapter,
 ): Promise<LiveVerificationResult>;
+
+export interface ExpectedRuntimeCode {
+  address: Address;
+  runtimeCode: Hex;
+  label?: string;
+}
+export interface RuntimeCodeAttestationAdapter {
+  chainId(): Promise<number>;
+  getCode(address: Address): Promise<string>;
+}
+export declare class RuntimeCodeAttestationError extends Error {
+  readonly failures: readonly { address?: Address; label: string; reason: string }[];
+  constructor(failures: readonly { address?: Address; label: string; reason: string }[]);
+}
+export declare function attestRuntimeCodeOrThrow(
+  chainId: number,
+  expected: readonly ExpectedRuntimeCode[],
+  adapter: RuntimeCodeAttestationAdapter,
+): Promise<void>;
