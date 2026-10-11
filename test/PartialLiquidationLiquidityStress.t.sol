@@ -27,7 +27,7 @@ contract PartialLiquidationLiquidityStressTest is TestBase {
         liquidation = new LiquidationModule(address(core), address(advanced), address(0), 500);
         core.configureAdvancedModule(address(advanced));
         advanced.configureLiquidationModule(address(liquidation));
-        _deposit(TRADER, 1200);
+        _deposit(TRADER, 1400);
         _deposit(ENTRY_MAKER, 100000);
         _deposit(EXIT_MAKER, 100000);
         vm.prank(ENTRY_MAKER);
