@@ -140,6 +140,11 @@
       "types": "./launch-admission.d.ts",
       "import": "./dist/launch-admission.js",
       "default": "./dist/launch-admission.js"
+    },
+    "./deployment-preflight": {
+      "types": "./deployment-preflight.d.ts",
+      "import": "./dist/deployment-preflight.js",
+      "default": "./dist/deployment-preflight.js"
     }
   },
   "files": [
@@ -179,6 +184,7 @@
     "verified-oracle.d.ts",
     "submission-journal.d.ts",
     "mm-execution.d.ts",
-    "launch-admission.d.ts"
+    "launch-admission.d.ts",
+    "deployment-preflight.d.ts"
   ]
 }
