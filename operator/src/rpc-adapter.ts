@@ -17,6 +17,10 @@ export interface RpcLog {
 export interface CanonicalRpcOptions {
   /** Decode logs using the deployment ABI. Unknown topics must be explicitly ignored. */
   decode(log: RpcLog, chainId: number): CanonicalLogEnvelope | undefined;
+  /** Reject undecoded logs unless their exact (address, topic0) identity is explicitly ignored. */
+  strictEventCoverage?: boolean;
+  /** An intentional list of known non-economic events from deployed ABIs. */
+  ignoredEventTopics?: Readonly<Record<string, readonly string[]>>;
   /** Required for mark-price reads; do not infer a price from old events. */
   markTicks?(manifest: OperatorManifest): Promise<Readonly<Record<string, number>>>;
   portfolioHealth?(accounts: readonly Address[], manifest: OperatorManifest): Promise<Readonly<Record<Address, { equity: bigint; requirement: bigint }>>>;
@@ -55,6 +59,19 @@ export function createCanonicalRpcAdapter(
 ): OperatorRpcAdapter {
   if (typeof transport?.request !== "function" || typeof options?.decode !== "function") {
     throw new TypeError("RPC transport and ABI decoder are required");
+  }
+  const strictEventCoverage = options.strictEventCoverage === true;
+  const ignoredEventTopics = new Map<string, Set<string>>();
+  if (strictEventCoverage) {
+    for (const [configuredAddress, topics] of Object.entries(options.ignoredEventTopics ?? {})) {
+      const normalizedAddress = address(configuredAddress);
+      if (!Array.isArray(topics) || topics.some(topic => typeof topic !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(topic))) {
+        throw new TypeError("invalid ignored event topic; require full topic0 signature hash");
+      }
+      const allowed = ignoredEventTopics.get(normalizedAddress) ?? new Set<string>();
+      for (const topic of topics) allowed.add(topic.toLowerCase());
+      ignoredEventTopics.set(normalizedAddress, allowed);
+    }
   }
   async function getChainId(): Promise<number> {
     return quantity(await transport.request("eth_chainId", []), "chain ID");
@@ -109,7 +126,16 @@ export function createCanonicalRpcAdapter(
           throw new Error("invalid RPC log payload");
         }
         const decoded = options.decode(log, chainId);
-        if (!decoded) continue;
+        if (!decoded) {
+          if (strictEventCoverage) {
+            const allowed = ignoredEventTopics.get(logAddress);
+            const topic0 = log.topics[0]?.toLowerCase();
+            if (!topic0 || !allowed?.has(topic0)) {
+              throw new Error("undecoded deployment event: " + logAddress + " topic0=" + (topic0 ?? "<none>"));
+            }
+          }
+          continue;
+        }
         if (decoded.blockHash.toLowerCase() !== block.hash || decoded.blockNumber !== block.number ||
             decoded.chainId !== chainId ||
             decoded.address.toLowerCase() !== log.address.toLowerCase() ||
