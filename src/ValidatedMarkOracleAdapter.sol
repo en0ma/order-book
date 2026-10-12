@@ -89,6 +89,7 @@ contract ValidatedMarkOracleAdapter {
         ) revert ConfidenceTooWide();
 
         uint256 normalized = price * ticksPerUnit / sourceScale;
+        if (normalized == 0) revert InvalidPrice();
         if (normalized > type(uint16).max) revert TickOverflow();
 
         tick = uint16(normalized);
