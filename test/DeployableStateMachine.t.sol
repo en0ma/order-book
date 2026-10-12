@@ -16,7 +16,8 @@ import {TestBase} from "./TestBase.sol";
 contract DeployableStateMachineTest is TestBase {
     error CustodyClaimsExceedBacking(
         int256 accountCashClaims, uint256 protocolFees, uint256 insurance,
-        uint256 physicalTokenBalance, int256 totalClaims
+        uint256 physicalTokenBalance, int256 totalClaims,
+        int256 aggregateTrading, int256 aggregateFunding, int256 makerRoundingDust
     );
     OrderBookCoreHarness internal core;
     AdvancedOrderModule internal advanced;
@@ -315,9 +316,15 @@ contract DeployableStateMachineTest is TestBase {
     function _checkCustodyBacking() internal view {
         address[5] memory actors = [ALICE, BOB, CAROL, DAVE, FINALIZER];
         int256 userClaims;
+        int256 aggregateTrading;
+        int256 aggregateFunding;
 
         for (uint256 a; a < actors.length; ++a) {
-            userClaims += _cashClaim(actors[a]);
+            (uint256 collateral, int256 trading, int256 funding,,) =
+                core.accountingStateTest(actors[a]);
+            userClaims += int256(collateral) + trading + funding;
+            aggregateTrading += trading;
+            aggregateFunding += funding;
         }
 
         int256 internalClaims =
@@ -329,7 +336,8 @@ contract DeployableStateMachineTest is TestBase {
         if (uint256(internalClaims) > custody) {
             revert CustodyClaimsExceedBacking(
                 userClaims, core.protocolFeesAccrued(), core.insuranceReserves(),
-                custody, internalClaims
+                custody, internalClaims, aggregateTrading, aggregateFunding,
+                core.makerFundingRoundingDustTest()
             );
         }
     }
