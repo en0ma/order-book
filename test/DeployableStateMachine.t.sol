@@ -57,6 +57,12 @@ contract DeployableStateMachineTest is TestBase {
         _runSequence(seed, 12);
     }
 
+    /// @notice CI-reported seed: fee/rebate claims exceeded physical token custody.
+    /// @dev Preserve as a deterministic regression; do not loosen _checkCustodyBacking.
+    function testRegressionAdversarialShortSequenceCustodyCounterexample186() public {
+        _runSequence(873015621485771659152636108981745551321, 12);
+    }
+
     function testRegressionAdversarialShortSequenceRiskTailEnvelope() public {
         _runSequence(1429134643453657744, 12);
     }
