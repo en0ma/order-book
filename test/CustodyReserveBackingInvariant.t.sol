@@ -89,6 +89,26 @@ contract CustodyReserveBackingInvariantTest is TestBase {
         assertEq(liquidation.terminalBadDebt(TRADER), 0, "insurance left bad debt");
 
         _assertBacked(core, token, TRADER, ASK_MAKER, BID_MAKER, WITHDRAWER);
+
+        // A flat account must not be eligible for a second paid liquidation,
+        // even while fee and insurance balances remain available.
+        uint256 custodyAfter = token.balanceOf(address(core));
+        uint256 liquidatorAfter = token.balanceOf(LIQUIDATOR);
+        uint256 feesAfter = core.protocolFeesAccrued();
+        uint256 insuranceAfter = core.insuranceReserves();
+
+        vm.prank(LIQUIDATOR);
+        (bool replayed,) = address(liquidation).call(
+            abi.encodeCall(
+                liquidation.liquidate,
+                (TRADER, sides, ticks, conditionalIds, trailingIds, new uint64[](0))
+            )
+        );
+        assertTrue(!replayed, "flat position rewarded again");
+        assertEq(token.balanceOf(LIQUIDATOR), liquidatorAfter, "replay paid second reward");
+        assertEq(token.balanceOf(address(core)), custodyAfter, "replay changed custody");
+        assertEq(core.protocolFeesAccrued(), feesAfter, "replay spent protocol fees");
+        assertEq(core.insuranceReserves(), insuranceAfter, "replay spent insurance");
     }
 
     function _assertBacked(
