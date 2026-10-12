@@ -67,6 +67,21 @@ contract DeployableStateMachineTest is TestBase {
     /// @dev Preserve as a deterministic regression; do not loosen _checkCustodyBacking.
     /// @dev Diagnostic: account-specific cashflows from the same deterministic seed.
     ///      This deliberately retains the final custody assertion.
+    /// @dev Counterfactual for #186: identical operations with index updates
+    ///      suppressed distinguish funding attribution from fee-only accounting.
+    function testRegressionCustodyCounterexample186WithoutIndexChanges() public {
+        uint256 randomness = 873015621485771659152636108981745551321;
+        for (uint256 step; step < 12; ++step) {
+            randomness = uint256(keccak256(abi.encode(randomness, step)));
+            if (randomness % 10 != 6) _step(randomness);
+            _checkInvariants();
+        }
+        _drainTrackedBook();
+        _settleAllTrackedState();
+        _checkInvariants();
+        _checkCustodyBacking();
+    }
+
     function testRegressionCustodyCounterexample186AccountBreakdown() public {
         uint256 randomness = 873015621485771659152636108981745551321;
         for (uint256 step; step < 12; ++step) {
