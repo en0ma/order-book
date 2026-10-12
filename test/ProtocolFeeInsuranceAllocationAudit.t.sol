@@ -29,7 +29,7 @@ contract ProtocolFeeInsuranceAllocationAuditTest is TestBase {
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
         vm.prank(TAKER);
         assertEq(
-            core.take(IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC),
+            uint256(core.take(IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC)),
             100,
             "initial matching failed"
         );
