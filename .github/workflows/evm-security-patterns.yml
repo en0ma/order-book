@@ -26,5 +26,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Test scanner lexer
+        run: node --test test-js/security-pattern-scan.test.mjs
       - name: Scan dangerous EVM constructs
         run: node scripts/security-pattern-scan.mjs
