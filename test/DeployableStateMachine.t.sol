@@ -19,6 +19,7 @@ contract DeployableStateMachineTest is TestBase {
         uint256 physicalTokenBalance, int256 totalClaims,
         int256 aggregateTrading, int256 aggregateFunding, int256 makerRoundingDust
     );
+    event CustodyFundingAccount(address indexed account, int256 trading, int256 funding);
     OrderBookCoreHarness internal core;
     AdvancedOrderModule internal advanced;
     MarketMakerModule internal marketMaker;
@@ -64,6 +65,26 @@ contract DeployableStateMachineTest is TestBase {
 
     /// @notice CI-reported seed: fee/rebate claims exceeded physical token custody.
     /// @dev Preserve as a deterministic regression; do not loosen _checkCustodyBacking.
+    /// @dev Diagnostic: account-specific cashflows from the same deterministic seed.
+    ///      This deliberately retains the final custody assertion.
+    function testRegressionCustodyCounterexample186AccountBreakdown() public {
+        uint256 randomness = 873015621485771659152636108981745551321;
+        for (uint256 step; step < 12; ++step) {
+            randomness = uint256(keccak256(abi.encode(randomness, step)));
+            _step(randomness);
+            _checkInvariants();
+        }
+        _drainTrackedBook();
+        _settleAllTrackedState();
+        address[5] memory actors = [ALICE, BOB, CAROL, DAVE, FINALIZER];
+        for (uint256 i; i < actors.length; ++i) {
+            (, int256 trading, int256 funding,,) =
+                core.accountingStateTest(actors[i]);
+            emit CustodyFundingAccount(actors[i], trading, funding);
+        }
+        _checkCustodyBacking();
+    }
+
     function testRegressionAdversarialShortSequenceCustodyCounterexample186() public {
         _runSequence(873015621485771659152636108981745551321, 12);
     }
