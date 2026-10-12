@@ -125,6 +125,73 @@ contract PortfolioTwoMarketFeeIsolationTest is TestBase {
         assertEq(token.balanceOf(address(vault)), custody, "unauthorized market allocation moved custody");
     }
 
+    function testFundingLossInOtherMarketReducesWithdrawableCashDespiteMarkedGains() public {
+        vm.prank(MAKER);
+        coordinator.addLiquidity(0, IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(MAKER);
+        coordinator.addLiquidity(1, IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        assertEq(
+            uint256(coordinator.take(0, IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC)),
+            100, "first funding fixture fill"
+        );
+        vm.prank(TAKER);
+        assertEq(
+            uint256(coordinator.take(1, IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC)),
+            100, "second funding fixture fill"
+        );
+
+        // A DEX chooses and publishes its funding index. The engine is
+        // responsible for applying the signed index to the account.
+        core1.setFundingUpdater(address(this));
+        int256 cashBefore = coordinator.settledCashEquity(TAKER);
+        assertEq(cashBefore, 9700, "fees/open-position conservative cash mismatch");
+        uint256 custodyBefore = token.balanceOf(address(vault));
+        uint256 accountedBefore = vault.totalAccountedCollateral();
+
+        mark0.setMarkTick(120); // controlled test fixture, +2,000 unrealized first-market PnL
+        core1.setFundingIndex(int128(1e18)); // second-market long owes 100
+        assertEq(
+            coordinator.settledCashEquity(TAKER),
+            cashBefore - 100,
+            "second-market funding omitted from combined cash"
+        );
+        assertEq(
+            policy.portfolioEquity(TAKER),
+            int256(31600),
+            "marked portfolio equity did not reflect funding and price"
+        );
+
+        vm.prank(TAKER);
+        (bool over,) = address(coordinator).call(
+            abi.encodeCall(coordinator.withdraw, (uint256(9601)))
+        );
+        assertTrue(!over, "unrealized gain offset unpaid funding in withdrawal");
+        assertEq(token.balanceOf(address(vault)), custodyBefore, "failed withdrawal moved tokens");
+        assertEq(vault.totalAccountedCollateral(), accountedBefore, "failed withdrawal changed claims");
+
+        uint256 tokensBefore = token.balanceOf(TAKER);
+        vm.prank(TAKER);
+        coordinator.withdraw(5000);
+        assertEq(token.balanceOf(TAKER), tokensBefore + 5000, "safe withdrawal not paid");
+        assertEq(coordinator.settledCashEquity(TAKER), 4600, "funded cash claim wrong after withdrawal");
+        assertEq(vault.totalAccountedCollateral(), accountedBefore - 5000, "vault liability mismatch");
+        assertEq(token.balanceOf(address(vault)), custodyBefore - 5000, "vault custody mismatch");
+    }
+
+    function testUnauthorizedFundingPublicationCannotChangeCrossMarketCash() public {
+        core1.setFundingUpdater(address(this));
+        int256 beforeCash = coordinator.settledCashEquity(TAKER);
+        uint256 beforeCustody = token.balanceOf(address(vault));
+        vm.prank(address(0xBAD));
+        (bool accepted,) = address(core1).call(
+            abi.encodeCall(core1.setFundingIndex, (int128(1e18)))
+        );
+        assertTrue(!accepted, "untrusted publisher changed funding");
+        assertEq(coordinator.settledCashEquity(TAKER), beforeCash, "failed update altered cash");
+        assertEq(token.balanceOf(address(vault)), beforeCustody, "failed update moved collateral");
+    }
+
     function _deposit(address who, uint256 amount) internal {
         token.mint(who, amount);
         vm.prank(who);
