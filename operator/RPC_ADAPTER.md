@@ -112,3 +112,18 @@ the core's configured portfolio controller, gateway module connectivity,
 oracle source, and implementation/ABI identity, and repeat preflight after
 every deployment migration. A successful preflight is not a substitute for
 ongoing reconciliations and independent audits.
+
+### Mandatory Core and gateway wiring checks
+
+Portfolio preflight now also reads each Core's `portfolioController()` and
+`advancedModule()`, each Advanced gateway's `core()`,
+`portfolioController()` and `portfolioMarketIndex()`, and the shared vault's
+`collateralToken()`. These must match the same coordinator, listed Core and
+Advanced addresses, zero-based portfolio market index, and manifest collateral
+token. A structurally valid manifest referencing a misconfigured Core or
+gateway fails closed before the operator starts.
+
+The integrating DEX owns pinned-block verified-ABI RPC implementations of
+these methods and must verify oracle identity, ownership, bytecode and any
+separately deployed liquidation, strategy or market-maker modules. This check
+does not grant an operator power to change deployment configuration.
