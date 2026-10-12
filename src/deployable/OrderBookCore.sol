@@ -1047,15 +1047,23 @@ contract OrderBookCore is IOrderBookCore {
         MakerQuote storage q = quotes[maker][side][tick];
         bool isNewQuote = q.shares == 0;
 
+        int256 currentEntry = fundingEntryPerShareX96[side][tick];
         if (isNewQuote) {
             q.generation = generation;
+            quoteFundingCheckpointX96[maker][side][tick] = currentEntry;
         } else if (q.generation != generation) {
             revert StaleQuote();
+        } else {
+            // New shares must not inherit fills accrued before they joined.
+            // Preserve the old shares' uncrystallized funding basis.
+            int256 checkpoint = quoteFundingCheckpointX96[maker][side][tick];
+            quoteFundingCheckpointX96[maker][side][tick] =
+                currentEntry - FundingMath.divFundingDirected(
+                    side,
+                    int256(uint256(q.shares)) * (currentEntry - checkpoint),
+                    int256(uint256(q.shares) + uint256(mintedShares))
+                );
         }
-        // _addLiquidityFor settled the maker's existing quote first.
-        // Never let newly minted shares inherit prior funding entries.
-        quoteFundingCheckpointX96[maker][side][tick] =
-            fundingEntryPerShareX96[side][tick];
 
         q.shares += mintedShares;
         q.claimLots += lots;
