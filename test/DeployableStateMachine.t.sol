@@ -80,7 +80,7 @@ contract DeployableStateMachineTest is TestBase {
             randomness = uint256(keccak256(abi.encode(randomness, step)));
             if (randomness % 10 == 6) {
                 uint256 bit = 1 << indexChanges++;
-                if (mask & bit == 0) continue;
+                if ((mask & bit) == 0) continue;
             }
             _step(randomness);
             _checkInvariants();
