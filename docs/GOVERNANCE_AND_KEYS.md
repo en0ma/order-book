@@ -67,3 +67,7 @@ The updater can call `setRiskIncreasePaused(true)` to halt new risk. It cannot r
 - Watcher: read-only authority, index, oracle and custody alerts.
 
 See [Parameter Reference](/docs/PARAMETER_REFERENCE) and [Team Handbook](/docs/TEAM_HANDBOOK).
+
+## Independent pause-only guardian through bounded updater
+
+If `BoundedFundingUpdater` is assigned as the Core's funding updater, its configured funding `operator` may set or revoke a distinct `riskOffGuardian`. The guardian may call `pauseRiskIncrease()` on the wrapper, which forwards only `setRiskIncreasePaused(true)` to Core. It cannot call `publish` or lift the pause. The wrapper emits `RiskOffGuardianChanged` on rotation. Funding-operator control of guardian rotation is **not** a replacement for owner-governed Core role management: deployment governance must approve the guardian, monitor rotations and keep the wrapper installed as funding updater. The Core owner alone unpauses. This avoids increasing near-budget Core runtime bytecode.
