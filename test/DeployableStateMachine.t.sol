@@ -65,6 +65,32 @@ contract DeployableStateMachineTest is TestBase {
 
     /// @notice CI-reported seed: fee/rebate claims exceeded physical token custody.
     /// @dev Preserve as a deterministic regression; do not loosen _checkCustodyBacking.
+    function testRegressionCustody186OnlyFirstFundingUpdate() public {
+        _runCounterexampleWithFundingMask(1);
+    }
+
+    function testRegressionCustody186OnlySecondFundingUpdate() public {
+        _runCounterexampleWithFundingMask(2);
+    }
+
+    function _runCounterexampleWithFundingMask(uint256 mask) internal {
+        uint256 randomness = 873015621485771659152636108981745551321;
+        uint256 indexChanges;
+        for (uint256 step; step < 12; ++step) {
+            randomness = uint256(keccak256(abi.encode(randomness, step)));
+            if (randomness % 10 == 6) {
+                uint256 bit = 1 << indexChanges++;
+                if (mask & bit == 0) continue;
+            }
+            _step(randomness);
+            _checkInvariants();
+        }
+        _drainTrackedBook();
+        _settleAllTrackedState();
+        _checkInvariants();
+        _checkCustodyBacking();
+    }
+
     /// @dev Diagnostic: account-specific cashflows from the same deterministic seed.
     ///      This deliberately retains the final custody assertion.
     /// @dev Counterfactual for #186: identical operations with index updates
