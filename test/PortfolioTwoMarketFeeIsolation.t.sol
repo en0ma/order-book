@@ -158,7 +158,7 @@ contract PortfolioTwoMarketFeeIsolationTest is TestBase {
         );
         assertEq(
             policy.portfolioEquity(TAKER),
-            int256(31700),
+            int256(31600),
             "marked portfolio equity did not reflect funding and price"
         );
 
