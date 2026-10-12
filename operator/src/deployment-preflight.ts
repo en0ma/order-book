@@ -13,6 +13,7 @@ export interface PortfolioDeploymentReader {
   coordinatorPolicy(address: Address): Promise<Address>;
   coordinatorVault(address: Address): Promise<Address>;
   policySharedCollateralVault(address: Address): Promise<Address>;
+  vaultController(address: Address): Promise<Address>;
 }
 
 const sameAddress = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
@@ -29,19 +30,21 @@ export async function verifyPortfolioDeployment(
   if (!manifest.portfolio) throw new Error("portfolio deployment verification requires portfolio manifest");
   const portfolio = manifest.portfolio;
   if (await reader.chainId() !== manifest.chainId) throw new Error("portfolio deployment chain mismatch");
-  const [coordinatorCount, policyCount, actualPolicy, actualVault, policyVault] = await Promise.all([
+  const [coordinatorCount, policyCount, actualPolicy, actualVault, policyVault, vaultController] = await Promise.all([
     reader.coordinatorMarketCount(portfolio.coordinator),
     reader.policyMarketCount(portfolio.policy),
     reader.coordinatorPolicy(portfolio.coordinator),
     reader.coordinatorVault(portfolio.coordinator),
     reader.policySharedCollateralVault(portfolio.policy),
+    reader.vaultController(portfolio.vault),
   ]);
   if (coordinatorCount !== manifest.markets.length || policyCount !== manifest.markets.length) {
     throw new Error("portfolio on-chain market count mismatch");
   }
   if (!sameAddress(actualPolicy, portfolio.policy) ||
       !sameAddress(actualVault, portfolio.vault) ||
-      !sameAddress(policyVault, portfolio.vault)) {
+      !sameAddress(policyVault, portfolio.vault) ||
+      !sameAddress(vaultController, portfolio.coordinator)) {
     throw new Error("portfolio on-chain policy or vault mismatch");
   }
   for (const market of manifest.markets) {
