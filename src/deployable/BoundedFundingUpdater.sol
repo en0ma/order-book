@@ -16,6 +16,9 @@ contract BoundedFundingUpdater {
 
     IFundingIndexCore public immutable core;
     address public immutable operator;
+    address public riskOffGuardian;
+
+    event RiskOffGuardianChanged(address indexed previousGuardian, address indexed newGuardian);
     uint256 public immutable minIntervalSeconds;
     uint256 public immutable maxAbsDeltaX18;
     uint256 public lastUpdateTime;
@@ -36,9 +39,17 @@ contract BoundedFundingUpdater {
         lastUpdateTime = block.timestamp;
     }
 
-    /// @notice Operator-only, one-way emergency risk-off forwarding; unpause stays with Core owner.
-    function pauseRiskIncrease() external {
+    /// @notice Funding operator can nominate/revoke a pause-only guardian; no funding rights are granted.
+    function setRiskOffGuardian(address nextGuardian) external {
         if (msg.sender != operator) revert Unauthorized();
+        address previous = riskOffGuardian;
+        riskOffGuardian = nextGuardian;
+        emit RiskOffGuardianChanged(previous, nextGuardian);
+    }
+
+    /// @notice Guardian or operator may forward one-way risk-off; unpause stays with Core owner.
+    function pauseRiskIncrease() external {
+        if (msg.sender != operator && msg.sender != riskOffGuardian) revert Unauthorized();
         core.setRiskIncreasePaused(true);
     }
 
