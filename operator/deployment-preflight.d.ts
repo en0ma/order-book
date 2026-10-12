@@ -9,6 +9,12 @@ export interface PortfolioDeploymentReader {
   coordinatorVault(address: Address): Promise<Address>;
   policySharedCollateralVault(address: Address): Promise<Address>;
   vaultController(address: Address): Promise<Address>;
+  vaultCollateralToken(address: Address): Promise<Address>;
+  corePortfolioController(address: Address): Promise<Address>;
+  coreAdvancedModule(address: Address): Promise<Address>;
+  gatewayCore(address: Address): Promise<Address>;
+  gatewayPortfolioController(address: Address): Promise<Address>;
+  gatewayPortfolioMarketIndex(address: Address): Promise<number>;
 }
 export declare function verifyPortfolioDeployment(
   input: OperatorManifest, reader: PortfolioDeploymentReader,
