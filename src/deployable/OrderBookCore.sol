@@ -118,6 +118,7 @@ contract OrderBookCore is IOrderBookCore {
     event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
     event AdvancedModuleConfigured(address indexed module);
     event FundingUpdaterChanged(address indexed previousUpdater, address indexed newUpdater);
+    event RiskOffGuardianChanged(address indexed previousGuardian, address indexed newGuardian);
     event FundingIndexUpdated(int128 fundingIndexX18);
     event CollateralCredited(address indexed account, uint256 amount);
     event CollateralDebited(address indexed account, uint256 amount);
@@ -198,7 +199,9 @@ contract OrderBookCore is IOrderBookCore {
 
     /// @notice Owner can assign a separate emergency guardian without granting funding publication rights.
     function setRiskOffGuardian(address nextGuardian) external onlyOwner {
+        address previous = riskOffGuardian;
         riskOffGuardian = nextGuardian;
+        emit RiskOffGuardianChanged(previous, nextGuardian);
     }
 
     /// @notice Funding updater or separate guardian may halt new risk; only owner may restore it.
