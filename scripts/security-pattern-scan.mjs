@@ -3,6 +3,7 @@
 // This is a triage tool, NOT a security audit or proof of exploit absence.
 import {execFileSync} from "node:child_process";
 import {readFileSync} from "node:fs";
+import {stripSolidityCommentsAndStrings} from "./solidity-lexical-mask.mjs";
 const files=execFileSync("git",["ls-files","src/**/*.sol","src/*.sol","script/*.sol"],{encoding:"utf8"}).trim().split("\n").filter(x=>x.endsWith(".sol"));
 const patterns=[
   {id:"AUTH-TXORIGIN",re:/\btx\s*\.\s*origin\b/g,block:true},
@@ -20,7 +21,13 @@ for(const file of files){
   const lines=readFileSync(file,"utf8").split("\n");
   for(let i=0;i<lines.length;i++){
     const line=lines[i].replace(/\/\/.*$/,"");
-    for(const p of patterns){p.re.lastIndex=0;if(p.re.test(line)){matches++;console.log(`${p.block?"BLOCK":"REVIEW"} ${p.id} ${file}:${i+1}`);if(p.block)failures++;}}
+    for(const p of patterns.filter(p=>!p.block)){p.re.lastIndex=0;if(p.re.test(line)){matches++;console.log(`${p.block?"BLOCK":"REVIEW"} ${p.id} ${file}:${i+1}`);}}
+  }
+  const banned=/\\btx\\s*\\.\\s*origin\\b/g;
+  for(const match of source.matchAll(banned)){
+    const lineNumber=source.slice(0,match.index).split("\\n").length;
+    matches++;failures++;
+    console.log(`BLOCK AUTH-TXORIGIN ${file}:${lineNumber}`);
   }
 }
 console.log(`Scanned ${files.length} Solidity files; found ${matches} triage matches and ${failures} blocked patterns.`);
