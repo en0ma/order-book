@@ -92,3 +92,23 @@ contract addresses, and regenerate the manifest after coordinated migrations.
 A manifest with dense but incorrect mapping is not automatically detectable
 without authoritative on-chain reads. Do not silently reassign indexes by
 sorting market names.
+
+## Authoritative portfolio deployment preflight
+
+Import `verifyPortfolioDeployment` from `@en0ma/order-book-operator/deployment-preflight`.
+Supply a trusted `PortfolioDeploymentReader` using deployment-verified contract
+ABIs to read `chainId`, `marketCount()`, `markets(index)`,
+`coordinator.policy()`, `coordinator.vault()` and
+`policy.sharedCollateralVault()`. Run this verifier **before** bootstrapping
+the reference operator or accepting trading requests. It rejects mismatched
+network, market counts, market-index Core and gateway tuples, and portfolio
+policy/vault references. Manifest display order need not equal on-chain order.
+
+All reader calls should be **pinned to one finalized block** by the
+integrator to prevent inconsistent snapshots. The reader interface does
+not run its own Ethereum RPC client, verify contract bytecode or select
+funding and oracle policies. Deploying DEX teams must independently verify
+the core's configured portfolio controller, gateway module connectivity,
+oracle source, and implementation/ABI identity, and repeat preflight after
+every deployment migration. A successful preflight is not a substitute for
+ongoing reconciliations and independent audits.
