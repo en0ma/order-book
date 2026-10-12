@@ -85,7 +85,7 @@ contract CustodyReserveBackingInvariantTest is TestBase {
         assertEq(token.balanceOf(address(core)), custodyBeforeEmpty, "zero fill moved custody");
 
         vm.prank(BID_MAKER);
-        core.addLiquidity(IOrderBookCore.Side.Bid, 10, 100);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 10, 40);
 
         IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
         uint16[] memory ticks = new uint16[](0);
@@ -93,15 +93,39 @@ contract CustodyReserveBackingInvariantTest is TestBase {
         uint64[] memory trailingIds = new uint64[](0);
 
         vm.prank(LIQUIDATOR);
-        uint96 closed = liquidation.liquidate(
-            TRADER,
-            sides,
-            ticks,
-            conditionalIds,
-            trailingIds,
-            new uint64[](0)
+        uint96 firstClosed = liquidation.liquidate(
+            TRADER, sides, ticks, conditionalIds, trailingIds, new uint64[](0)
         );
-        assertEq(closed, 100, "liquidation did not fully close");
+        assertEq(firstClosed, 40, "first liquidation filled wrong lots");
+        (int80 remaining,,) = core.accountRisk(TRADER);
+        assertEq(int256(remaining), 60, "partial closeout changed wrong exposure");
+        assertEq(token.balanceOf(LIQUIDATOR), 4, "first partial reward mismatch");
+        assertEq(core.protocolFeesAccrued(), feesBeforeEmpty, "first reward fee mismatch");
+
+        uint256 custodyBetween = token.balanceOf(address(core));
+        uint256 insuranceBetween = core.insuranceReserves();
+        vm.prank(LIQUIDATOR);
+        uint96 retryClosed = liquidation.liquidate(
+            TRADER, sides, ticks, conditionalIds, trailingIds, new uint64[](0)
+        );
+        assertEq(retryClosed, 0, "empty retry closed phantom lots");
+        assertEq(token.balanceOf(LIQUIDATOR), 4, "empty retry paid a second reward");
+        assertEq(core.protocolFeesAccrued(), feesBeforeEmpty, "empty retry spent fees");
+        assertEq(core.insuranceReserves(), insuranceBetween, "empty retry spent insurance");
+        assertEq(token.balanceOf(address(core)), custodyBetween, "empty retry moved custody");
+
+        vm.prank(BID_MAKER);
+        core.settle(IOrderBookCore.Side.Bid, 10);
+        vm.prank(BID_MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 10, 60);
+
+        vm.prank(LIQUIDATOR);
+        uint96 closed = liquidation.liquidate(
+            TRADER, sides, ticks, conditionalIds, trailingIds, new uint64[](0)
+        );
+        assertEq(closed, 60, "second liquidation filled wrong lots");
+        (remaining,,) = core.accountRisk(TRADER);
+        assertEq(int256(remaining), 0, "final liquidation left exposure");
 
         vm.prank(BID_MAKER);
         core.settle(IOrderBookCore.Side.Bid, 10);
