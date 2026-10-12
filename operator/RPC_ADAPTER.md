@@ -75,3 +75,20 @@ const rpc = createCanonicalRpcAdapter(transport, {
 This gate is an optional adapter correctness control, **not** an on-chain
 settlement guard, a complete ABI implementation, or a replacement for DEX-owned
 RPC, storage, persistence and signing infrastructure.
+
+## Portfolio market-index deployment integrity
+
+The operator manifest's `portfolioMarketIndex` is an **on-chain array index**,
+not a display order, asset ID, or user-selectable market ranking. Portfolio
+manifests are rejected if their market indexes are duplicated, omitted, or fail
+to cover the complete dense range `0..markets.length-1`. Entries can appear in
+any manifest order as long as their indexes are correct. Standalone manifests
+must omit these indexes entirely.
+
+This is a structural preflight only: an integrating DEX must verify each
+index against its deployed `PortfolioAdmissionCoordinator` and
+`PortfolioMarginPolicy` market tuples, validate the network and deployed
+contract addresses, and regenerate the manifest after coordinated migrations.
+A manifest with dense but incorrect mapping is not automatically detectable
+without authoritative on-chain reads. Do not silently reassign indexes by
+sorting market names.
