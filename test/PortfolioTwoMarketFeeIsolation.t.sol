@@ -87,10 +87,16 @@ contract PortfolioTwoMarketFeeIsolationTest is TestBase {
         assertEq(core0.protocolFeesAccrued(), 0, "first reserve not fully allocated");
         assertEq(core1.protocolFeesAccrued(), 125, "second reserve incorrectly allocated");
 
+        int256 firstBefore = core0.accountMarketValue(MAKER);
+        int256 secondBefore = core1.accountMarketValue(MAKER);
         vm.prank(MAKER);
         core0.settle(IOrderBookCore.Side.Ask, 100);
         vm.prank(MAKER);
         core1.settle(IOrderBookCore.Side.Ask, 100);
+        // Both makers materialize identical 10_000-notional sales, but
+        // only market zero owes the reserved 50-unit maker rebate.
+        assertEq(core0.accountMarketValue(MAKER) - firstBefore, 50, "first market lost pending maker rebate");
+        assertEq(core1.accountMarketValue(MAKER) - secondBefore, 0, "second market invented maker rebate");
         assertEq(core0.insuranceReserves(), 50, "lazy rebate spent first insurance");
         assertEq(core1.insuranceReserves(), 75, "other market insurance changed");
         assertEq(core0.protocolFeesAccrued(), 0, "rebate settlement recreated fees");
