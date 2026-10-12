@@ -1,0 +1,32 @@
+name: reachability-audit
+on:
+  pull_request:
+    paths:
+      - 'scripts/reachability-audit.mjs'
+      - '.github/workflows/reachability-audit.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/reachability-audit.mjs'
+      - '.github/workflows/reachability-audit.yml'
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    name: Tracked file and import inventory
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check inventory script
+        run: node --check scripts/reachability-audit.mjs
+      - name: Generate inventory
+        run: |
+          node scripts/reachability-audit.mjs
+          node scripts/reachability-audit.mjs --json > reachability-report.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reachability-report
+          path: reachability-report.json
