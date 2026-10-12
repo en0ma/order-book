@@ -25,6 +25,12 @@ const reader = () => ({
   coordinatorVault: async () => vault,
   policySharedCollateralVault: async () => vault,
   vaultController: async () => coordinator,
+  vaultCollateralToken: async () => token,
+  corePortfolioController: async () => coordinator,
+  coreAdvancedModule: async core => core === core0 ? gateway0 : gateway1,
+  gatewayCore: async gateway => gateway === gateway0 ? core0 : core1,
+  gatewayPortfolioController: async () => coordinator,
+  gatewayPortfolioMarketIndex: async gateway => gateway === gateway0 ? 0 : 1,
 });
 test("verifies out-of-order manifest against actual on-chain portfolio tuple", async () => {
   await assert.doesNotReject(verifyPortfolioDeployment(manifest, reader()));
@@ -48,4 +54,21 @@ test("rejects wrong chain, counts, vault and core/gateway tuple", async () => {
   await assert.rejects(verifyPortfolioDeployment(manifest, {
     ...reader(), policyMarketCore: async () => core0,
   }), /tuple mismatch at index 1/);
+});
+
+test("rejects miswired market modules, index, controller and collateral asset", async () => {
+  await assert.rejects(verifyPortfolioDeployment(manifest, {
+    ...reader(), vaultCollateralToken: async () => oracle,
+  }), /policy or vault mismatch/);
+  for (const override of [
+    { corePortfolioController: async () => core0 },
+    { coreAdvancedModule: async () => gateway0 },
+    { gatewayCore: async () => core0 },
+    { gatewayPortfolioController: async () => core1 },
+    { gatewayPortfolioMarketIndex: async () => 0 },
+  ]) {
+    await assert.rejects(verifyPortfolioDeployment(manifest, {
+      ...reader(), ...override,
+    }), /tuple mismatch/);
+  }
 });
