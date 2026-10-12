@@ -81,12 +81,16 @@ contract CallbackWithdrawer {
 }
 
 contract AdversarialCollateralCallbackTest is TestBase {
-    function testStandaloneDoubleWithdrawCallbackCannotOverdraw() public {
-        CallbackCollateral token = new CallbackCollateral();
-        OrderBookCore core = new OrderBookCore(
+    CallbackCollateral internal token;
+    OrderBookCore internal core;
+    CallbackWithdrawer internal trader;
+
+    function setUp() public {
+        token = new CallbackCollateral();
+        core = new OrderBookCore(
             address(token), address(new MockMarkOracle(100)), 30, 1000, 0, 0
         );
-        CallbackWithdrawer trader = new CallbackWithdrawer(token, address(core), false);
+        trader = new CallbackWithdrawer(token, address(core), false);
         address sponsor = address(0xCAFE);
         token.mint(sponsor, 300);
         vm.prank(sponsor);
@@ -94,6 +98,9 @@ contract AdversarialCollateralCallbackTest is TestBase {
         vm.prank(sponsor);
         core.depositCollateral(300);
         token.mint(address(trader), 100);
+    }
+
+    function testStandaloneDoubleWithdrawCallbackCannotOverdraw() public {
         trader.enter(100, 100);
         assertTrue(trader.reentered(), "callback not exercised");
         assertTrue(!trader.reentrySucceeded(), "recursive withdrawal overdraw succeeded");
@@ -101,14 +108,17 @@ contract AdversarialCollateralCallbackTest is TestBase {
         assertEq(token.balanceOf(address(core)), 300, "sponsor custody drained");
         assertEq(core.accountEquity(address(trader)), int256(0), "account equity not cleared");
     }
-
 }
 
 contract AdversarialPortfolioCollateralCallbackTest is TestBase {
-    function testPortfolioVaultDoubleWithdrawCallbackCannotOverdraw() public {
-        CallbackCollateral token = new CallbackCollateral();
-        PortfolioCollateralVault vault = new PortfolioCollateralVault(address(token));
-        CallbackWithdrawer trader = new CallbackWithdrawer(token, address(vault), true);
+    CallbackCollateral internal token;
+    PortfolioCollateralVault internal vault;
+    CallbackWithdrawer internal trader;
+
+    function setUp() public {
+        token = new CallbackCollateral();
+        vault = new PortfolioCollateralVault(address(token));
+        trader = new CallbackWithdrawer(token, address(vault), true);
         address sponsor = address(0xCAFE);
         token.mint(sponsor, 300);
         vm.prank(sponsor);
@@ -116,6 +126,9 @@ contract AdversarialPortfolioCollateralCallbackTest is TestBase {
         vm.prank(sponsor);
         vault.deposit(300);
         token.mint(address(trader), 100);
+    }
+
+    function testPortfolioVaultDoubleWithdrawCallbackCannotOverdraw() public {
         trader.enter(100, 100);
         assertTrue(trader.reentered(), "callback not exercised");
         assertTrue(!trader.reentrySucceeded(), "recursive withdrawal overdraw succeeded");
