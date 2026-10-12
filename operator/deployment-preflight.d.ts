@@ -8,6 +8,7 @@ export interface PortfolioDeploymentReader {
   coordinatorPolicy(address: Address): Promise<Address>;
   coordinatorVault(address: Address): Promise<Address>;
   policySharedCollateralVault(address: Address): Promise<Address>;
+  vaultController(address: Address): Promise<Address>;
 }
 export declare function verifyPortfolioDeployment(
   input: OperatorManifest, reader: PortfolioDeploymentReader,
