@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {TestBase} from "./TestBase.sol";
 import {OrderBookCore} from "../src/deployable/OrderBookCore.sol";
+import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
 import {AdvancedOrderModule} from "../src/deployable/AdvancedOrderModule.sol";
 import {LiquidationModule} from "../src/deployable/LiquidationModule.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
@@ -58,7 +59,7 @@ contract OracleLiquidationExecutionTest is TestBase {
 
     function testManipulatedMarkExecutesLiquidationAgainstRestingBid() public {
         vm.prank(maker);
-        core.addLiquidity(OrderBookCore.Side.Bid, 90, 100);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 90, 100);
 
         assertTrue(!liquidation.isLiquidatable(trader), "healthy account liquidatable");
         assertEq(core.accountEquity(trader), int256(1200), "initial equity mismatch");
@@ -67,7 +68,7 @@ contract OracleLiquidationExecutionTest is TestBase {
         assertTrue(liquidation.isLiquidatable(trader), "mark did not enable liquidation");
 
         uint256 custodyBefore = token.balanceOf(address(core));
-        OrderBookCore.Side[] memory sides = new OrderBookCore.Side[](0);
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
         uint16[] memory ticks = new uint16[](0);
         uint64[] memory empty = new uint64[](0);
         uint96 closed = liquidation.liquidate(trader, sides, ticks, empty, empty, empty);
@@ -83,8 +84,8 @@ contract OracleLiquidationExecutionTest is TestBase {
 
     function testWithoutManipulationPositionCannotBeLiquidated() public {
         vm.prank(maker);
-        core.addLiquidity(OrderBookCore.Side.Bid, 90, 100);
-        OrderBookCore.Side[] memory sides = new OrderBookCore.Side[](0);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 90, 100);
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
         uint16[] memory ticks = new uint16[](0);
         uint64[] memory empty = new uint64[](0);
         (bool succeeded,) = address(liquidation).call(
