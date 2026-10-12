@@ -102,6 +102,9 @@ contract AdversarialCollateralCallbackTest is TestBase {
         assertEq(core.accountEquity(address(trader)), int256(0), "account equity not cleared");
     }
 
+}
+
+contract AdversarialPortfolioCollateralCallbackTest is TestBase {
     function testPortfolioVaultDoubleWithdrawCallbackCannotOverdraw() public {
         CallbackCollateral token = new CallbackCollateral();
         PortfolioCollateralVault vault = new PortfolioCollateralVault(address(token));
