@@ -163,6 +163,24 @@ contract ValidatedMarkOracleAdapterTest is TestBase {
         assertEq(oracle.markTick(), 10_000, "confidence boundary rejected");
     }
 
+    function testRejectsPositivePriceThatRoundsDownToZeroTick() public {
+        source.set(1, 0, uint48(block.timestamp));
+
+        uint64 observationBefore = oracle.currentObservationId();
+        (bool ok,) = address(adapter).call(abi.encodeCall(adapter.publish, ()));
+        assertTrue(!ok, "positive dust price published as zero tick");
+        assertEq(
+            uint256(oracle.currentObservationId()),
+            uint256(observationBefore),
+            "rejected dust price advanced oracle history"
+        );
+        assertEq(
+            uint256(adapter.lastSourcePublishTime()),
+            0,
+            "rejected dust price advanced source checkpoint"
+        );
+    }
+
     function testRejectsNormalizedTickOverflow() public {
         source.set(700_00000000, 0, uint48(block.timestamp));
 
