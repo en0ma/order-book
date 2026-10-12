@@ -12,6 +12,7 @@ The DEX team manages its own keys and protocol administration. The reference dep
 | --- | --- | --- | --- |
 | Core owner | `OrderBookCore.transferOwnership`, `setFundingUpdater` | Transfer ownership and rotate funding authority | Compromise can override wrapper funding constraints |
 | Core owner | `setRiskIncreasePaused` | Pause or unpause new risk | Unpause must come from owner |
+| Independent risk-off guardian | `setRiskIncreasePaused(true)` | Emergency halt without permission to publish funding or restore new risk; Core owner appoints/revokes through `setRiskOffGuardian` |
 | Funding updater | `setFundingIndex` | Publish a signed funding index | No intrinsic cadence/delta check in Core |
 | Funding updater | `setRiskIncreasePaused(true)` | Emergency risk-off | Cannot unpause using updater-only authority |
 | Advanced module owner | Advanced configuration entrypoints | Wire authorized strategy, maker and liquidation modules | Check one-time configuration restrictions |
@@ -42,7 +43,7 @@ A Safe or timelock is a recommended team arrangement, **not** a contract that th
 
 The Core owner can change the funding updater at any time through `setFundingUpdater`. The new updater can then call `setFundingIndex`. The optional `BoundedFundingUpdater` limits updates submitted *through it* but cannot verify an index change made through another temporarily authorized updater. Monitor `FundingUpdaterChanged` and `FundingIndexUpdated` on-chain. Treat unapproved rotation as an incident.
 
-The updater can call `setRiskIncreasePaused(true)` to halt new risk. It cannot reverse the pause unless it is also the Core owner. Only the owner should authorize recovery after oracle, ledger and indexer checks.
+The Core owner may set a distinct `riskOffGuardian` address using `setRiskOffGuardian`, or revoke it using the zero address. The guardian can only call `setRiskIncreasePaused(true)` and cannot publish funding indexes or unpause new risk. The funding updater also retains its existing emergency pause authority. Monitor guardian changes by checking current chain state and audit the administering transactions; do not assume a dedicated event is emitted by this setter.\n\nThe updater can call `setRiskIncreasePaused(true)` to halt new risk. It cannot reverse the pause unless it is also the Core owner. Only the owner should authorize recovery after oracle, ledger and indexer checks.
 
 ## Key rotation runbook
 
