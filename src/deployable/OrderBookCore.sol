@@ -1057,13 +1057,12 @@ contract OrderBookCore is IOrderBookCore {
             // New shares must not inherit fills accrued before they joined.
             // Preserve the old shares' uncrystallized funding basis.
             int256 checkpoint = quoteFundingCheckpointX96[maker][side][tick];
-            int256 rebased = FundingMath.divFundingDirected(
-                side,
-                int256(uint256(q.shares)) * checkpoint
-                    + int256(uint256(mintedShares)) * currentEntry,
-                int256(uint256(q.shares) + uint256(mintedShares))
-            );
-            quoteFundingCheckpointX96[maker][side][tick] = rebased;
+            quoteFundingCheckpointX96[maker][side][tick] =
+                currentEntry - FundingMath.divFundingDirected(
+                    side,
+                    int256(uint256(q.shares)) * (currentEntry - checkpoint),
+                    int256(uint256(q.shares) + uint256(mintedShares))
+                );
         }
 
         q.shares += mintedShares;
