@@ -552,7 +552,7 @@ FeeAccountingPropertyTest fuzzes three pro-rata makers for 5,000 runs and assert
 
 ### Current boundary
 
-protocolFeesAccrued is accounting-only. Protocol-fee withdrawal, fee-recipient routing, insurance-fund allocation, and rebate tiers are not implemented yet.
+`protocolFeesAccrued` tracks the low 128-bit accrued protocol-fee reserve. **Owner-authorized `OrderBookCore.allocateProtocolFeesToInsurance(uint256)` is implemented**: it reclassifies available accrued fees to `insuranceReserves` without transferring collateral out. `LiquidationModule` may authorize bounded liquidation rewards through the configured module gateway, drawn from accrued fees. Neither mechanism is a general fee withdrawal or treasury distribution path. Protocol-fee treasury withdrawal, configurable fee-recipient routing, and rebate tiers are not implemented. The engine must not treat gross fee accrual as provably distributable surplus without reconciling account claims, pending maker rebates, insurance and portfolio liabilities. See [Perp-CLOB responsibility and implementation-gap register](/docs/PERP_CLOB_BOUNDARY_AND_GAP_REGISTER).
 
 The current recurring fee gas regression compares identical zero-fee and fee-enabled takes after the fee-accrual slot has been initialized and requires recurring fee overhead to remain below 20,000 gas.
 

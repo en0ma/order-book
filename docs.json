@@ -23,7 +23,8 @@
         "pages": [
           "docs/SYSTEM_ARCHITECTURE",
           "docs/INTEGRATION_FLOWS",
-          "docs/ARCHITECTURE"
+          "docs/ARCHITECTURE",
+          "docs/PERP_CLOB_BOUNDARY_AND_GAP_REGISTER"
         ]
       },
       {
