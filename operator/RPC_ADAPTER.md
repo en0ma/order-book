@@ -99,10 +99,10 @@ Import `verifyPortfolioDeployment` from `@en0ma/order-book-operator/deployment-p
 Supply a trusted `PortfolioDeploymentReader` using deployment-verified contract
 ABIs to read `chainId`, `marketCount()`, `markets(index)`,
 `coordinator.policy()`, `coordinator.vault()` and
-`policy.sharedCollateralVault()`. Run this verifier **before** bootstrapping
+`policy.sharedCollateralVault() and `vault.controller()``. Run this verifier **before** bootstrapping
 the reference operator or accepting trading requests. It rejects mismatched
 network, market counts, market-index Core and gateway tuples, and portfolio
-policy/vault references. Manifest display order need not equal on-chain order.
+policy/vault references and the vault's configured coordinator controller. Manifest display order need not equal on-chain order.
 
 All reader calls should be **pinned to one finalized block** by the
 integrator to prevent inconsistent snapshots. The reader interface does
