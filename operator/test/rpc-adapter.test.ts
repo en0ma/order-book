@@ -109,3 +109,18 @@ test("strict event coverage allows only exact configured address and full topic0
   const permissive = createCanonicalRpcAdapter(h.transport, { decode: () => undefined });
   assert.deepEqual(await permissive.getEvents(block, manifest), []);
 });
+
+test("strict event coverage cannot be weakened by mutating caller options", async () => {
+  const h = fixture();
+  const topics = [FULL_TOPIC];
+  const options = {
+    decode: () => undefined, strictEventCoverage: true,
+    ignoredEventTopics: { [addr]: topics },
+  };
+  const adapter = createCanonicalRpcAdapter(h.transport, options);
+  const block = await adapter.getBlock(1);
+  options.strictEventCoverage = false;
+  topics.push("0x1234");
+  options.ignoredEventTopics[addr] = ["0x1234"];
+  await assert.rejects(adapter.getEvents(block, manifest), /undecoded deployment event/);
+});
