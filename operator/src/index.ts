@@ -842,6 +842,13 @@ export function validateOperatorManifest(input: unknown): OperatorManifest {
       }
       indexes.add(market.portfolioMarketIndex);
     }
+    // The on-chain portfolio controller enumerates a fixed, dense market array.
+    // Missing indexes silently misroute keeper and account health lookups.
+    for (let index = 0; index < markets.length; ++index) {
+      if (!indexes.has(index)) {
+        throw new TypeError("portfolioMarketIndex must cover contiguous 0..markets.length-1");
+      }
+    }
   } else if (markets.some((market) => market.portfolioMarketIndex !== undefined)) {
     throw new TypeError("standalone manifest cannot include portfolioMarketIndex");
   }
