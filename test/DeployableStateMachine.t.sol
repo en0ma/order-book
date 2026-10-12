@@ -14,6 +14,10 @@ import {TestBase} from "./TestBase.sol";
 /// @dev Expected operation reverts are tolerated; canonical invariants are checked
 ///      after every attempted state transition.
 contract DeployableStateMachineTest is TestBase {
+    error CustodyClaimsExceedBacking(
+        int256 accountCashClaims, uint256 protocolFees, uint256 insurance,
+        uint256 physicalTokenBalance, int256 totalClaims
+    );
     OrderBookCoreHarness internal core;
     AdvancedOrderModule internal advanced;
     MarketMakerModule internal marketMaker;
@@ -321,10 +325,13 @@ contract DeployableStateMachineTest is TestBase {
                 + int256(core.insuranceReserves());
 
         assertTrue(internalClaims >= 0, "aggregate internal claims negative");
-        assertTrue(
-            uint256(internalClaims) <= token.balanceOf(address(core)),
-            "fee/rebate accounting exceeded token custody"
-        );
+        uint256 custody = token.balanceOf(address(core));
+        if (uint256(internalClaims) > custody) {
+            revert CustodyClaimsExceedBacking(
+                userClaims, core.protocolFeesAccrued(), core.insuranceReserves(),
+                custody, internalClaims
+            );
+        }
     }
 
     function _cashClaim(address account) internal view returns (int256) {
