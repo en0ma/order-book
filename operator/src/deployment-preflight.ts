@@ -14,6 +14,12 @@ export interface PortfolioDeploymentReader {
   coordinatorVault(address: Address): Promise<Address>;
   policySharedCollateralVault(address: Address): Promise<Address>;
   vaultController(address: Address): Promise<Address>;
+  vaultCollateralToken(address: Address): Promise<Address>;
+  corePortfolioController(address: Address): Promise<Address>;
+  coreAdvancedModule(address: Address): Promise<Address>;
+  gatewayCore(address: Address): Promise<Address>;
+  gatewayPortfolioController(address: Address): Promise<Address>;
+  gatewayPortfolioMarketIndex(address: Address): Promise<number>;
 }
 
 const sameAddress = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
@@ -30,13 +36,14 @@ export async function verifyPortfolioDeployment(
   if (!manifest.portfolio) throw new Error("portfolio deployment verification requires portfolio manifest");
   const portfolio = manifest.portfolio;
   if (await reader.chainId() !== manifest.chainId) throw new Error("portfolio deployment chain mismatch");
-  const [coordinatorCount, policyCount, actualPolicy, actualVault, policyVault, vaultController] = await Promise.all([
+  const [coordinatorCount, policyCount, actualPolicy, actualVault, policyVault, vaultController, vaultCollateralToken] = await Promise.all([
     reader.coordinatorMarketCount(portfolio.coordinator),
     reader.policyMarketCount(portfolio.policy),
     reader.coordinatorPolicy(portfolio.coordinator),
     reader.coordinatorVault(portfolio.coordinator),
     reader.policySharedCollateralVault(portfolio.policy),
     reader.vaultController(portfolio.vault),
+    reader.vaultCollateralToken(portfolio.vault),
   ]);
   if (coordinatorCount !== manifest.markets.length || policyCount !== manifest.markets.length) {
     throw new Error("portfolio on-chain market count mismatch");
@@ -44,18 +51,29 @@ export async function verifyPortfolioDeployment(
   if (!sameAddress(actualPolicy, portfolio.policy) ||
       !sameAddress(actualVault, portfolio.vault) ||
       !sameAddress(policyVault, portfolio.vault) ||
-      !sameAddress(vaultController, portfolio.coordinator)) {
+      !sameAddress(vaultController, portfolio.coordinator) ||
+      !sameAddress(vaultCollateralToken, manifest.collateral.token)) {
     throw new Error("portfolio on-chain policy or vault mismatch");
   }
   for (const market of manifest.markets) {
     const index = market.portfolioMarketIndex!;
-    const [coordinatorMarket, policyCore] = await Promise.all([
+    const [coordinatorMarket, policyCore, coreController, coreAdvanced, gatewayCore, gatewayController, gatewayIndex] = await Promise.all([
       reader.coordinatorMarket(portfolio.coordinator, index),
       reader.policyMarketCore(portfolio.policy, index),
+      reader.corePortfolioController(market.core),
+      reader.coreAdvancedModule(market.core),
+      reader.gatewayCore(market.advanced),
+      reader.gatewayPortfolioController(market.advanced),
+      reader.gatewayPortfolioMarketIndex(market.advanced),
     ]);
     if (!sameAddress(coordinatorMarket.core, market.core) ||
         !sameAddress(coordinatorMarket.gateway, market.advanced) ||
-        !sameAddress(policyCore, market.core)) {
+        !sameAddress(policyCore, market.core) ||
+        !sameAddress(coreController, portfolio.coordinator) ||
+        !sameAddress(coreAdvanced, market.advanced) ||
+        !sameAddress(gatewayCore, market.core) ||
+        !sameAddress(gatewayController, portfolio.coordinator) ||
+        gatewayIndex !== index) {
       throw new Error("portfolio on-chain market tuple mismatch at index " + index);
     }
   }
