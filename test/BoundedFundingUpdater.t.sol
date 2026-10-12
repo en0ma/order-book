@@ -39,6 +39,38 @@ contract BoundedFundingUpdaterTest is TestBase {
         assertTrue(!core.riskIncreasePaused(), "wrapper bypassed owner unpause");
     }
 
+    function testIndependentRiskGuardianCanOnlyPauseAndCanBeRevoked() public {
+        address guardian = address(0xCAFE);
+        vm.prank(OPERATOR);
+        updater.setRiskOffGuardian(guardian);
+        assertEq(uint256(uint160(updater.riskOffGuardian())), uint256(uint160(guardian)), "guardian not assigned");
+
+        vm.prank(guardian);
+        (bool funding,) = address(updater).call(abi.encodeCall(updater.publish, (int128(1))));
+        assertTrue(!funding, "guardian published funding");
+        vm.prank(guardian);
+        updater.pauseRiskIncrease();
+        assertTrue(core.riskIncreasePaused(), "guardian pause not forwarded");
+
+        vm.prank(guardian);
+        (bool change,) = address(updater).call(abi.encodeCall(updater.setRiskOffGuardian, (address(0))));
+        assertTrue(!change, "guardian revoked its own role");
+
+        core.setRiskIncreasePaused(false);
+        vm.prank(OPERATOR);
+        updater.setRiskOffGuardian(address(0));
+        vm.prank(guardian);
+        (bool again,) = address(updater).call(abi.encodeCall(updater.pauseRiskIncrease, ()));
+        assertTrue(!again, "revoked guardian retained pause authority");
+        assertTrue(!core.riskIncreasePaused(), "revoked guardian paused Core");
+
+        vm.prank(address(0xBAD));
+        (bool unauthorized,) = address(updater).call(
+            abi.encodeCall(updater.setRiskOffGuardian, (guardian))
+        );
+        assertTrue(!unauthorized, "untrusted caller configured guardian");
+    }
+
     function testRejectsLargePositiveAndNegativeIndexMoves() public {
         vm.warp(block.timestamp + 3600);
         vm.prank(OPERATOR);
