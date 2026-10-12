@@ -15,6 +15,8 @@ export interface RpcLog {
 }
 export interface CanonicalRpcOptions {
   decode(log: RpcLog, chainId: number): CanonicalLogEnvelope | undefined;
+  strictEventCoverage?: boolean;
+  ignoredEventTopics?: Readonly<Record<string, readonly string[]>>;
   markTicks?(manifest: OperatorManifest): Promise<Readonly<Record<string, number>>>;
   portfolioHealth?(accounts: readonly Address[], manifest: OperatorManifest): Promise<Readonly<Record<Address, { equity: bigint; requirement: bigint }>>>;
 }
