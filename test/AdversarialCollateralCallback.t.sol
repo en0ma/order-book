@@ -87,12 +87,18 @@ contract AdversarialCollateralCallbackTest is TestBase {
             address(token), address(new MockMarkOracle(100)), 30, 1000, 0, 0
         );
         CallbackWithdrawer trader = new CallbackWithdrawer(token, address(core), false);
+        address sponsor = address(0xCAFE);
+        token.mint(sponsor, 300);
+        vm.prank(sponsor);
+        token.approve(address(core), 300);
+        vm.prank(sponsor);
+        core.depositCollateral(300);
         token.mint(address(trader), 100);
         trader.enter(100, 100);
         assertTrue(trader.reentered(), "callback not exercised");
         assertTrue(!trader.reentrySucceeded(), "recursive withdrawal overdraw succeeded");
         assertEq(token.balanceOf(address(trader)), 100, "trader withdrew more than deposited");
-        assertEq(token.balanceOf(address(core)), 0, "remaining custody incorrect");
+        assertEq(token.balanceOf(address(core)), 300, "sponsor custody drained");
         assertEq(core.accountEquity(address(trader)), int256(0), "account equity not cleared");
     }
 
@@ -100,13 +106,19 @@ contract AdversarialCollateralCallbackTest is TestBase {
         CallbackCollateral token = new CallbackCollateral();
         PortfolioCollateralVault vault = new PortfolioCollateralVault(address(token));
         CallbackWithdrawer trader = new CallbackWithdrawer(token, address(vault), true);
+        address sponsor = address(0xCAFE);
+        token.mint(sponsor, 300);
+        vm.prank(sponsor);
+        token.approve(address(vault), 300);
+        vm.prank(sponsor);
+        vault.deposit(300);
         token.mint(address(trader), 100);
         trader.enter(100, 100);
         assertTrue(trader.reentered(), "callback not exercised");
         assertTrue(!trader.reentrySucceeded(), "recursive withdrawal overdraw succeeded");
         assertEq(token.balanceOf(address(trader)), 100, "trader withdrew more than deposited");
-        assertEq(token.balanceOf(address(vault)), 0, "remaining custody incorrect");
+        assertEq(token.balanceOf(address(vault)), 300, "sponsor custody drained");
         assertEq(vault.balanceOf(address(trader)), 0, "ledger not cleared");
-        assertEq(vault.totalAccountedCollateral(), 0, "accounting inflated");
+        assertEq(vault.totalAccountedCollateral(), 300, "accounting inflated");
     }
 }
