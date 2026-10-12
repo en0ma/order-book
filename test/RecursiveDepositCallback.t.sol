@@ -84,16 +84,18 @@ contract RecursiveDepositCoreTest is TestBase {
     }
 
     function testRecursiveDepositRevertsWithoutDoubleCredit() public {
-        vm.expectRevert(OrderBookCore.UnsupportedTokenBehavior.selector);
-        actor.depositWithCallback(100, false);
+        (bool ok, bytes memory reason) = address(actor).call(abi.encodeCall(actor.depositWithCallback, (100, false)));
+        assertTrue(!ok, "recursive deposit unexpectedly succeeded");
+        assertTrue(keccak256(reason) == keccak256(abi.encodeWithSelector(OrderBookCore.UnsupportedTokenBehavior.selector)), "unexpected revert reason");
         assertEq(token.balanceOf(address(actor)), 200, "actor tokens moved");
         assertEq(token.balanceOf(address(core)), 300, "sponsor custody changed");
         assertEq(core.accountEquity(address(actor)), int256(0), "account gained credit");
     }
 
     function testCrossFunctionInsuranceFundingRevertsAtomically() public {
-        vm.expectRevert(OrderBookCore.UnsupportedTokenBehavior.selector);
-        actor.depositWithCallback(100, true);
+        (bool ok, bytes memory reason) = address(actor).call(abi.encodeCall(actor.depositWithCallback, (100, true)));
+        assertTrue(!ok, "insurance callback deposit unexpectedly succeeded");
+        assertTrue(keccak256(reason) == keccak256(abi.encodeWithSelector(OrderBookCore.UnsupportedTokenBehavior.selector)), "unexpected revert reason");
         assertEq(token.balanceOf(address(actor)), 200, "actor tokens moved");
         assertEq(token.balanceOf(address(core)), 300, "sponsor custody changed");
         assertEq(core.insuranceReserves(), 0, "insurance credited");
@@ -120,8 +122,9 @@ contract RecursiveDepositVaultTest is TestBase {
     }
 
     function testRecursiveDepositRevertsWithoutDoubleCredit() public {
-        vm.expectRevert(PortfolioCollateralVault.UnsupportedTokenBehavior.selector);
-        actor.depositWithCallback(100, false);
+        (bool ok, bytes memory reason) = address(actor).call(abi.encodeCall(actor.depositWithCallback, (100, false)));
+        assertTrue(!ok, "recursive vault deposit unexpectedly succeeded");
+        assertTrue(keccak256(reason) == keccak256(abi.encodeWithSelector(PortfolioCollateralVault.UnsupportedTokenBehavior.selector)), "unexpected revert reason");
         assertEq(token.balanceOf(address(actor)), 200, "actor tokens moved");
         assertEq(token.balanceOf(address(vault)), 300, "sponsor custody changed");
         assertEq(vault.balanceOf(address(actor)), 0, "account gained credit");
