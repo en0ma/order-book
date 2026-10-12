@@ -824,6 +824,10 @@ export function validateOperatorManifest(input: unknown): OperatorManifest {
     return result;
   });
 
+  if (root.portfolio !== undefined && markets.length > 32) {
+    throw new RangeError("portfolio markets exceed on-chain MAX_MARKETS (32)");
+  }
+
   let portfolio: OperatorManifest["portfolio"];
   if (root.portfolio !== undefined) {
     const raw = expectObject(root.portfolio, "portfolio");
