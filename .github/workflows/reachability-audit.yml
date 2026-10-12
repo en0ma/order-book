@@ -1,14 +1,8 @@
 name: reachability-audit
 on:
   pull_request:
-    paths:
-      - 'scripts/reachability-audit.mjs'
-      - '.github/workflows/reachability-audit.yml'
   push:
     branches: [main]
-    paths:
-      - 'scripts/reachability-audit.mjs'
-      - '.github/workflows/reachability-audit.yml'
 permissions:
   contents: read
 jobs:
