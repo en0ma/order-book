@@ -7,6 +7,38 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockMarkOracle} from "./mocks/MockMarkOracle.sol";
 
 contract GuardianRiskOffTest is TestBase {
+    function testIndependentGuardianCanPauseButCannotPublishFundingOrUnpause() public {
+        MockERC20 token = new MockERC20();
+        MockMarkOracle oracle = new MockMarkOracle(100);
+        OrderBookCore core = new OrderBookCore(address(token), address(oracle), 40, 1000, 0, 0);
+        address guardian = address(0xBEEF);
+        address publisher = address(0xCAFE);
+        core.setFundingUpdater(publisher);
+        core.setRiskOffGuardian(guardian);
+        assertEq(uint256(uint160(core.riskOffGuardian())), uint256(uint160(guardian)), "guardian not installed");
+
+        vm.prank(guardian);
+        (bool funding,) = address(core).call(abi.encodeCall(core.setFundingIndex, (int128(1e18))));
+        assertTrue(!funding, "guardian gained funding publication rights");
+        vm.prank(guardian);
+        core.setRiskIncreasePaused(true);
+        assertTrue(core.riskIncreasePaused(), "guardian did not halt risk");
+
+        vm.prank(guardian);
+        (bool resume,) = address(core).call(abi.encodeCall(core.setRiskIncreasePaused, (false)));
+        assertTrue(!resume, "guardian reactivated risk");
+        vm.prank(address(0xBAD));
+        (bool unauthorized,) = address(core).call(abi.encodeCall(core.setRiskIncreasePaused, (true)));
+        assertTrue(!unauthorized, "untrusted account gained guardian access");
+
+        core.setRiskOffGuardian(address(0));
+        vm.prank(guardian);
+        (bool revoked,) = address(core).call(abi.encodeCall(core.setRiskIncreasePaused, (true)));
+        assertTrue(!revoked, "revoked guardian retained authority");
+        core.setRiskIncreasePaused(false);
+        assertTrue(!core.riskIncreasePaused(), "owner could not restore trading");
+    }
+
     function testRiskOffGuardsDirectMatchingAndLeavesCancellationAvailable() public {
         MockERC20 token = new MockERC20();
         MockMarkOracle oracle = new MockMarkOracle(100);
