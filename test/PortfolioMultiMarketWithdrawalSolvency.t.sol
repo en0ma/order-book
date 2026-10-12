@@ -11,7 +11,7 @@ import {PortfolioAdmissionCoordinator} from "../src/deployable/PortfolioAdmissio
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockMarkOracle} from "./mocks/MockMarkOracle.sol";
 
-/// @notice Two-market PnL cannot turn mark-only profits into withdrawable collateral.
+/// @notice Two-market withdrawals respect conservative cash equity excluding marked open-position value.
 /// @dev Uses real order-book fills and a single custody vault; prices are controlled fixtures.
 contract PortfolioMultiMarketWithdrawalSolvencyTest is TestBase {
     address internal constant TRADER = address(0xA11CE);
@@ -54,7 +54,7 @@ contract PortfolioMultiMarketWithdrawalSolvencyTest is TestBase {
         first.configurePortfolioController(address(coordinator));
         second.configurePortfolioController(address(coordinator));
 
-        _deposit(TRADER, 3000);
+        _deposit(TRADER, 13000);
         _deposit(MAKER, 100000);
         _deposit(EXIT_MAKER, 100000);
 
@@ -73,7 +73,7 @@ contract PortfolioMultiMarketWithdrawalSolvencyTest is TestBase {
     }
 
     function testMarkedProfitInOneMarketCannotFundWithdrawalAfterOtherMarketRealizesLoss() public {
-        firstMark.setMarkTick(120); // +2000 still open/unrealized.
+        firstMark.setMarkTick(120); // +2000 still open/unrealized; open entry cashflow remains -10000.
         secondMark.setMarkTick(90); // Closing will realize -1000.
         vm.prank(EXIT_MAKER);
         coordinator.addLiquidity(1, IOrderBookCore.Side.Bid, 90, 100);
@@ -86,8 +86,8 @@ contract PortfolioMultiMarketWithdrawalSolvencyTest is TestBase {
         (int80 secondPosition,,) = second.accountRisk(TRADER);
         assertEq(int256(firstPosition), 100, "profitable exposure unexpectedly closed");
         assertEq(int256(secondPosition), 0, "losing exposure not flattened");
-        assertEq(coordinator.settledCashEquity(TRADER), 2000, "cross-market realized cash incorrect");
-        assertEq(policy.portfolioEquity(TRADER), 4000, "unrealized profit not in marked equity");
+        assertEq(coordinator.settledCashEquity(TRADER), 2000, "conservative cash-equity basis incorrect");
+        assertEq(policy.portfolioEquity(TRADER), 14000, "unrealized profit not in marked equity");
 
         uint256 beforeBalance = token.balanceOf(TRADER);
         uint256 beforeCustody = token.balanceOf(address(vault));
