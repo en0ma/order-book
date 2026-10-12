@@ -93,7 +93,7 @@ contract AdversarialCollateralCallbackTest is TestBase {
         assertTrue(!trader.reentrySucceeded(), "recursive withdrawal overdraw succeeded");
         assertEq(token.balanceOf(address(trader)), 100, "trader withdrew more than deposited");
         assertEq(token.balanceOf(address(core)), 0, "remaining custody incorrect");
-        assertEq(core.collateralBalance(address(trader)), 0, "ledger not cleared");
+        assertEq(core.accountEquity(address(trader)), int256(0), "account equity not cleared");
     }
 
     function testPortfolioVaultDoubleWithdrawCallbackCannotOverdraw() public {
