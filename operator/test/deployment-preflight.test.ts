@@ -24,6 +24,7 @@ const reader = () => ({
   coordinatorPolicy: async () => policy,
   coordinatorVault: async () => vault,
   policySharedCollateralVault: async () => vault,
+  vaultController: async () => coordinator,
 });
 test("verifies out-of-order manifest against actual on-chain portfolio tuple", async () => {
   await assert.doesNotReject(verifyPortfolioDeployment(manifest, reader()));
@@ -37,6 +38,9 @@ test("rejects wrong chain, counts, vault and core/gateway tuple", async () => {
   }), /market count mismatch/);
   await assert.rejects(verifyPortfolioDeployment(manifest, {
     ...reader(), policySharedCollateralVault: async () => token,
+  }), /policy or vault mismatch/);
+  await assert.rejects(verifyPortfolioDeployment(manifest, {
+    ...reader(), vaultController: async () => core0,
   }), /policy or vault mismatch/);
   await assert.rejects(verifyPortfolioDeployment(manifest, {
     ...reader(), coordinatorMarket: async () => ({ core: core0, gateway: gateway0 }),
