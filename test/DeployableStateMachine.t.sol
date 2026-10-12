@@ -90,6 +90,7 @@ contract DeployableStateMachineTest is TestBase {
         }
         _drainTrackedBook();
         _settleAllTrackedState();
+        _settleAllPositionFunding();
         _checkInvariants();
         _checkCustodyBacking();
     }
@@ -108,6 +109,7 @@ contract DeployableStateMachineTest is TestBase {
         }
         _drainTrackedBook();
         _settleAllTrackedState();
+        _settleAllPositionFunding();
         _checkInvariants();
         _checkCustodyBacking();
     }
@@ -125,6 +127,7 @@ contract DeployableStateMachineTest is TestBase {
         }
         _drainTrackedBook();
         _settleAllTrackedState();
+        _settleAllPositionFunding();
         _checkInvariants();
         _checkCustodyBacking();
     }
@@ -138,6 +141,7 @@ contract DeployableStateMachineTest is TestBase {
         }
         _drainTrackedBook();
         _settleAllTrackedState();
+        _settleAllPositionFunding();
         address[5] memory actors = [ALICE, BOB, CAROL, DAVE, FINALIZER];
         for (uint256 i; i < actors.length; ++i) {
             (, int256 trading, int256 funding,,) =
@@ -174,6 +178,7 @@ contract DeployableStateMachineTest is TestBase {
 
         _drainTrackedBook();
         _settleAllTrackedState();
+        _settleAllPositionFunding();
         _checkInvariants();
         _checkCustodyBacking();
     }
@@ -393,6 +398,13 @@ contract DeployableStateMachineTest is TestBase {
                 vm.prank(actors[a]);
                 core.settle(IOrderBookCore.Side.Ask, ASK_TICKS[i]);
             }
+        }
+    }
+
+    function _settleAllPositionFunding() internal {
+        address[5] memory actors = [ALICE, BOB, CAROL, DAVE, FINALIZER];
+        for (uint256 a; a < actors.length; ++a) {
+            core.settlePositionFundingTest(actors[a]);
         }
     }
 
