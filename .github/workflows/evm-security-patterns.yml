@@ -1,0 +1,32 @@
+name: evm-security-patterns
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'script/**'
+      - 'scripts/security-pattern-scan.mjs'
+      - 'docs/EVM_EXPLOIT_AUDIT.md'
+      - '.github/workflows/evm-security-patterns.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'script/**'
+      - 'scripts/security-pattern-scan.mjs'
+      - 'docs/EVM_EXPLOIT_AUDIT.md'
+      - '.github/workflows/evm-security-patterns.yml'
+permissions:
+  contents: read
+jobs:
+  patterns:
+    name: Solidity threat-pattern triage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test scanner lexer
+        run: node --test test-js/security-pattern-scan.test.mjs
+      - name: Scan dangerous EVM constructs
+        run: node scripts/security-pattern-scan.mjs
