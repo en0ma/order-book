@@ -30,7 +30,7 @@ jobs:
       - name: Check repository pages and assets
         run: node scripts/check-docs.mjs
       - name: Install Mintlify CLI
-        run: npm install --global mint
+        run: npm install --global @mintlify/cli@4.0.1603
       - name: Validate Mintlify site
         run: mint validate
       - name: Check Mintlify links

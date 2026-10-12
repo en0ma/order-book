@@ -26,3 +26,9 @@ losses would consume reserves. In particular, it makes no on-chain claim and
 does **not** introduce a treasury payout, owner-only extraction path or actual
 transfer. Only an independently reviewed on-chain proof and withdrawal state
 machine could enable this in production.
+
+## Physical custody-domain reconciliation
+
+The optional `custody-domain-reconciliation` export consumes a complete snapshot **per physical token-holding contract**, not one snapshot per CLOB market. Multiple portfolio markets sharing the same vault must appear together in one custody domain. It refuses duplicate custody addresses, reused market IDs, mixed chain/block identity, mixed collateral assets and per-domain insolvency, then reports the sums of separately attested fee candidates. This forbids offsetting a deficient vault with excess tokens at another vault.
+
+The caller must provide all relevant domains and all their market identifiers; the helper cannot independently discover omitted domains or prove market membership completeness. Each liability must be attributed exactly once to the contract actually holding the tokens, from a trustworthy finalized-block source. This report is **non-authoritative off-chain diagnostic evidence**, not approval to transfer or net assets between custody domains.

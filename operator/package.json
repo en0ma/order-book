@@ -150,6 +150,11 @@
       "types": "./fee-surplus-attestation.d.ts",
       "import": "./dist/fee-surplus-attestation.js",
       "default": "./dist/fee-surplus-attestation.js"
+    },
+    "./custody-domain-reconciliation": {
+      "types": "./custody-domain-reconciliation.d.ts",
+      "import": "./dist/custody-domain-reconciliation.js",
+      "default": "./dist/custody-domain-reconciliation.js"
     }
   },
   "files": [
@@ -191,6 +196,7 @@
     "mm-execution.d.ts",
     "launch-admission.d.ts",
     "deployment-preflight.d.ts",
-    "fee-surplus-attestation.d.ts"
+    "fee-surplus-attestation.d.ts",
+    "custody-domain-reconciliation.d.ts"
   ]
 }
