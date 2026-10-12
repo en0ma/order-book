@@ -145,6 +145,11 @@
       "types": "./deployment-preflight.d.ts",
       "import": "./dist/deployment-preflight.js",
       "default": "./dist/deployment-preflight.js"
+    },
+    "./fee-surplus-attestation": {
+      "types": "./fee-surplus-attestation.d.ts",
+      "import": "./dist/fee-surplus-attestation.js",
+      "default": "./dist/fee-surplus-attestation.js"
     }
   },
   "files": [
@@ -185,6 +190,7 @@
     "submission-journal.d.ts",
     "mm-execution.d.ts",
     "launch-admission.d.ts",
-    "deployment-preflight.d.ts"
+    "deployment-preflight.d.ts",
+    "fee-surplus-attestation.d.ts"
   ]
 }
