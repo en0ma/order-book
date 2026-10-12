@@ -73,6 +73,27 @@ contract DeployableStateMachineTest is TestBase {
         _runCounterexampleWithFundingMask(2);
     }
 
+    /// @dev Distinguish a nonzero entry index from a subsequent funding change.
+    function testRegressionCustody186NegativeFirstFundingIndex() public {
+        uint256 randomness = 873015621485771659152636108981745551321;
+        uint256 indexChanges;
+        for (uint256 step; step < 12; ++step) {
+            randomness = uint256(keccak256(abi.encode(randomness, step)));
+            if (randomness % 10 == 6) {
+                if (indexChanges++ == 0) {
+                    core.setFundingIndex(-49200000000000000);
+                }
+                continue;
+            }
+            _step(randomness);
+            _checkInvariants();
+        }
+        _drainTrackedBook();
+        _settleAllTrackedState();
+        _checkInvariants();
+        _checkCustodyBacking();
+    }
+
     function _runCounterexampleWithFundingMask(uint256 mask) internal {
         uint256 randomness = 873015621485771659152636108981745551321;
         uint256 indexChanges;
