@@ -594,3 +594,19 @@ test("portfolio manifests reject missing and out-of-range market indexes", () =>
     [1, 0],
   );
 });
+
+test("portfolio manifest enforces the production 32-market ceiling", () => {
+  const base = {
+    schemaVersion: 1, chainId: 1, deploymentBlock: 1,
+    collateral: { token: ALICE, decimals: 18 },
+    portfolio: { coordinator: ADV, policy: CORE, vault: ALICE },
+  };
+  const make = count => Array.from({ length: count }, (_, index) => ({
+    id: "market-" + index, core: CORE, advanced: ADV,
+    oracle: ALICE, portfolioMarketIndex: index,
+  }));
+  assert.equal(validateOperatorManifest({ ...base, markets: make(32) }).markets.length, 32);
+  assert.throws(() => validateOperatorManifest({
+    ...base, markets: make(33),
+  }), /MAX_MARKETS/);
+});
