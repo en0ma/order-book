@@ -568,3 +568,45 @@ test("keeper execution always simulates before submission", async () => {
     transactionId: "tx-2",
   }]);
 });
+
+test("portfolio manifests reject missing and out-of-range market indexes", () => {
+  const market = (id, core, index) => ({
+    id, core, advanced: ADV, oracle: ALICE, portfolioMarketIndex: index,
+  });
+  const base = {
+    schemaVersion: 1, chainId: 1, deploymentBlock: 1,
+    collateral: { token: ALICE, decimals: 18 },
+    portfolio: { coordinator: ADV, policy: CORE, vault: ALICE },
+  };
+  assert.throws(() => validateOperatorManifest({
+    ...base, markets: [market("A", CORE, 0), market("B", ALICE, 2)],
+  }), /contiguous/);
+  assert.throws(() => validateOperatorManifest({
+    ...base, markets: [market("A", CORE, 1)],
+  }), /contiguous/);
+  assert.throws(() => validateOperatorManifest({
+    ...base, markets: [market("A", CORE, 0), market("B", ALICE, 0)],
+  }), /duplicate portfolioMarketIndex/);
+  assert.deepEqual(
+    validateOperatorManifest({
+      ...base, markets: [market("B", ALICE, 1), market("A", CORE, 0)],
+    }).markets.map(m => m.portfolioMarketIndex),
+    [1, 0],
+  );
+});
+
+test("portfolio manifest enforces the production 32-market ceiling", () => {
+  const base = {
+    schemaVersion: 1, chainId: 1, deploymentBlock: 1,
+    collateral: { token: ALICE, decimals: 18 },
+    portfolio: { coordinator: ADV, policy: CORE, vault: ALICE },
+  };
+  const make = count => Array.from({ length: count }, (_, index) => ({
+    id: "market-" + index, core: CORE, advanced: ADV,
+    oracle: ALICE, portfolioMarketIndex: index,
+  }));
+  assert.equal(validateOperatorManifest({ ...base, markets: make(32) }).markets.length, 32);
+  assert.throws(() => validateOperatorManifest({
+    ...base, markets: make(33),
+  }), /MAX_MARKETS/);
+});
