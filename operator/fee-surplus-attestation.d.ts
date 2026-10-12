@@ -1,0 +1,22 @@
+export interface FeeSurplusSnapshot {
+  chainId: number;
+  blockNumber: number;
+  blockHash: string;
+  custodyTokenBalance: bigint;
+  positiveSettledAccountClaims: bigint;
+  outstandingPortfolioClaims: bigint;
+  insuranceReserves: bigint;
+  accruedProtocolFees: bigint;
+  pendingMakerRebates: bigint;
+  unpricedOrUnsettledLiabilities: bigint;
+  badDebtExposure: bigint;
+}
+export interface FeeSurplusCertificate {
+  chainId: number;
+  blockNumber: number;
+  blockHash: string;
+  totalReserved: bigint;
+  unencumberedSurplus: bigint;
+  candidateDistributableFees: bigint;
+}
+export declare function attestFeeSurplus(snapshot: FeeSurplusSnapshot): FeeSurplusCertificate;
