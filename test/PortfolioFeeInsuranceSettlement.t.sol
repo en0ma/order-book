@@ -166,6 +166,73 @@ contract PortfolioFeeInsuranceSettlementTest is TestBase {
         );
     }
 
+    function testOpenPortfolioExposureCannotConsumeInsuranceReserve() public {
+        vm.prank(MAKER);
+        coordinator.addLiquidity(0, IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        assertEq(
+            uint256(coordinator.take(
+                0, IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC
+            )),
+            100,
+            "opening trade did not fill"
+        );
+
+        core.allocateProtocolFeesToInsurance(10);
+        oracle.setMarkTick(1);
+        assertTrue(policy.portfolioEquity(TAKER) < 0, "account not distressed");
+
+        uint256 custodyBefore = token.balanceOf(address(vault));
+        uint256 accountedBefore = vault.totalAccountedCollateral();
+        uint256 feesBefore = core.protocolFeesAccrued();
+
+        // Portfolio coverage is permissionless only after ALL market exposures
+        // and live orders have been cleaned up.
+        (bool covered,) = address(coordinator).call(
+            abi.encodeCall(coordinator.coverBadDebt, (TAKER))
+        );
+        assertTrue(!covered, "unclosed portfolio position drew insurance");
+        assertEq(core.insuranceReserves(), 10, "premature coverage spent insurance");
+        assertEq(core.protocolFeesAccrued(), feesBefore, "premature coverage spent fees");
+        assertEq(token.balanceOf(address(vault)), custodyBefore, "failed coverage moved custody");
+        assertEq(vault.totalAccountedCollateral(), accountedBefore, "failed coverage changed claims");
+    }
+
+    function testPortfolioCoverageIsBoundedAndReplayCannotSpendMoreReserves() public {
+        vm.prank(MAKER);
+        coordinator.addLiquidity(0, IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        coordinator.take(0, IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        core.allocateProtocolFeesToInsurance(10);
+
+        oracle.setMarkTick(1);
+        vm.prank(EXIT_MAKER);
+        coordinator.addLiquidity(0, IOrderBookCore.Side.Bid, 1, 100);
+        vm.prank(TAKER);
+        assertEq(
+            uint256(advanced.takeReduceOnly(
+                IOrderBookCore.Side.Ask, 1, 100, IOrderBookCore.FillPolicy.IOC
+            )),
+            100,
+            "terminal closing trade did not fill"
+        );
+
+        uint256 custodyBefore = token.balanceOf(address(vault));
+        uint256 accountedBefore = vault.totalAccountedCollateral();
+        int256 equityBefore = policy.portfolioEquity(TAKER);
+        assertTrue(equityBefore < -10, "terminal equity does not exceed reserve shortfall");
+
+        assertEq(coordinator.coverBadDebt(TAKER), 10, "coverage exceeded available insurance");
+        assertEq(core.insuranceReserves(), 0, "coverage did not exhaust insurance");
+        assertEq(policy.portfolioEquity(TAKER), equityBefore + 10, "equity not credited exactly");
+
+        assertEq(coordinator.coverBadDebt(TAKER), 0, "replay invented insurance coverage");
+        assertEq(core.insuranceReserves(), 0, "replay changed insurance");
+        assertEq(policy.portfolioEquity(TAKER), equityBefore + 10, "replay minted portfolio equity");
+        assertEq(token.balanceOf(address(vault)), custodyBefore, "coverage withdrew collateral");
+        assertEq(vault.totalAccountedCollateral(), accountedBefore, "coverage altered vault claims");
+    }
+
     function _deposit(address account, uint256 amount) internal {
         token.mint(account, amount);
         vm.prank(account);
