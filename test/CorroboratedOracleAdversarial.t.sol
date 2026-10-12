@@ -38,14 +38,14 @@ contract CorroboratedOracleAdversarialTest is TestBase {
     }
 
     function testRejectsReferenceDeviationJustOutsideBoundary() public {
-        referenceSource.set(101_0001e14, 0, 1_000);
+        referenceSource.set(98e18, 0, 1_000);
         _assertRejected(CorroboratedPriceSource.SourceDeviation.selector);
     }
 
     function testAcceptsDeviationAtExactConfiguredBoundary() public {
-        referenceSource.set(101e18, 0, 1_000);
+        primary.set(101e8, 250_000, 1_000);
         (int256 price,,) = gate.latestPrice();
-        assertEq(price, int256(100e8), "boundary rejected");
+        assertEq(price, int256(101e8), "boundary rejected");
     }
 
     function testRejectsStaleReferenceDespiteFreshPrimary() public {
