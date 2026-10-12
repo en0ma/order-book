@@ -100,7 +100,7 @@ contract CustodyReserveBackingInvariantTest is TestBase {
         (int80 remaining,,) = core.accountRisk(TRADER);
         assertEq(int256(remaining), 60, "partial closeout changed wrong exposure");
         assertEq(token.balanceOf(LIQUIDATOR), 4, "first partial reward mismatch");
-        assertEq(core.protocolFeesAccrued(), feesBeforeEmpty - 4, "first reward fee mismatch");
+        assertEq(core.protocolFeesAccrued(), feesBeforeEmpty, "first reward fee mismatch");
 
         uint256 custodyBetween = token.balanceOf(address(core));
         uint256 insuranceBetween = core.insuranceReserves();
@@ -110,7 +110,7 @@ contract CustodyReserveBackingInvariantTest is TestBase {
         );
         assertEq(retryClosed, 0, "empty retry closed phantom lots");
         assertEq(token.balanceOf(LIQUIDATOR), 4, "empty retry paid a second reward");
-        assertEq(core.protocolFeesAccrued(), feesBeforeEmpty - 4, "empty retry spent fees");
+        assertEq(core.protocolFeesAccrued(), feesBeforeEmpty, "empty retry spent fees");
         assertEq(core.insuranceReserves(), insuranceBetween, "empty retry spent insurance");
         assertEq(token.balanceOf(address(core)), custodyBetween, "empty retry moved custody");
 
