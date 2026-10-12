@@ -38,8 +38,8 @@ contract ProtocolFeeInsuranceAllocationAuditTest is TestBase {
 
     function testOwnerAllocationReclassifiesOnlyFeeClaimsNotTokens() public {
         uint256 custody = token.balanceOf(address(core));
-        uint256 makerClaim = _cashClaim(MAKER);
-        uint256 takerClaim = _cashClaim(TAKER);
+        int256 makerClaim = _cashClaim(MAKER);
+        int256 takerClaim = _cashClaim(TAKER);
 
         core.allocateProtocolFeesToInsurance(40);
         assertEq(core.protocolFeesAccrued(), 60, "incorrect remaining fees");
@@ -102,8 +102,9 @@ contract ProtocolFeeInsuranceAllocationAuditTest is TestBase {
         core.depositCollateral(amount);
     }
 
-    function _cashClaim(address who) internal view returns (uint256) {
-        (uint256 collateral,,,,) = core.accountingStateTest(who);
-        return collateral;
+    function _cashClaim(address who) internal view returns (int256) {
+        (uint256 collateral, int256 trading, int256 funding,,) =
+            core.accountingStateTest(who);
+        return int256(collateral) + trading + funding;
     }
 }
