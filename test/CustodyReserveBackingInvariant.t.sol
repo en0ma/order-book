@@ -61,6 +61,29 @@ contract CustodyReserveBackingInvariantTest is TestBase {
 
         oracle.record(10);
 
+        // There are accrued trade fees and funded insurance, but no exit bid yet.
+        // A zero-fill liquidation cannot turn those reserves into a reward.
+        uint256 feesBeforeEmpty = core.protocolFeesAccrued();
+        uint256 insuranceBeforeEmpty = core.insuranceReserves();
+        uint256 custodyBeforeEmpty = token.balanceOf(address(core));
+        uint256 rewardBeforeEmpty = token.balanceOf(LIQUIDATOR);
+        assertTrue(feesBeforeEmpty > 0, "zero-fill fixture has no fee reserves");
+
+        vm.prank(LIQUIDATOR);
+        uint96 emptyClosed = liquidation.liquidate(
+            TRADER,
+            new IOrderBookCore.Side[](0),
+            new uint16[](0),
+            new uint64[](0),
+            new uint64[](0),
+            new uint64[](0)
+        );
+        assertEq(emptyClosed, 0, "no-liquidity liquidation matched phantom lots");
+        assertEq(token.balanceOf(LIQUIDATOR), rewardBeforeEmpty, "zero fill paid reward");
+        assertEq(core.protocolFeesAccrued(), feesBeforeEmpty, "zero fill spent fees");
+        assertEq(core.insuranceReserves(), insuranceBeforeEmpty, "zero fill spent insurance");
+        assertEq(token.balanceOf(address(core)), custodyBeforeEmpty, "zero fill moved custody");
+
         vm.prank(BID_MAKER);
         core.addLiquidity(IOrderBookCore.Side.Bid, 10, 100);
 
