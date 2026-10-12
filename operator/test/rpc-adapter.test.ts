@@ -82,3 +82,30 @@ test("portfolio health callback is exposed and receives accounts and manifest", 
   const without = createCanonicalRpcAdapter(h.transport, { decode: () => undefined });
   assert.equal(without.getPortfolioHealth, undefined);
 });
+
+const FULL_TOPIC = "0x" + "a".repeat(64);
+test("strict event coverage rejects undecoded canonical events without explicit allowlist", async () => {
+  const h = fixture();
+  const strict = createCanonicalRpcAdapter(h.transport, {
+    decode: () => undefined,
+    strictEventCoverage: true,
+  });
+  const block = await strict.getBlock(1);
+  await assert.rejects(strict.getEvents(block, manifest), /undecoded deployment event/);
+});
+test("strict event coverage allows only exact configured address and full topic0", async () => {
+  const h = fixture();
+  const exact = createCanonicalRpcAdapter(h.transport, {
+    decode: () => undefined,
+    strictEventCoverage: true,
+    ignoredEventTopics: { [addr]: [FULL_TOPIC] },
+  });
+  const block = await exact.getBlock(1);
+  await assert.rejects(exact.getEvents(block, manifest), /undecoded deployment event/);
+  assert.throws(() => createCanonicalRpcAdapter(h.transport, {
+    decode: () => undefined, strictEventCoverage: true,
+    ignoredEventTopics: { [addr]: ["0x1234"] },
+  }), /full topic0/);
+  const permissive = createCanonicalRpcAdapter(h.transport, { decode: () => undefined });
+  assert.deepEqual(await permissive.getEvents(block, manifest), []);
+});
