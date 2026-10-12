@@ -44,3 +44,34 @@ const transport = createHttpJsonRpcTransport(process.env.RPC_URL, {
 ```
 
 Canonical ingestion also rejects logs from addresses outside the deployment manifest and duplicate transaction/log positions. A hash mismatch or orphaned persisted checkpoint still stops the cycle; this does not perform a deep-reorg rebuild. The caller must verify the full deployed ABI and event coverage.
+
+## Strict event decoding for production indexers
+
+Set `strictEventCoverage: true` in `createCanonicalRpcAdapter` to reject any
+canonical deployed-contract log that the supplied ABI decoder does not recognize.
+With the default compatibility mode (`false`), unknown logs are skipped, which
+can silently lose lifecycle events and make liquidation order inventories incomplete.
+
+A DEX may explicitly ignore *known, audited, non-economic* event signatures
+using `ignoredEventTopics: { [verifiedContractAddress]: [full32ByteTopic0] }`.
+The address is the contract emitting the log, **not** a market symbol; use full
+Keccak-256 event signature topics, never shorthand. A bad or incomplete topic
+reverts during adapter creation in strict mode. An unrecognized log whose
+address/topic is not allowlisted causes the recovery/publication cycle to fail
+closed. The allowlist is not a substitute for reviewing ABI and event completeness:
+operator teams must validate the deployed bytecode and ABI, reconcile live events
+with Core state and revisit allowances whenever upgrading market components.
+
+Example:
+```js
+const rpc = createCanonicalRpcAdapter(transport, {
+  decode: (log, chainId) => decodeUsingVerifiedDeploymentAbi(log, chainId),
+  strictEventCoverage: true,
+  ignoredEventTopics: {}, // explicitly audit exceptions; preferably none
+  markTicks: manifest => readCurrentMarkTicks(manifest),
+});
+```
+
+This gate is an optional adapter correctness control, **not** an on-chain
+settlement guard, a complete ABI implementation, or a replacement for DEX-owned
+RPC, storage, persistence and signing infrastructure.
