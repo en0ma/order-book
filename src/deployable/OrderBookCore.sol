@@ -65,6 +65,7 @@ contract OrderBookCore is IOrderBookCore {
     bool public riskIncreasePaused;
 
     address public fundingUpdater;
+    address public riskOffGuardian;
     address public advancedModule;
     address public override portfolioController;
 
@@ -195,10 +196,15 @@ contract OrderBookCore is IOrderBookCore {
         if (msg.sender != owner) revert Unauthorized();
     }
 
-    /// @notice Funding updater may halt new risk; only owner may restore it.
+    /// @notice Owner can assign a separate emergency guardian without granting funding publication rights.
+    function setRiskOffGuardian(address nextGuardian) external onlyOwner {
+        riskOffGuardian = nextGuardian;
+    }
+
+    /// @notice Funding updater or separate guardian may halt new risk; only owner may restore it.
     function setRiskIncreasePaused(bool paused) external {
         if (msg.sender != owner) {
-            if (!paused || msg.sender != fundingUpdater) revert Unauthorized();
+            if (!paused || (msg.sender != fundingUpdater && msg.sender != riskOffGuardian)) revert Unauthorized();
         }
         riskIncreasePaused = paused;
     }
