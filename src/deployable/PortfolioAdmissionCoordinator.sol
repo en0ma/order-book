@@ -111,6 +111,9 @@ contract PortfolioAdmissionCoordinator {
             revert InsufficientPortfolioCollateral();
         }
 
+        // Recompute the portfolio's withdrawable lock before moving custody,
+        // so the vault can independently enforce the remaining locked claim.
+        syncAccount(msg.sender);
         vault.controllerWithdraw(msg.sender, msg.sender, amount);
         syncAccount(msg.sender);
     }
