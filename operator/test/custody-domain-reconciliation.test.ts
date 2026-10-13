@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { reconcileCustodyDomains } from "../dist/custody-domain-reconciliation.js";
+import { reconcileCustodyDomains, reconcileExpectedCustodyDomains } from "../dist/custody-domain-reconciliation.js";
 
 const addr = x => "0x" + x.repeat(40);
 const hash = "0x" + "a".repeat(64);
@@ -43,4 +43,29 @@ test("does not net a deficient vault against an overfunded vault", () => {
   assert.throws(() => reconcileCustodyDomains([base, {
     ...base, custodyAddress: addr("2"), marketIds: ["SOL-PERP"], custodyTokenBalance: 899n,
   }]), /insufficient custody/);
+});
+
+test("authoritative roster rejects omitted vaults, missing markets and misattribution", () => {
+  const second = { ...base, custodyAddress: addr("2"), marketIds: ["SOL-PERP"] };
+  const expected = [
+    { custodyAddress: addr("1"), collateralToken: addr("9"), marketIds: ["BTC-PERP", "ETH-PERP"] },
+    { custodyAddress: addr("2"), collateralToken: addr("9"), marketIds: ["SOL-PERP"] },
+  ];
+  assert.equal(reconcileExpectedCustodyDomains([base, second], expected).domains.length, 2);
+  assert.throws(() => reconcileExpectedCustodyDomains([base], expected), /inventory count mismatch/);
+  assert.throws(() => reconcileExpectedCustodyDomains([base, second], [
+    expected[0], { ...expected[1], marketIds: ["DOGE-PERP"] },
+  ]), /market inventory mismatch/);
+  assert.throws(() => reconcileExpectedCustodyDomains([base, second], [
+    expected[0], { ...expected[1], custodyAddress: addr("3") },
+  ]), /missing expected physical custody/);
+  assert.throws(() => reconcileExpectedCustodyDomains([base, second], [
+    expected[0], { ...expected[1], collateralToken: addr("8") },
+  ]), /collateral token mismatch/);
+  assert.throws(() => reconcileExpectedCustodyDomains([base, second], [
+    expected[0], { ...expected[1], marketIds: ["SOL-PERP", "SOL-PERP"] },
+  ]), /repeated authoritative market/);
+  assert.throws(() => reconcileExpectedCustodyDomains([base, second], [
+    expected[0], { ...expected[1], custodyAddress: addr("1") },
+  ]), /duplicate authoritative custody/);
 });
