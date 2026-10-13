@@ -67,6 +67,10 @@ contract OrderBookCoreHarness is OrderBookCore {
         _settleExistingPositionFunding(account);
     }
 
+    function pendingMakerFundingEntryTest() external view returns (int256) {
+        return pendingMakerFundingEntry;
+    }
+
     function pendingMakerTradeCashflowTest() external view returns (int256) {
         return pendingMakerTradeCashflow;
     }
