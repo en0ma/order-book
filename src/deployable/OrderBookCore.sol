@@ -87,7 +87,7 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => int256) internal fundingCashflow;
     mapping(address => int256) internal tradeCashflow;
     // Net realized signed cashflows across all accounts. Excludes uncrystallized maker/funding claims.
-    int256 public totalRealizedCashflow;
+    int256 internal totalRealizedCashflow;
 
     int128 internal fundingIndexX18;
     uint32 internal immutable feeSchedulePacked;
