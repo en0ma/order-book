@@ -86,6 +86,8 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => uint256) internal reservedMargin;
     mapping(address => int256) internal fundingCashflow;
     mapping(address => int256) internal tradeCashflow;
+    // Net realized signed cashflows across all accounts. Excludes uncrystallized maker/funding claims.
+    int256 public totalRealizedCashflow;
 
     int128 internal fundingIndexX18;
     uint32 internal immutable feeSchedulePacked;
@@ -578,6 +580,7 @@ contract OrderBookCore is IOrderBookCore {
             totalLocalCollateral += covered;
         } else {
             tradeCashflow[account] += int256(covered);
+            totalRealizedCashflow += int256(covered);
         }
 
         emit BadDebtCovered(account, covered);
@@ -1224,6 +1227,7 @@ contract OrderBookCore is IOrderBookCore {
 
         if (cashflowDelta != 0) {
             fundingCashflow[maker] += cashflowDelta;
+            totalRealizedCashflow += cashflowDelta;
             emit FundingSettled(maker, cashflowDelta);
         }
 
@@ -1245,6 +1249,7 @@ contract OrderBookCore is IOrderBookCore {
             uint256 available = uint256(trading);
             uint256 debit = remainder < available ? remainder : available;
             tradeCashflow[account] = trading - int256(debit);
+            totalRealizedCashflow -= int256(debit);
             remainder -= debit;
         }
 
@@ -1254,6 +1259,7 @@ contract OrderBookCore is IOrderBookCore {
                 revert InsufficientCollateral();
             }
             fundingCashflow[account] = funding - int256(remainder);
+            totalRealizedCashflow -= int256(remainder);
         }
     }
 
@@ -1276,6 +1282,7 @@ contract OrderBookCore is IOrderBookCore {
                 --cashflowDelta;
             }
             fundingCashflow[account] += cashflowDelta;
+            totalRealizedCashflow += cashflowDelta;
             emit FundingSettled(account, cashflowDelta);
         }
 
@@ -1319,11 +1326,13 @@ contract OrderBookCore is IOrderBookCore {
             a.minPosition += amount;
             if (!preReserved) a.maxPosition += amount;
             tradeCashflow[account] -= int256(notional + takerFee);
+            totalRealizedCashflow -= int256(notional + takerFee);
         } else {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
             if (!preReserved) a.minPosition -= amount;
             tradeCashflow[account] += int256(notional) - int256(takerFee);
+            totalRealizedCashflow += int256(notional) - int256(takerFee);
         }
 
         _refreshReservedMargin(account);
@@ -1426,11 +1435,13 @@ contract OrderBookCore is IOrderBookCore {
             a.minPosition += amount;
             if (widen) a.maxPosition += amount;
             tradeCashflow[maker] += int256(makerRebate) - int256(notional);
+            totalRealizedCashflow += int256(makerRebate) - int256(notional);
         } else {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
             if (widen) a.minPosition -= amount;
             tradeCashflow[maker] += int256(notional + makerRebate);
+            totalRealizedCashflow += int256(notional + makerRebate);
         }
     }
 
