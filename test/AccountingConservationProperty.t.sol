@@ -146,6 +146,28 @@ contract AccountingConservationPropertyTest is TestBase {
             "bid maker settlement did not release pending notional");
     }
 
+    function testPendingMakerFundingEntryReconcilesAcrossSettlement() public {
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 105, 100);
+        core.setFundingIndex(int128(1e17));
+
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Bid, 105, 40, IOrderBookCore.FillPolicy.IOC);
+
+        (uint96 pendingLots, int256 entry) =
+            core.makerResidualTest(IOrderBookCore.Side.Ask, 105, 0);
+        assertEq(uint256(pendingLots), 40, "unexpected pending maker lots");
+        assertEq(core.pendingMakerFundingEntryTest(), entry,
+            "execution funding entry missing from aggregate");
+
+        vm.prank(ALICE);
+        core.settle(IOrderBookCore.Side.Ask, 105);
+
+        (, int256 remaining) = core.makerResidualTest(IOrderBookCore.Side.Ask, 105, 0);
+        assertEq(core.pendingMakerFundingEntryTest(), remaining,
+            "aggregate diverged from generation funding entry");
+    }
+
     function _cashClaim(address account) internal view returns (int256 claim) {
         (uint256 collateral, int256 trading, int256 funding,,) =
             core.accountingStateTest(account);
