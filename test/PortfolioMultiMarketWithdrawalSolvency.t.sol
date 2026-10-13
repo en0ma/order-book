@@ -111,6 +111,53 @@ contract PortfolioMultiMarketWithdrawalSolvencyTest is TestBase {
         assertEq(token.balanceOf(address(vault)), beforeCustody - 1000, "vault custody mismatch");
     }
 
+    function testFuzz_CrossMarketFundingPublicationDoesNotLeakCustody(
+        uint32 indexSeed,
+        uint16 withdrawalSeed
+    ) public {
+        // Both markets have open long positions, but all custody stays in
+        // the same vault. Funding publication changes market equity without
+        // adding collateral or realizing an independent token source.
+        int128 fundingIndex = int128(int256(uint256(indexSeed) % 2e17));
+        first.setFundingIndex(fundingIndex);
+        second.setFundingIndex(-fundingIndex);
+
+        uint256 initialCustody = token.balanceOf(address(vault));
+        uint256 initialAccounted = vault.totalAccountedCollateral();
+        assertEq(initialCustody, initialAccounted, "pre-withdraw vault backing");
+
+        uint256 requested = uint256(withdrawalSeed % 20_000) + 1;
+        vm.prank(TRADER);
+        (bool ok,) = address(coordinator).call(
+            abi.encodeCall(coordinator.withdraw, (requested))
+        );
+
+        uint256 finalCustody = token.balanceOf(address(vault));
+        uint256 finalAccounted = vault.totalAccountedCollateral();
+        assertEq(finalCustody, finalAccounted, "cross-market custody backing");
+        assertTrue(finalCustody <= initialCustody, "withdrawal inflated custody");
+        if (ok) {
+            assertEq(initialCustody - finalCustody, requested,
+                "success did not debit physical custody");
+            assertEq(initialAccounted - finalAccounted, requested,
+                "success did not debit accounted collateral");
+            int256 claim = vault.collateralClaim(TRADER);
+            uint256 locked = vault.lockedCollateral(TRADER);
+            if (claim > 0) {
+                assertTrue(uint256(claim) >= locked,
+                    "successful withdrawal broke trader collateral lock");
+            } else {
+                assertEq(locked, 0, "negative claim retained positive lock");
+            }
+        } else {
+            assertEq(finalCustody, initialCustody, "failed withdrawal moved tokens");
+            assertEq(finalAccounted, initialAccounted,
+                "failed withdrawal changed backing ledger");
+        }
+        assertEq(token.balanceOf(address(first)), 0, "first market took shared custody");
+        assertEq(token.balanceOf(address(second)), 0, "second market took shared custody");
+    }
+
     function _deposit(address who, uint256 amount) internal {
         token.mint(who, amount);
         vm.prank(who);
