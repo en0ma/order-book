@@ -116,6 +116,17 @@ contract PortfolioCollateralVault {
     ) external onlyController {
         if (recipient == address(0) || amount == 0) revert ZeroAmount();
         if (amount > totalAccountedCollateral) revert InsufficientFreeCollateral();
+        // The controller may disburse realized portfolio profits, but it must
+        // not invalidate the account's existing collateral lock.
+        int256 claim = collateralClaim(account);
+        if (claim > 0) {
+            uint256 locked = lockedCollateral[account];
+            if (locked > 0 && uint256(claim) < amount + locked) {
+                revert InsufficientFreeCollateral();
+            }
+        } else if (lockedCollateral[account] != 0) {
+            revert InsufficientFreeCollateral();
+        }
 
         portfolioWithdrawn[account] += amount;
         totalAccountedCollateral -= amount;
