@@ -90,6 +90,8 @@ contract OrderBookCore is IOrderBookCore {
     int256 internal totalRealizedCashflow;
     // Outstanding maker execution notional, signed by resting maker side.
     int256 internal pendingMakerTradeCashflow;
+    // Canonical execution-time funding basis awaiting maker attribution.
+    int256 internal pendingMakerFundingEntry;
 
     int128 internal fundingIndexX18;
     uint32 internal immutable feeSchedulePacked;
@@ -745,8 +747,9 @@ contract OrderBookCore is IOrderBookCore {
         generationMakerFillBudget[makerSide][tick][generation] += fill;
         pendingMakerTradeCashflow += makerSide == Side.Bid
             ? -int256(notionalValue(fill, tick)) : int256(notionalValue(fill, tick));
-        generationMakerFundingEntryBudget[makerSide][tick][generation] +=
-            _currentFunding(makerSide, fill);
+        int256 fundingEntry = _currentFunding(makerSide, fill);
+        generationMakerFundingEntryBudget[makerSide][tick][generation] += fundingEntry;
+        pendingMakerFundingEntry += fundingEntry;
         p.remainingLots -= fill;
 
         if (p.remainingLots != 0) return (fill, reservedMakerRebate);
@@ -1356,6 +1359,7 @@ contract OrderBookCore is IOrderBookCore {
         pendingMakerTradeCashflow += side == Side.Bid
             ? int256(notionalValue(filledLots, tick)) : -int256(notionalValue(filledLots, tick));
         generationMakerFundingEntryBudget[side][tick][generation] -= entryFunding;
+        pendingMakerFundingEntry -= entryFunding;
 
         uint256 notional = notionalValue(filledLots, tick);
         uint256 requestedMakerRebate =
@@ -1413,6 +1417,7 @@ contract OrderBookCore is IOrderBookCore {
         pendingMakerTradeCashflow += side == Side.Bid
             ? int256(notionalValue(tail, tick)) : -int256(notionalValue(tail, tick));
         generationMakerFundingEntryBudget[side][tick][generation] = 0;
+        pendingMakerFundingEntry -= entryFunding;
 
         _settleExistingPositionFunding(maker);
 
