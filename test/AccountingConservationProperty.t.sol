@@ -202,6 +202,46 @@ contract AccountingConservationPropertyTest is TestBase {
             "funding settlement moved collateral");
     }
 
+    function testFundingIndexReversalAcrossAsymmetricPositionCheckpoints() public {
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 105, 100);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Bid, 105, 40, IOrderBookCore.FillPolicy.IOC);
+        vm.prank(ALICE);
+        core.settle(IOrderBookCore.Side.Ask, 105);
+
+        uint256 custody = token.balanceOf(address(core));
+        int256 realizedBefore = core.realizedCashflowTotalTest();
+
+        core.setFundingIndex(int128(1e17));
+        core.settlePositionFundingTest(ALICE);
+
+        // Only the short maker has settled at the intermediate index.
+        (,, int256 makerAtPositive,, int128 makerCheckpoint) =
+            core.accountingStateTest(ALICE);
+        (,, int256 takerUnsettled,, int128 takerCheckpoint) =
+            core.accountingStateTest(TAKER);
+        assertEq(makerAtPositive, 4, "short maker positive-index credit");
+        assertEq(takerUnsettled, 0, "long taker prematurely settled");
+        assertEq(int256(makerCheckpoint), int256(1e17), "maker checkpoint");
+        assertEq(int256(takerCheckpoint), 0, "taker checkpoint");
+
+        core.setFundingIndex(-int128(1e17));
+        assertEq(core.realizedCashflowTotalTest(), realizedBefore + 4,
+            "publication touched realized ledger");
+
+        core.settlePositionFundingTest(TAKER);
+        core.settlePositionFundingTest(ALICE);
+        (,, int256 makerAfter,,) = core.accountingStateTest(ALICE);
+        (,, int256 takerAfter,,) = core.accountingStateTest(TAKER);
+        assertEq(makerAfter, -4, "short maker cumulative liability");
+        assertEq(takerAfter, 4, "long taker cumulative credit");
+        assertEq(core.realizedCashflowTotalTest(), realizedBefore,
+            "asymmetric checkpoints violated net funding conservation");
+        assertEq(token.balanceOf(address(core)), custody,
+            "funding update or settlement transferred custody");
+    }
+
     function _cashClaim(address account) internal view returns (int256 claim) {
         (uint256 collateral, int256 trading, int256 funding,,) =
             core.accountingStateTest(account);
