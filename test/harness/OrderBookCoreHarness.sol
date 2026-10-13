@@ -67,6 +67,10 @@ contract OrderBookCoreHarness is OrderBookCore {
         _settleExistingPositionFunding(account);
     }
 
+    function realizedCashflowTotalTest() external view returns (int256) {
+        return totalRealizedCashflow;
+    }
+
     function fundingIndexTest() external view returns (int128) {
         return fundingIndexX18;
     }

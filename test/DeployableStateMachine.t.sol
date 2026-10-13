@@ -422,6 +422,11 @@ contract DeployableStateMachineTest is TestBase {
             aggregateFunding += funding;
         }
 
+        assertEq(
+            core.realizedCashflowTotalTest(), aggregateTrading + aggregateFunding,
+            "aggregate realized cash ledger diverged from tracked accounts"
+        );
+
         int256 internalClaims =
             userClaims + int256(core.protocolFeesAccrued())
                 + int256(core.insuranceReserves());
