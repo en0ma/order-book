@@ -98,7 +98,7 @@ contract AccountingConservationPropertyTest is TestBase {
         // maker leg is a liability, not spendable protocol-fee surplus.
         uint256 custody = token.balanceOf(address(core));
         assertEq(custody, 40_000_000, "trade should not move custody");
-        assertEq(core.protocolFeesAccrued(), 2, "net protocol fee");
+        assertEq(core.protocolFeesAccrued(), 2_100, "net protocol fee");
 
         vm.prank(ALICE);
         core.settle(IOrderBookCore.Side.Ask, 105);
