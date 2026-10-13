@@ -596,6 +596,16 @@ contract OrderBookCore is IOrderBookCore {
         paid = requested < accrued ? requested : accrued;
         if (paid == 0) return 0;
 
+        // Fee payouts may not consume deposited collateral, insurance,
+        // or maker rebates, even when accrued fees are sufficient.
+        uint256 protectedCustody =
+            totalLocalCollateral + insuranceReserves + (packed >> 128);
+        uint256 physicalCustody = collateralToken.balanceOf(address(this));
+        if (physicalCustody < protectedCustody
+            || physicalCustody - protectedCustody < paid) {
+            revert InsufficientCollateral();
+        }
+
         _feeAccountingPacked =
             ((packed >> 128) << 128) | (accrued - paid);
         _transferCollateralOut(liquidator, paid);
