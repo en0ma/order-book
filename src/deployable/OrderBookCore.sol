@@ -1332,7 +1332,7 @@ contract OrderBookCore is IOrderBookCore {
             a.maxPosition -= amount;
             if (!preReserved) a.minPosition -= amount;
             tradeCashflow[account] += int256(notional) - int256(takerFee);
-            totalRealizedCashflow += int256(notional) - int256(takerFee);
+            totalRealizedCashflow += int256(notional - takerFee);
         }
 
         _refreshReservedMargin(account);
