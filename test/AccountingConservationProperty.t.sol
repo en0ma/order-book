@@ -110,6 +110,42 @@ contract AccountingConservationPropertyTest is TestBase {
         assertEq(token.balanceOf(address(core)), custody, "settlement moved custody");
     }
 
+    function testPendingMakerExecutionNotionalClearsOnSettlement() public {
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 105, 100);
+
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Bid, 105, 40, IOrderBookCore.FillPolicy.IOC);
+
+        int256 notional = int256(core.notionalValue(40, 105));
+        assertEq(core.pendingMakerTradeCashflowTest(), notional,
+            "unsettled ask notional missing");
+
+        vm.prank(ALICE);
+        core.settle(IOrderBookCore.Side.Ask, 105);
+
+        assertEq(core.pendingMakerTradeCashflowTest(), 0,
+            "maker settlement did not release pending notional");
+    }
+
+    function testPendingBidExecutionNotionalClearsOnSettlement() public {
+        vm.prank(BOB);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 95, 100);
+
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Ask, 95, 40, IOrderBookCore.FillPolicy.IOC);
+
+        int256 notional = int256(core.notionalValue(40, 95));
+        assertEq(core.pendingMakerTradeCashflowTest(), -notional,
+            "unsettled bid notional sign drift");
+
+        vm.prank(BOB);
+        core.settle(IOrderBookCore.Side.Bid, 95);
+
+        assertEq(core.pendingMakerTradeCashflowTest(), 0,
+            "bid maker settlement did not release pending notional");
+    }
+
     function _cashClaim(address account) internal view returns (int256 claim) {
         (uint256 collateral, int256 trading, int256 funding,,) =
             core.accountingStateTest(account);
