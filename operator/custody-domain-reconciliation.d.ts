@@ -15,3 +15,13 @@ export interface ReconciledCustodyReport {
   aggregateCandidateDistributableFees: bigint;
 }
 export declare function reconcileCustodyDomains(domains: readonly CustodyDomainSnapshot[]): ReconciledCustodyReport;
+
+export interface ExpectedCustodyDomain {
+  custodyAddress: string;
+  collateralToken: string;
+  marketIds: readonly string[];
+}
+export declare function reconcileExpectedCustodyDomains(
+  domains: readonly CustodyDomainSnapshot[],
+  expected: readonly ExpectedCustodyDomain[],
+): ReconciledCustodyReport;
