@@ -168,6 +168,40 @@ contract AccountingConservationPropertyTest is TestBase {
             "aggregate diverged from generation funding entry");
     }
 
+    function testPositionFundingIsPendingUntilAccountSettlement() public {
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 105, 100);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Bid, 105, 40, IOrderBookCore.FillPolicy.IOC);
+        vm.prank(ALICE);
+        core.settle(IOrderBookCore.Side.Ask, 105);
+
+        int256 realizedBefore = core.realizedCashflowTotalTest();
+        uint256 custodyBefore = token.balanceOf(address(core));
+        core.setFundingIndex(int128(1e17));
+
+        // Funding publication does not touch settled account ledgers.
+        assertEq(core.realizedCashflowTotalTest(), realizedBefore,
+            "funding publication materialized accounts");
+        assertEq(token.balanceOf(address(core)), custodyBefore,
+            "funding publication moved collateral");
+
+        (,, int256 makerBefore,,) = core.accountingStateTest(ALICE);
+        (,, int256 takerBefore,,) = core.accountingStateTest(TAKER);
+        core.settlePositionFundingTest(ALICE);
+        core.settlePositionFundingTest(TAKER);
+        (,, int256 makerAfter,,) = core.accountingStateTest(ALICE);
+        (,, int256 takerAfter,,) = core.accountingStateTest(TAKER);
+
+        assertTrue(makerAfter != makerBefore, "maker funding did not crystallize");
+        assertTrue(takerAfter != takerBefore, "taker funding did not crystallize");
+        assertEq(core.realizedCashflowTotalTest(),
+            realizedBefore + makerAfter - makerBefore + takerAfter - takerBefore,
+            "realized aggregate missing crystallized position funding");
+        assertEq(token.balanceOf(address(core)), custodyBefore,
+            "funding settlement moved collateral");
+    }
+
     function _cashClaim(address account) internal view returns (int256 claim) {
         (uint256 collateral, int256 trading, int256 funding,,) =
             core.accountingStateTest(account);
