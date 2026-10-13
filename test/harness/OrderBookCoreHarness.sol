@@ -63,6 +63,10 @@ contract OrderBookCoreHarness is OrderBookCore {
         return makerFundingRoundingDust;
     }
 
+    function settlePositionFundingTest(address account) external {
+        _settleExistingPositionFunding(account);
+    }
+
     function fundingIndexTest() external view returns (int128) {
         return fundingIndexX18;
     }

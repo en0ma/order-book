@@ -14,6 +14,12 @@ import {TestBase} from "./TestBase.sol";
 /// @dev Expected operation reverts are tolerated; canonical invariants are checked
 ///      after every attempted state transition.
 contract DeployableStateMachineTest is TestBase {
+    error CustodyClaimsExceedBacking(
+        int256 accountCashClaims, uint256 protocolFees, uint256 insurance,
+        uint256 physicalTokenBalance, int256 totalClaims,
+        int256 aggregateTrading, int256 aggregateFunding, int256 makerRoundingDust
+    );
+    event CustodyFundingAccount(address indexed account, int256 trading, int256 funding);
     OrderBookCoreHarness internal core;
     AdvancedOrderModule internal advanced;
     MarketMakerModule internal marketMaker;
@@ -57,6 +63,98 @@ contract DeployableStateMachineTest is TestBase {
         _runSequence(seed, 12);
     }
 
+    /// @notice CI-reported seed: fee/rebate claims exceeded physical token custody.
+    /// @dev Preserve as a deterministic regression; do not loosen _checkCustodyBacking.
+    function testRegressionCustody186OnlyFirstFundingUpdate() public {
+        _runCounterexampleWithFundingMask(1);
+    }
+
+    function testRegressionCustody186OnlySecondFundingUpdate() public {
+        _runCounterexampleWithFundingMask(2);
+    }
+
+    /// @dev Distinguish a nonzero entry index from a subsequent funding change.
+    function testRegressionCustody186NegativeFirstFundingIndex() public {
+        uint256 randomness = 873015621485771659152636108981745551321;
+        uint256 indexChanges;
+        for (uint256 step; step < 12; ++step) {
+            randomness = uint256(keccak256(abi.encode(randomness, step)));
+            if (randomness % 10 == 6) {
+                if (indexChanges++ == 0) {
+                    core.setFundingIndex(-49200000000000000);
+                }
+                continue;
+            }
+            _step(randomness);
+            _checkInvariants();
+        }
+        _drainTrackedBook();
+        _settleAllTrackedState();
+        _settleAllPositionFunding();
+        _checkInvariants();
+        _checkCustodyBacking();
+    }
+
+    function _runCounterexampleWithFundingMask(uint256 mask) internal {
+        uint256 randomness = 873015621485771659152636108981745551321;
+        uint256 indexChanges;
+        for (uint256 step; step < 12; ++step) {
+            randomness = uint256(keccak256(abi.encode(randomness, step)));
+            if (randomness % 10 == 6) {
+                uint256 bit = 1 << indexChanges++;
+                if ((mask & bit) == 0) continue;
+            }
+            _step(randomness);
+            _checkInvariants();
+        }
+        _drainTrackedBook();
+        _settleAllTrackedState();
+        _settleAllPositionFunding();
+        _checkInvariants();
+        _checkCustodyBacking();
+    }
+
+    /// @dev Diagnostic: account-specific cashflows from the same deterministic seed.
+    ///      This deliberately retains the final custody assertion.
+    /// @dev Counterfactual for #186: identical operations with index updates
+    ///      suppressed distinguish funding attribution from fee-only accounting.
+    function testRegressionCustodyCounterexample186WithoutIndexChanges() public {
+        uint256 randomness = 873015621485771659152636108981745551321;
+        for (uint256 step; step < 12; ++step) {
+            randomness = uint256(keccak256(abi.encode(randomness, step)));
+            if (randomness % 10 != 6) _step(randomness);
+            _checkInvariants();
+        }
+        _drainTrackedBook();
+        _settleAllTrackedState();
+        _settleAllPositionFunding();
+        _checkInvariants();
+        _checkCustodyBacking();
+    }
+
+    function testRegressionCustodyCounterexample186AccountBreakdown() public {
+        uint256 randomness = 873015621485771659152636108981745551321;
+        for (uint256 step; step < 12; ++step) {
+            randomness = uint256(keccak256(abi.encode(randomness, step)));
+            _step(randomness);
+            _checkInvariants();
+        }
+        _drainTrackedBook();
+        _settleAllTrackedState();
+        _settleAllPositionFunding();
+        address[5] memory actors = [ALICE, BOB, CAROL, DAVE, FINALIZER];
+        for (uint256 i; i < actors.length; ++i) {
+            (, int256 trading, int256 funding,,) =
+                core.accountingStateTest(actors[i]);
+            emit CustodyFundingAccount(actors[i], trading, funding);
+        }
+        _checkCustodyBacking();
+    }
+
+    function testRegressionAdversarialShortSequenceCustodyCounterexample186() public {
+        _runSequence(873015621485771659152636108981745551321, 12);
+    }
+
     function testRegressionAdversarialShortSequenceRiskTailEnvelope() public {
         _runSequence(1429134643453657744, 12);
     }
@@ -80,6 +178,7 @@ contract DeployableStateMachineTest is TestBase {
 
         _drainTrackedBook();
         _settleAllTrackedState();
+        _settleAllPositionFunding();
         _checkInvariants();
         _checkCustodyBacking();
     }
@@ -302,12 +401,25 @@ contract DeployableStateMachineTest is TestBase {
         }
     }
 
+    function _settleAllPositionFunding() internal {
+        address[5] memory actors = [ALICE, BOB, CAROL, DAVE, FINALIZER];
+        for (uint256 a; a < actors.length; ++a) {
+            core.settlePositionFundingTest(actors[a]);
+        }
+    }
+
     function _checkCustodyBacking() internal view {
         address[5] memory actors = [ALICE, BOB, CAROL, DAVE, FINALIZER];
         int256 userClaims;
+        int256 aggregateTrading;
+        int256 aggregateFunding;
 
         for (uint256 a; a < actors.length; ++a) {
-            userClaims += _cashClaim(actors[a]);
+            (uint256 collateral, int256 trading, int256 funding,,) =
+                core.accountingStateTest(actors[a]);
+            userClaims += int256(collateral) + trading + funding;
+            aggregateTrading += trading;
+            aggregateFunding += funding;
         }
 
         int256 internalClaims =
@@ -315,10 +427,14 @@ contract DeployableStateMachineTest is TestBase {
                 + int256(core.insuranceReserves());
 
         assertTrue(internalClaims >= 0, "aggregate internal claims negative");
-        assertTrue(
-            uint256(internalClaims) <= token.balanceOf(address(core)),
-            "fee/rebate accounting exceeded token custody"
-        );
+        uint256 custody = token.balanceOf(address(core));
+        if (uint256(internalClaims) > custody) {
+            revert CustodyClaimsExceedBacking(
+                userClaims, core.protocolFeesAccrued(), core.insuranceReserves(),
+                custody, internalClaims, aggregateTrading, aggregateFunding,
+                core.makerFundingRoundingDustTest()
+            );
+        }
     }
 
     function _cashClaim(address account) internal view returns (int256) {
