@@ -81,6 +81,35 @@ contract AccountingConservationPropertyTest is TestBase {
         assertTrue(totalClaims <= custody, "internal claims exceed token custody");
     }
 
+    function testDeferredMakerCreditsAreAbsentFromRealizedAggregateUntilSettlement() public {
+        vm.prank(ALICE);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 105, 100);
+
+        int256 beforeFill = core.realizedCashflowTotalTest();
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Bid, 105, 40, IOrderBookCore.FillPolicy.IOC);
+
+        (,, int256 makerFundingBefore,,) = core.accountingStateTest(ALICE);
+        assertEq(makerFundingBefore, 0, "maker funding should remain unsettled");
+        int256 pendingAggregate = core.realizedCashflowTotalTest();
+        assertTrue(pendingAggregate < beforeFill, "taker paid before maker settlement");
+
+        // Gross token custody has not changed during the trade; the missing
+        // maker leg is a liability, not spendable protocol-fee surplus.
+        uint256 custody = token.balanceOf(address(core));
+        assertEq(custody, 40_000_000, "trade should not move custody");
+        assertEq(core.protocolFeesAccrued(), 2, "net protocol fee");
+
+        vm.prank(ALICE);
+        core.settle(IOrderBookCore.Side.Ask, 105);
+
+        int256 settledAggregate = core.realizedCashflowTotalTest();
+        assertTrue(settledAggregate > pendingAggregate, "maker settlement should credit maker");
+        assertEq(settledAggregate + int256(core.protocolFeesAccrued()), 0,
+            "settled maker and taker cash plus protocol fees must conserve");
+        assertEq(token.balanceOf(address(core)), custody, "settlement moved custody");
+    }
+
     function _cashClaim(address account) internal view returns (int256 claim) {
         (uint256 collateral, int256 trading, int256 funding,,) =
             core.accountingStateTest(account);
