@@ -423,7 +423,7 @@ contract DeployableStateMachineTest is TestBase {
         }
 
         assertEq(
-            core.totalRealizedCashflow(), aggregateTrading + aggregateFunding,
+            core.realizedCashflowTotalTest(), aggregateTrading + aggregateFunding,
             "aggregate realized cash ledger diverged from tracked accounts"
         );
 
