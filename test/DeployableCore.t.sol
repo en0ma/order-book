@@ -91,6 +91,35 @@ contract DeployableCoreTest is TestBase {
         assertEq(feeCore.protocolFeesAccrued(), 2, "maker settlement double-counted protocol fee");
     }
 
+    function testLiquidationRewardCannotSpendDepositsOrMakerRebates() public {
+        MockERC20 feeToken = new MockERC20();
+        MockMarkOracle feeOracle = new MockMarkOracle(100);
+        OrderBookCore feeCore =
+            new OrderBookCore(address(feeToken), address(feeOracle), 20, 1_000, 10, 5);
+        feeCore.configureAdvancedModule(address(this));
+        _fundOn(feeCore, feeToken, ALICE, 100_000);
+        _fundOn(feeCore, feeToken, BOB, 100_000);
+
+        vm.prank(ALICE);
+        feeCore.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(BOB);
+        feeCore.take(IOrderBookCore.Side.Bid, 100, 40, IOrderBookCore.FillPolicy.IOC);
+
+        assertEq(feeCore.protocolFeesAccrued(), 2, "expected protocol fee");
+        // Accrued fees are not a license to consume deposited principal.
+        (bool ok,) = address(feeCore).call(
+            abi.encodeCall(feeCore.modulePayLiquidationReward, (BOB, 2))
+        );
+        assertTrue(!ok, "reward drew on protected collateral");
+        assertEq(feeCore.protocolFeesAccrued(), 2, "reverted payout spent fee ledger");
+
+        // Donated surplus can fund a payout without touching protected balances.
+        feeToken.mint(address(feeCore), 4);
+        assertEq(feeCore.modulePayLiquidationReward(BOB, 2), 2, "surplus payout");
+        assertEq(feeCore.protocolFeesAccrued(), 0, "payout failed to debit fee ledger");
+        assertEq(feeToken.balanceOf(address(feeCore)), 200_002, "protected funds depleted");
+    }
+
     function testFeesAcrossPartialMakerSettlementsAccrueExactlyOnce() public {
         MockERC20 feeToken = new MockERC20();
         MockMarkOracle feeOracle = new MockMarkOracle(100);
