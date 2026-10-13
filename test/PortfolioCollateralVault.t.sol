@@ -127,6 +127,57 @@ contract PortfolioCollateralVaultTest is TestBase {
         );
     }
 
+    function testControllerCannotSpendAccountLockedPrincipal() public {
+        vault.configureController(CONTROLLER);
+        vm.prank(ALICE);
+        vault.deposit(100 ether);
+        vm.prank(CONTROLLER);
+        vault.setLockedCollateral(ALICE, 80 ether);
+
+        uint256 beforeCustody = token.balanceOf(address(vault));
+        vm.prank(CONTROLLER);
+        (bool ok,) = address(vault).call(
+            abi.encodeCall(vault.controllerWithdraw, (ALICE, ALICE, 21 ether))
+        );
+        assertTrue(!ok, "locked account principal was withdrawn");
+        assertEq(vault.collateralClaim(ALICE), int256(100 ether), "reverted claim changed");
+        assertEq(vault.lockedCollateral(ALICE), 80 ether, "reverted lock changed");
+        assertEq(token.balanceOf(address(vault)), beforeCustody, "reverted transfer changed custody");
+
+        vm.prank(CONTROLLER);
+        vault.controllerWithdraw(ALICE, ALICE, 20 ether);
+        assertEq(vault.collateralClaim(ALICE), int256(80 ether), "remaining claim");
+        assertEq(vault.lockedCollateral(ALICE), 80 ether, "lock lost");
+        assertEq(token.balanceOf(address(vault)), vault.totalAccountedCollateral(),
+            "withdrawal exceeded custody backing");
+    }
+
+    function testControllerWithdrawCannotConsumeAnotherAccountsLockedDeposit() public {
+        vault.configureController(CONTROLLER);
+        vm.prank(ALICE);
+        vault.deposit(100 ether);
+        token.mint(TREASURY, 150 ether);
+        vm.prank(TREASURY);
+        token.approve(address(vault), type(uint256).max);
+        vm.prank(TREASURY);
+        vault.deposit(150 ether);
+
+        vm.prank(CONTROLLER);
+        vault.setLockedCollateral(ALICE, 100 ether);
+        vm.prank(CONTROLLER);
+        vault.setLockedCollateral(TREASURY, 150 ether);
+
+        vm.prank(CONTROLLER);
+        (bool ok,) = address(vault).call(
+            abi.encodeCall(vault.controllerWithdraw, (ALICE, ALICE, 1 ether))
+        );
+        assertTrue(!ok, "locked account withdrew against another account");
+        assertEq(vault.collateralClaim(TREASURY), int256(150 ether),
+            "another account claim changed");
+        assertEq(vault.totalAccountedCollateral(), 250 ether,
+            "reverted transfer depleted aggregate custody");
+    }
+
     function testOwnerCanSweepOnlyUnaccountedDonations() public {
         vm.prank(ALICE);
         vault.deposit(100 ether);
