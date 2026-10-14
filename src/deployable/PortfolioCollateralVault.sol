@@ -200,9 +200,16 @@ contract PortfolioCollateralVault {
     function _transferExact(address recipient, uint256 amount) internal {
         IERC20Minimal token = collateralToken;
         uint256 beforeBalance = token.balanceOf(address(this));
+        uint256 recipientBefore = token.balanceOf(recipient);
         if (!token.transfer(recipient, amount)) revert TokenTransferFailed();
         uint256 afterBalance = token.balanceOf(address(this));
+        uint256 recipientAfter = token.balanceOf(recipient);
         if (afterBalance > beforeBalance || beforeBalance - afterBalance != amount) {
+            revert UnsupportedTokenBehavior();
+        }
+        // A burn/tax on receipt otherwise silently destroys the withdrawing
+        // user's claim despite an exact debit from vault custody.
+        if (recipientAfter < recipientBefore || recipientAfter - recipientBefore != amount) {
             revert UnsupportedTokenBehavior();
         }
         if (afterBalance < totalAccountedCollateral) revert UnsupportedTokenBehavior();
