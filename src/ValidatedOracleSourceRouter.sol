@@ -93,7 +93,8 @@ contract ValidatedOracleSourceRouter is IExternalPriceSource {
             if (block.timestamp - uint256(publishTime) > maxAge) return false;
             uint256 price = uint256(signedPrice);
             // Division avoids overflow on attacker-controlled confidence and price.
-            return confidence <= price * uint256(maxConfidenceBps) / 10_000;
+            return confidence <= (price / 10_000) * uint256(maxConfidenceBps)
+                + (price % 10_000) * uint256(maxConfidenceBps) / 10_000;
         } catch {
             return false;
         }
