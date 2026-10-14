@@ -192,6 +192,67 @@ contract PortfolioTwoMarketFeeIsolationTest is TestBase {
         assertEq(token.balanceOf(address(vault)), beforeCustody, "failed update moved collateral");
     }
 
+    function testFuzz_CombinedFundingRebateInsuranceAndWithdrawalConservation(
+        uint32 fundingSeed, uint16 payoutSeed
+    ) public {
+        vm.prank(MAKER);
+        coordinator.addLiquidity(0, IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(MAKER);
+        coordinator.addLiquidity(1, IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        coordinator.take(0, IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        vm.prank(TAKER);
+        coordinator.take(1, IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+
+        // Market-zero lazy maker rebate remains reserved even while both
+        // markets independently move their realized protocol fees to insurance.
+        assertEq(core0.protocolFeesAccrued(), 50, "rebate reserve omitted");
+        assertEq(core1.protocolFeesAccrued(), 200, "other market protocol fee omitted");
+        core0.allocateProtocolFeesToInsurance(50);
+        core1.allocateProtocolFeesToInsurance(75);
+
+        core1.setFundingUpdater(address(this));
+        int128 index = int128(int256(uint256(fundingSeed) % 1e18));
+        core1.setFundingIndex(index);
+
+        int256 cashBefore = coordinator.settledCashEquity(TAKER);
+        int256 makerBefore = core0.accountMarketValue(MAKER);
+        vm.prank(MAKER);
+        core0.settle(IOrderBookCore.Side.Ask, 100);
+        assertEq(
+            core0.accountMarketValue(MAKER) - makerBefore,
+            int256(50),
+            "lazy rebate failed after funding and insurance reallocation"
+        );
+        assertEq(coordinator.settledCashEquity(TAKER), cashBefore, "maker settlement changed taker cash");
+        assertEq(core0.insuranceReserves(), 50, "maker rebate consumed insurance");
+        assertEq(core1.insuranceReserves(), 75, "cross-market insurance contaminated");
+        assertEq(core1.protocolFeesAccrued(), 125, "fee allocation was replayed");
+
+        uint256 beforeCustody = token.balanceOf(address(vault));
+        uint256 beforeAccounted = vault.totalAccountedCollateral();
+        uint256 requested = uint256(payoutSeed) % 35_000 + 1;
+        vm.prank(TAKER);
+        (bool paid,) = address(coordinator).call(
+            abi.encodeCall(coordinator.withdraw, (requested))
+        );
+
+        uint256 afterCustody = token.balanceOf(address(vault));
+        uint256 afterAccounted = vault.totalAccountedCollateral();
+        assertEq(afterCustody, afterAccounted, "withdrawal violated shared physical backing");
+        if (paid) {
+            assertEq(beforeCustody - afterCustody, requested, "payout physical debit mismatch");
+            assertEq(beforeAccounted - afterAccounted, requested, "payout liability debit mismatch");
+        } else {
+            assertEq(afterCustody, beforeCustody, "reverted payout moved custody");
+            assertEq(afterAccounted, beforeAccounted, "reverted payout altered claims");
+        }
+        assertEq(token.balanceOf(address(core0)), 0, "first Core seized shared tokens");
+        assertEq(token.balanceOf(address(core1)), 0, "second Core seized shared tokens");
+        assertEq(core0.insuranceReserves(), 50, "withdrawal spent first insurance");
+        assertEq(core1.insuranceReserves(), 75, "withdrawal spent second insurance");
+    }
+
     function _deposit(address who, uint256 amount) internal {
         token.mint(who, amount);
         vm.prank(who);
