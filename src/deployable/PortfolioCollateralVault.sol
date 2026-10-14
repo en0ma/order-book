@@ -191,6 +191,11 @@ contract PortfolioCollateralVault {
     }
 
     function sweepExcess(address recipient, uint256 amount) external onlyOwner nonReentrantCustody {
+        // The raw ERC-20 balance above deposited principal is not proven
+        // surplus when portfolio positions can earn unsettled profits.
+        // Disable owner extraction for controller-managed custody until a
+        // globally reconciled net-liability proof exists.
+        if (controller != address(0)) revert Unauthorized();
         if (recipient == address(0) || amount == 0) revert ZeroAmount();
         if (amount > excessTokenBalance()) revert InsufficientFreeCollateral();
         _transferExact(recipient, amount);
