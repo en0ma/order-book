@@ -8,6 +8,7 @@ import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
 import {PortfolioMarginPolicy} from "../src/deployable/PortfolioMarginPolicy.sol";
 import {PortfolioCollateralVault} from "../src/deployable/PortfolioCollateralVault.sol";
 import {PortfolioAdmissionCoordinator} from "../src/deployable/PortfolioAdmissionCoordinator.sol";
+import {PortfolioLiquidationModule} from "../src/deployable/PortfolioLiquidationModule.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockMarkOracle} from "./mocks/MockMarkOracle.sol";
 
@@ -156,6 +157,55 @@ contract PortfolioMultiMarketWithdrawalSolvencyTest is TestBase {
         }
         assertEq(token.balanceOf(address(first)), 0, "first market took shared custody");
         assertEq(token.balanceOf(address(second)), 0, "second market took shared custody");
+    }
+
+    function testRealTwoMarketTerminalLiquidationPreservesVaultAndResidualDebt() public {
+        // Liquidation uses actual OrderBookCore positions and two AdvancedOrderModule
+        // gateways; neither Core is permitted to receive shared vault tokens.
+        PortfolioLiquidationModule.MarketInput[] memory configs =
+            new PortfolioLiquidationModule.MarketInput[](2);
+        (IOrderBookCore firstCore, address firstGateway) = coordinator.markets(0);
+        (IOrderBookCore secondCore, address secondGateway) = coordinator.markets(1);
+        configs[0] = PortfolioLiquidationModule.MarketInput(address(firstCore), firstGateway);
+        configs[1] = PortfolioLiquidationModule.MarketInput(address(secondCore), secondGateway);
+        PortfolioLiquidationModule liquidation = new PortfolioLiquidationModule(address(policy), configs);
+        AdvancedOrderModule(firstGateway).configureLiquidationModule(address(liquidation));
+        AdvancedOrderModule(secondGateway).configureLiquidationModule(address(liquidation));
+
+        firstMark.setMarkTick(1);
+        secondMark.setMarkTick(1);
+        vm.prank(EXIT_MAKER);
+        coordinator.addLiquidity(0, IOrderBookCore.Side.Bid, 1, 100);
+        vm.prank(EXIT_MAKER);
+        coordinator.addLiquidity(1, IOrderBookCore.Side.Bid, 1, 100);
+
+        assertTrue(policy.portfolioEquity(TRADER) < 0, "fixture has no terminal loss");
+        assertTrue(liquidation.isLiquidatable(TRADER), "distressed trader not liquidatable");
+        uint256 custodyBefore = token.balanceOf(address(vault));
+        uint256 accountedBefore = vault.totalAccountedCollateral();
+
+        PortfolioLiquidationModule.CleanupInput[] memory cleanups =
+            new PortfolioLiquidationModule.CleanupInput[](2);
+        for (uint256 i; i < 2; ++i) {
+            cleanups[i].makerSides = new IOrderBookCore.Side[](0);
+            cleanups[i].makerTicks = new uint16[](0);
+            cleanups[i].conditionalIds = new uint64[](0);
+            cleanups[i].trailingIds = new uint64[](0);
+            cleanups[i].strategyIds = new uint64[](0);
+        }
+        assertEq(uint256(liquidation.liquidate(TRADER, cleanups)), 200,
+            "cross-market liquidation did not close both positions");
+        (int80 posA,,) = first.accountRisk(TRADER);
+        (int80 posB,,) = second.accountRisk(TRADER);
+        assertEq(int256(posA), 0, "first market left position");
+        assertEq(int256(posB), 0, "second market left position");
+        assertTrue(policy.portfolioEquity(TRADER) < 0, "terminal debt disappeared");
+        assertEq(coordinator.coverBadDebt(TRADER), 0, "unfunded insurance minted coverage");
+        assertEq(token.balanceOf(address(vault)), custodyBefore, "liquidation moved shared custody");
+        assertEq(vault.totalAccountedCollateral(), accountedBefore,
+            "liquidation modified accounted deposits");
+        assertEq(token.balanceOf(address(first)), 0, "first Core obtained shared tokens");
+        assertEq(token.balanceOf(address(second)), 0, "second Core obtained shared tokens");
     }
 
     function _deposit(address who, uint256 amount) internal {
