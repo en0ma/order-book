@@ -10,6 +10,8 @@ export interface FeeSurplusSnapshot {
   pendingMakerRebates: bigint;
   unpricedOrUnsettledLiabilities: bigint;
   badDebtExposure: bigint;
+  completeLiabilityInventory: boolean;
+  custodyDomainsReconciled: boolean;
 }
 export interface FeeSurplusCertificate {
   chainId: number;
