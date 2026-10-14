@@ -272,6 +272,10 @@ contract OrderBookCore is IOrderBookCore {
         emit FundingUpdaterChanged(previous, nextUpdater);
     }
 
+    function currentFundingIndexX18() external view returns (int128) {
+        return fundingIndexX18;
+    }
+
     function setFundingIndex(int128 nextFundingIndexX18) external {
         if (msg.sender != fundingUpdater) revert Unauthorized();
         fundingIndexX18 = nextFundingIndexX18;
