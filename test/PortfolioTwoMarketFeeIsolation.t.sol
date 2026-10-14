@@ -60,6 +60,29 @@ contract PortfolioTwoMarketFeeIsolationTest is TestBase {
         _deposit(TAKER, 30000);
     }
 
+    function testFuzz_OwnerCannotSweepDonatedTokensWhileTwoMarketsHaveClaims(uint96 amountSeed) public {
+        vm.prank(MAKER);
+        coordinator.addLiquidity(0, IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        coordinator.take(0, IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+
+        uint256 donated = uint256(amountSeed) % 100_000 + 1;
+        token.mint(address(vault), donated);
+        uint256 custodyBefore = token.balanceOf(address(vault));
+        uint256 accountedBefore = vault.totalAccountedCollateral();
+        uint256 feesBefore = core0.protocolFeesAccrued();
+        uint256 recipientBefore = token.balanceOf(address(this));
+
+        (bool success,) = address(vault).call(
+            abi.encodeCall(vault.sweepExcess, (address(this), donated))
+        );
+        assertTrue(!success, "unproved portfolio profit was swept as excess");
+        assertEq(token.balanceOf(address(vault)), custodyBefore, "owner swept user backing");
+        assertEq(token.balanceOf(address(this)), recipientBefore, "owner received fees");
+        assertEq(vault.totalAccountedCollateral(), accountedBefore, "failed sweep changed claims");
+        assertEq(core0.protocolFeesAccrued(), feesBefore, "failed sweep changed market fees");
+    }
+
     function testIndependentMarketFeeRebatesAndInsuranceNeverMoveSharedCustody() public {
         uint256 custodyBefore = token.balanceOf(address(vault));
         vm.prank(MAKER);
