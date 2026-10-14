@@ -6,15 +6,8 @@ import {PortfolioRetirementPreflight} from "../src/deployable/PortfolioRetiremen
 import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
 
 contract PortfolioRetirementPreflightTest is PortfolioTwoMarketFeeIsolationTest {
-    PortfolioRetirementPreflight internal preflight;
-
-    function setUp() public override {
-        super.setUp();
-        preflight = new PortfolioRetirementPreflight(address(coordinator));
-    }
-
     function testLiveCollateralPreventsPortfolioRetirement() public {
-        (bool ok,) = address(preflight).call(
+        (bool ok,) = address(new PortfolioRetirementPreflight(address(coordinator))).call(
             abi.encodeCall(preflight.assertConfigurationAndReservesClear, ())
         );
         assertTrue(!ok, "live vault principal was ignored by retirement check");
@@ -25,7 +18,7 @@ contract PortfolioRetirementPreflightTest is PortfolioTwoMarketFeeIsolationTest 
     function testFuzz_AccountClaimCannotBeOmittedByPreflight(uint16 seed) public {
         address[] memory accounts = new address[](1);
         accounts[0] = uint256(seed) % 2 == 0 ? MAKER : TAKER;
-        (bool ok,) = address(preflight).call(
+        (bool ok,) = address(new PortfolioRetirementPreflight(address(coordinator))).call(
             abi.encodeCall(preflight.assertAccountsClear, (accounts))
         );
         assertTrue(!ok, "live account claim was certified retired");
@@ -39,11 +32,11 @@ contract PortfolioRetirementPreflightTest is PortfolioTwoMarketFeeIsolationTest 
 
         address[] memory accounts = new address[](1);
         accounts[0] = TAKER;
-        (bool clear,) = address(preflight).call(
+        (bool clear,) = address(new PortfolioRetirementPreflight(address(coordinator))).call(
             abi.encodeCall(preflight.assertAccountsClear, (accounts))
         );
         assertTrue(!clear, "open portfolio exposure passed retirement preflight");
-        (bool reservesClear,) = address(preflight).call(
+        (bool reservesClear,) = address(new PortfolioRetirementPreflight(address(coordinator))).call(
             abi.encodeCall(preflight.assertConfigurationAndReservesClear, ())
         );
         assertTrue(!reservesClear, "live reserves and custody passed retirement preflight");
@@ -52,14 +45,14 @@ contract PortfolioRetirementPreflightTest is PortfolioTwoMarketFeeIsolationTest 
 
     function testEmptyOrDuplicateAccountInventoryNeverCertifies() public {
         address[] memory empty = new address[](0);
-        (bool ok,) = address(preflight).call(
+        (bool ok,) = address(new PortfolioRetirementPreflight(address(coordinator))).call(
             abi.encodeCall(preflight.assertAccountsClear, (empty))
         );
         assertTrue(!ok, "empty inventory was accepted");
         address[] memory duplicate = new address[](2);
         duplicate[0] = MAKER;
         duplicate[1] = MAKER;
-        (ok,) = address(preflight).call(
+        (ok,) = address(new PortfolioRetirementPreflight(address(coordinator))).call(
             abi.encodeCall(preflight.assertAccountsClear, (duplicate))
         );
         assertTrue(!ok, "duplicate inventory was accepted");
