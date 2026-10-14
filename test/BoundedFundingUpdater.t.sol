@@ -131,6 +131,61 @@ contract BoundedFundingUpdaterTest is TestBase {
         assertEq(int256(updater.lastIndexX18()), 0, "inactive publication changed state");
     }
 
+    function testGovernanceRecoveryRotatesOperatorAndRevokesGuardian() public {
+        address replacement = address(0xC0FFEE);
+        address guardian = address(0xCAFE);
+        vm.prank(OPERATOR);
+        updater.setRiskOffGuardian(guardian);
+
+        vm.prank(OPERATOR);
+        (bool forbidden,) = address(updater).call(
+            abi.encodeCall(updater.nominateOperator, (replacement))
+        );
+        assertTrue(!forbidden, "operator could rotate itself without governance");
+        updater.nominateOperator(replacement);
+        vm.prank(address(0xDEAD));
+        (bool premature,) = address(updater).call(abi.encodeCall(updater.acceptOperator, ()));
+        assertTrue(!premature, "unapproved replacement accepted");
+
+        vm.prank(replacement);
+        updater.acceptOperator();
+        assertEq(uint256(uint160(updater.operator())), uint256(uint160(replacement)), "operator recovery failed");
+        assertEq(uint256(uint160(updater.riskOffGuardian())), 0, "stale guardian survived rotation");
+        assertEq(uint256(uint160(updater.pendingOperator())), 0, "nomination remains active");
+
+        vm.warp(block.timestamp + 3600);
+        vm.prank(OPERATOR);
+        (bool oldPublish,) = address(updater).call(abi.encodeCall(updater.publish, (int128(1))));
+        assertTrue(!oldPublish, "old operator published funding");
+        vm.prank(guardian);
+        (bool oldPause,) = address(updater).call(abi.encodeCall(updater.pauseRiskIncrease, ()));
+        assertTrue(!oldPause, "old guardian still has pause rights");
+        vm.prank(replacement);
+        updater.publish(1);
+        assertEq(int256(core.currentFundingIndexX18()), 1, "new operator cannot publish");
+        vm.prank(replacement);
+        updater.pauseRiskIncrease();
+        assertTrue(core.riskIncreasePaused(), "replacement operator cannot pause");
+        vm.prank(replacement);
+        (bool forbiddenUnpause,) = address(core).call(abi.encodeCall(core.setRiskIncreasePaused, (false)));
+        assertTrue(!forbiddenUnpause, "new operator could bypass governance unpause");
+        core.setRiskIncreasePaused(false);
+        assertTrue(!core.riskIncreasePaused(), "governance could not unpause");
+    }
+
+    function testOperatorNominationCanBeReplacedBeforeAcceptance() public {
+        address firstNominee = address(0xCAFE);
+        address secondNominee = address(0xD00D);
+        updater.nominateOperator(firstNominee);
+        updater.nominateOperator(secondNominee);
+        vm.prank(firstNominee);
+        (bool ok,) = address(updater).call(abi.encodeCall(updater.acceptOperator, ()));
+        assertTrue(!ok, "cancelled nomination accepted");
+        vm.prank(secondNominee);
+        updater.acceptOperator();
+        assertEq(uint256(uint160(updater.operator())), uint256(uint160(secondNominee)), "wrong recovery operator");
+    }
+
     function testFuzz_NoMoveAboveAbsoluteCap(uint128 randomDelta) public {
         uint256 absDelta = uint256(randomDelta) % 1e17;
         vm.warp(block.timestamp + 3600);
