@@ -16,6 +16,7 @@ contract LiquidationModule {
     error InvalidLiquidationConfig();
     error NotLiquidatable();
     error UnsettledOrders();
+    error InvalidLiquidationFill();
 
     IOrderBookCore public immutable core;
     ILiquidationGateway public immutable gateway;
@@ -109,6 +110,8 @@ contract LiquidationModule {
         uint64[] calldata strategyIds
     ) external returns (uint96 closedLots) {
         if (makerSides.length != makerTicks.length) revert UnsettledOrders();
+        // Never cancel a healthy account's orders before establishing eligibility.
+        if (!policy.isLiquidatable(account)) revert NotLiquidatable();
 
         gateway.liquidationCleanupAdvanced(account, conditionalIds, trailingIds);
 
@@ -154,6 +157,20 @@ contract LiquidationModule {
             );
         } else {
             revert NotLiquidatable();
+        }
+
+        // The gateway is a separate module: validate its accounting against
+        // the authoritative Core, including the direction of the reduction.
+        (int80 positionAfter,,) = core.accountRisk(account);
+        uint96 requestedLots = position > 0
+            ? uint96(uint80(position))
+            : uint96(uint256(-int256(position)));
+        int256 expected = int256(position)
+            + (position > 0
+                ? -int256(uint256(closedLots))
+                : int256(uint256(closedLots)));
+        if (closedLots > requestedLots || int256(positionAfter) != expected) {
+            revert InvalidLiquidationFill();
         }
 
         emit Liquidated(liquidator, account, closedLots, equityBefore);
