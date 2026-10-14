@@ -8,6 +8,7 @@ contract AdversarialVaultToken {
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
     uint256 public outboundExtraDebit;
+    uint256 public recipientShortfall;
     bool public callbackEnabled;
     bool public callbackRejected;
     address public vault;
@@ -16,6 +17,9 @@ contract AdversarialVaultToken {
     function approve(address spender, uint256 amount) external returns (bool) {
         allowance[msg.sender][spender] = amount;
         return true;
+    }
+    function configureRecipientShortfall(uint256 shortfall) external {
+        recipientShortfall = shortfall;
     }
     function configure(address vault_, uint256 extra, bool callback_) external {
         vault = vault_;
@@ -42,7 +46,7 @@ contract AdversarialVaultToken {
             debit += outboundExtraDebit;
         }
         balanceOf[msg.sender] -= debit;
-        balanceOf[to] += amount;
+        balanceOf[to] += amount - recipientShortfall;
         return true;
     }
 }
@@ -115,6 +119,39 @@ contract PortfolioVaultAdversarialTokenTest is TestBase {
         assertEq(token.balanceOf(address(vault)), beforeCustody - amount, "physical debit mismatch");
         assertEq(vault.totalAccountedCollateral(), beforeLedger - amount, "accounted debit mismatch");
         assertEq(vault.portfolioWithdrawn(address(this)), amount, "withdrawal claim mismatch");
+    }
+
+    function testFuzz_RecipientUndercreditRevertsWithoutBurningClaim(
+        uint96 payoutSeed, uint8 shortfallSeed
+    ) public {
+        uint256 payout = uint256(payoutSeed) % 200 + 1;
+        uint256 shortfall = uint256(shortfallSeed) % payout + 1;
+        token.configureRecipientShortfall(shortfall);
+        uint256 recipientBefore = token.balanceOf(address(this));
+
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.withdraw, (payout)));
+        assertTrue(!ok, "taxed receipt silently consumed collateral claim");
+        assertEq(token.balanceOf(address(this)), recipientBefore, "reverted payment credited recipient");
+        assertEq(token.balanceOf(address(vault)), 300, "reverted payment debited custody");
+        assertEq(vault.totalAccountedCollateral(), 300, "reverted payment changed ledger");
+        assertEq(vault.balanceOf(address(this)), 300, "reverted payment reduced user claim");
+    }
+
+    function testFuzz_PortfolioUndercreditRevertsWithoutAdvancingWithdrawal(
+        uint96 payoutSeed, uint8 shortfallSeed
+    ) public {
+        vault.configureController(address(this));
+        uint256 payout = uint256(payoutSeed) % 200 + 1;
+        uint256 shortfall = uint256(shortfallSeed) % payout + 1;
+        token.configureRecipientShortfall(shortfall);
+
+        (bool ok,) = address(vault).call(abi.encodeCall(
+            vault.controllerWithdraw, (address(this), address(this), payout)
+        ));
+        assertTrue(!ok, "portfolio taxed receipt silently consumed collateral");
+        assertEq(token.balanceOf(address(vault)), 300, "failed withdrawal spent custody");
+        assertEq(vault.totalAccountedCollateral(), 300, "failed withdrawal changed accounting");
+        assertEq(vault.portfolioWithdrawn(address(this)), 0, "failed withdrawal was checkpointed");
     }
 
     function testExcessSweepRejectsUnexpectedExtraDebit() public {
