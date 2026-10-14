@@ -94,10 +94,41 @@ contract BoundedFundingUpdaterTest is TestBase {
         core.setFundingUpdater(address(updater));
         vm.warp(block.timestamp + 3600);
         vm.prank(OPERATOR);
-        updater.publish(2);
-        assertEq(int256(updater.lastIndexX18()), 2, "wrapper index not updated");
-        // A direct Core funding write by governance is NOT detected by this wrapper.
-        // Integrators must monitor and forbid authority rotation after activation.
+        (bool accepted,) = address(updater).call(abi.encodeCall(updater.publish, (int128(2))));
+        assertTrue(!accepted, "rotated Core funding bypassed wrapper accounting");
+        assertEq(int256(updater.lastIndexX18()), 0, "rejected publication changed wrapper");
+        assertEq(int256(core.currentFundingIndexX18()), 1, "Core index changed after rejected publication");
+    }
+
+    function testAuthorityDriftFailsClosedUntilGovernanceRestoresCheckpoint() public {
+        vm.warp(block.timestamp + 3600);
+        vm.prank(OPERATOR);
+        updater.publish(5);
+        core.setFundingUpdater(address(this));
+        core.setFundingIndex(9);
+        core.setFundingUpdater(address(updater));
+        vm.warp(block.timestamp + 3600);
+        vm.prank(OPERATOR);
+        (bool ok,) = address(updater).call(abi.encodeCall(updater.publish, (int128(10))));
+        assertTrue(!ok, "drifted index accepted");
+        assertEq(int256(updater.lastIndexX18()), 5, "wrapper checkpoint mutated");
+        // Governance must explicitly restore the last verified index before
+        // the operator may resume bounded publication.
+        core.setFundingUpdater(address(this));
+        core.setFundingIndex(5);
+        core.setFundingUpdater(address(updater));
+        vm.prank(OPERATOR);
+        updater.publish(10);
+        assertEq(int256(core.currentFundingIndexX18()), 10, "restored publication failed");
+    }
+
+    function testActiveAuthorityRotationBlocksPublication() public {
+        core.setFundingUpdater(address(this));
+        vm.warp(block.timestamp + 3600);
+        vm.prank(OPERATOR);
+        (bool ok,) = address(updater).call(abi.encodeCall(updater.publish, (int128(1))));
+        assertTrue(!ok, "inactive funding authority published");
+        assertEq(int256(updater.lastIndexX18()), 0, "inactive publication changed state");
     }
 
     function testFuzz_NoMoveAboveAbsoluteCap(uint128 randomDelta) public {

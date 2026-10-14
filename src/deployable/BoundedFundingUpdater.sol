@@ -5,6 +5,8 @@ pragma solidity ^0.8.24;
 /// @dev No oracle vendor, funding formula, or matching contract changes are required.
 interface IFundingIndexCore {
     function setFundingIndex(int128 nextFundingIndexX18) external;
+    function fundingUpdater() external view returns (address);
+    function currentFundingIndexX18() external view returns (int128);
     function setRiskIncreasePaused(bool paused) external;
 }
 
@@ -13,6 +15,7 @@ contract BoundedFundingUpdater {
     error Unauthorized();
     error UpdateTooEarly();
     error FundingDeltaTooLarge();
+    error FundingAuthorityDrift();
 
     IFundingIndexCore public immutable core;
     address public immutable operator;
@@ -58,9 +61,11 @@ contract BoundedFundingUpdater {
         uint256 elapsed = block.timestamp - lastUpdateTime;
         if (elapsed < minIntervalSeconds) revert UpdateTooEarly();
 
-        // Core does not expose its index. Deploy and assign this authority before
-        // the first funding update; governance must not rotate it away and back.
+        // Reject unauthorized Core writes, including rotate-away/write/rotate-back.
+        // The original index is zero and every successful publication is tracked.
         int128 previous = lastIndexX18;
+        if (core.fundingUpdater() != address(this)
+            || core.currentFundingIndexX18() != previous) revert FundingAuthorityDrift();
 
         int256 signedDelta = int256(nextIndex) - int256(previous);
         uint256 delta = uint256(signedDelta < 0 ? -signedDelta : signedDelta);

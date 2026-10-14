@@ -45,7 +45,7 @@ contract AdversarialWethMainnetForkTest is TestBase {
         core.depositCollateral(amount);
     }
 
-    function testForkFundingAuthorityRotationBypassesWrapperAccounting() public {
+    function testForkFundingAuthorityRotationCannotBypassWrapperAccounting() public {
         (OrderBookCore core,,) = _fork();
         BoundedFundingUpdater updater = new BoundedFundingUpdater(address(core), OPERATOR, 3600, 5e16);
         core.setFundingUpdater(address(updater));
@@ -55,16 +55,29 @@ contract AdversarialWethMainnetForkTest is TestBase {
         updater.publish(1);
         assertEq(int256(updater.lastIndexX18()), 1, "bounded index");
 
-        // Governance retains ultimate index control; wrapper does NOT detect this.
+        // Governance rotation and direct publication must not be silently
+        // overwritten by the bounded wrapper after authority is returned.
         core.setFundingUpdater(address(this));
         core.setFundingIndex(int128(1e18));
         core.setFundingUpdater(address(updater));
         vm.warp(block.timestamp + 3600);
+        uint256 lastUpdate = updater.lastUpdateTime();
+        vm.prank(OPERATOR);
+        (bool published,) = address(updater).call(
+            abi.encodeCall(updater.publish, (int128(2)))
+        );
+        assertTrue(!published, "direct Core funding bypass was accepted");
+        assertEq(int256(updater.lastIndexX18()), 1, "rejected index changed wrapper");
+        assertEq(updater.lastUpdateTime(), lastUpdate, "rejected update changed cadence");
+        assertEq(int256(core.currentFundingIndexX18()), 1e18, "rejected update changed Core");
+
+        // Authorized governance restores the previously verified checkpoint.
+        core.setFundingUpdater(address(this));
+        core.setFundingIndex(1);
+        core.setFundingUpdater(address(updater));
         vm.prank(OPERATOR);
         updater.publish(2);
-        assertEq(int256(updater.lastIndexX18()), 2, "wrapper index");
-        // A published 2 is a large absolute jump from the actual Core index 1e18.
-        // Its risk bounds only cover uninterrupted operator control.
+        assertEq(int256(core.currentFundingIndexX18()), 2, "verified recovery failed");
         vm.prank(OPERATOR);
         updater.pauseRiskIncrease();
         assertTrue(core.riskIncreasePaused(), "emergency pause forwarding lost");
