@@ -11,6 +11,14 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockMarkOracle} from "./mocks/MockMarkOracle.sol";
 import {TestBase} from "./TestBase.sol";
 
+contract MockPortfolioInsuranceStrategyInventory {
+    mapping(address => uint32) public activeStrategyCount;
+
+    function setActive(address account, uint32 count) external {
+        activeStrategyCount[account] = count;
+    }
+}
+
 contract PortfolioFeeInsuranceSettlementTest is TestBase {
     address internal constant MAKER = address(0xA11CE);
     address internal constant TAKER = address(0xB0B);
@@ -231,6 +239,45 @@ contract PortfolioFeeInsuranceSettlementTest is TestBase {
         assertEq(policy.portfolioEquity(TAKER), equityBefore + 10, "replay minted portfolio equity");
         assertEq(token.balanceOf(address(vault)), custodyBefore, "coverage withdrew collateral");
         assertEq(vault.totalAccountedCollateral(), accountedBefore, "coverage altered vault claims");
+    }
+
+    function testOutstandingStrategyOrderBlocksInsuranceAfterPositionClose() public {
+        MockPortfolioInsuranceStrategyInventory strategy =
+            new MockPortfolioInsuranceStrategyInventory();
+        advanced.configureExecutionStrategyModule(address(strategy));
+
+        vm.prank(MAKER);
+        coordinator.addLiquidity(0, IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        coordinator.take(0, IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        core.allocateProtocolFeesToInsurance(10);
+
+        oracle.setMarkTick(1);
+        vm.prank(EXIT_MAKER);
+        coordinator.addLiquidity(0, IOrderBookCore.Side.Bid, 1, 100);
+        vm.prank(TAKER);
+        assertEq(uint256(advanced.takeReduceOnly(
+            IOrderBookCore.Side.Ask, 1, 100, IOrderBookCore.FillPolicy.IOC
+        )), 100, "position close did not fill");
+        assertTrue(policy.portfolioEquity(TAKER) < 0, "no bad debt");
+
+        strategy.setActive(TAKER, 1);
+        uint256 beforeReserves = core.insuranceReserves();
+        int256 beforeEquity = policy.portfolioEquity(TAKER);
+        uint256 beforeCustody = token.balanceOf(address(vault));
+        (bool ok,) = address(coordinator).call(
+            abi.encodeCall(coordinator.coverBadDebt, (TAKER))
+        );
+        assertTrue(!ok, "insurance covered an account with a live strategy");
+        assertEq(core.insuranceReserves(), beforeReserves, "reserve spent with live strategy");
+        assertEq(policy.portfolioEquity(TAKER), beforeEquity, "failed coverage altered equity");
+        assertEq(token.balanceOf(address(vault)), beforeCustody, "failed coverage moved tokens");
+
+        strategy.setActive(TAKER, 0);
+        assertEq(coordinator.coverBadDebt(TAKER), 10, "clean portfolio could not use insurance");
+        assertEq(core.insuranceReserves(), 0, "insurance not consumed exactly");
+        assertEq(token.balanceOf(address(vault)), vault.totalAccountedCollateral(),
+            "coverage violated shared custody accounting");
     }
 
     function _deposit(address account, uint256 amount) internal {
