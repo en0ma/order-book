@@ -4,7 +4,9 @@ from pathlib import Path
 
 LIMIT = 24_576
 TARGETS = [
-    ("OrderBookCore", Path("out/OrderBookCore.sol/OrderBookCore.json"), 23_000),
+    # Standalone payout exact-debit/recipient-credit checks add 211 bytes;
+    # retain >1.3KB EIP-170 headroom while bounding future growth.
+    ("OrderBookCore", Path("out/OrderBookCore.sol/OrderBookCore.json"), 23_250),
     ("AdvancedOrderModule", Path("out/AdvancedOrderModule.sol/AdvancedOrderModule.json"), 19_750),
     ("ExecutionStrategyModule", Path("out/ExecutionStrategyModule.sol/ExecutionStrategyModule.json"), 10_000),
     ("MarketMakerModule", Path("out/MarketMakerModule.sol/MarketMakerModule.json"), 5_000),
