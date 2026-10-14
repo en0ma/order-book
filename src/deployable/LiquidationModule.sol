@@ -7,6 +7,7 @@ import {LiquidationPolicy} from "./LiquidationPolicy.sol";
 
 interface IStrategyLiquidationCleanup {
     function liquidationCleanup(address account, uint64[] calldata strategyIds) external;
+    function activeStrategyCount(address account) external view returns (uint32);
 }
 
 /// @title LiquidationModule
@@ -126,6 +127,17 @@ contract LiquidationModule {
                 account, makerSides[i], makerTicks[i]
             );
         }
+
+        // Never begin matching while any maker, advanced or strategy orders
+        // survive the supplied cleanup. Any unreadable inventory fails closed.
+        if (
+            core.activeQuoteCount(account) != 0
+                || gateway.activeAdvancedOrders(account) != 0
+        ) revert UnsettledOrders();
+        if (
+            strategy != address(0)
+                && IStrategyLiquidationCleanup(strategy).activeStrategyCount(account) != 0
+        ) revert UnsettledOrders();
 
         closedLots = _liquidatePosition(account, msg.sender);
     }
