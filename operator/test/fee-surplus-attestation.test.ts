@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attestFeeSurplus } from "../dist/fee-surplus-attestation.js";
+import { attestFeeSurplus, attestFeeSurplusFromAccounts } from "../dist/fee-surplus-attestation.js";
 
 const hash = "0x" + "a".repeat(64);
 const base = {
@@ -49,4 +49,41 @@ test("fails closed when liability enumeration or custody-domain proof is absent"
   assert.throws(() => attestFeeSurplus({
     ...base, custodyTokenBalance: 1_000_000n, completeLiabilityInventory: false,
   }), /unverified complete/);
+});
+
+const account = hex => "0x" + hex.repeat(40);
+test("account-level settlement claims match certified positive aggregates", () => {
+  const entries = [
+    { account: account("1"), settledCashClaim: 125n, portfolioClaim: 70n },
+    { account: account("2"), settledCashClaim: -25n, portfolioClaim: -90n },
+    { account: account("3"), settledCashClaim: 25n, portfolioClaim: 10n },
+  ];
+  const snapshot = {
+    ...base,
+    positiveSettledAccountClaims: 150n,
+    outstandingPortfolioClaims: 80n,
+    custodyTokenBalance: 450n,
+  };
+  const cert = attestFeeSurplusFromAccounts(snapshot, entries);
+  assert.equal(cert.totalReserved, 340n);
+  assert.equal(cert.candidateDistributableFees, 40n);
+  assert.throws(() => attestFeeSurplusFromAccounts({
+    ...snapshot, positiveSettledAccountClaims: 125n,
+  }, entries), /differ from declared aggregates/);
+  assert.throws(() => attestFeeSurplusFromAccounts({
+    ...snapshot, outstandingPortfolioClaims: 0n,
+  }, entries), /differ from declared aggregates/);
+  assert.throws(() => attestFeeSurplusFromAccounts(snapshot, entries.slice(0, 2)),
+    /differ from declared aggregates/);
+  assert.throws(() => attestFeeSurplusFromAccounts(snapshot, [entries[1], entries[0], entries[2]]),
+    /sorted and unique/);
+  assert.throws(() => attestFeeSurplusFromAccounts(snapshot, [entries[0], entries[0], entries[2]]),
+    /sorted and unique/);
+  assert.throws(() => attestFeeSurplusFromAccounts(snapshot, []), /nonempty claimant/);
+  assert.throws(() => attestFeeSurplusFromAccounts(snapshot, [{
+    ...entries[0], settledCashClaim: Number(125),
+  }]), /invalid account liability/);
+  assert.throws(() => attestFeeSurplusFromAccounts({
+    ...snapshot, completeLiabilityInventory: false,
+  }, entries), /unverified complete/);
 });
