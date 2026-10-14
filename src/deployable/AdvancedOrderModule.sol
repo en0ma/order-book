@@ -333,10 +333,10 @@ contract AdvancedOrderModule {
 
     /// @notice True while insurance coverage would leave executable gateway inventory.
     function activeInsuranceBlockingOrders(address account) external view returns (bool) {
-        if (activeAdvancedCount[account] != 0) return true;
-        address strategy = executionStrategyModule;
-        return strategy != address(0)
-            && IActiveInsuranceStrategyOrders(strategy).activeStrategyCount(account) != 0;
+        return activeAdvancedCount[account] != 0
+            || (executionStrategyModule != address(0)
+                && IActiveInsuranceStrategyOrders(executionStrategyModule)
+                    .activeStrategyCount(account) != 0);
     }
 
     function activeAdvancedOrders(address account) external view returns (uint32) {
