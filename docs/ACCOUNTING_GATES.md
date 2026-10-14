@@ -69,3 +69,20 @@ This protects against incorrect arithmetic and some incomplete inputs, but
 Independent finalized-block event replay, on-chain state checks, settlement and
 funding reconciliation, and proof of full market/domain membership remain required.
 It is not a treasury withdrawal authorization.
+
+
+### Managed-vault excess sweep is disabled
+
+A controller-managed `PortfolioCollateralVault` now rejects `sweepExcess`
+even when the ERC-20 balance exceeds `totalAccountedCollateral`.
+The apparent difference can be subject to uncrystallized portfolio trading,
+funding, or maker claims. It is **not** a verified treasury surplus.
+Standalone unconfigured vaults retain the original donation-only excess
+sweep, which is constrained by their recorded deposits.
+
+Neither an operator-produced fee certificate nor a passing snapshot
+diagnostic enables treasury extraction. A future fee-distribution mechanism
+would require separate exhaustive liability enumeration, finalized-block
+settlement/funding reconciliation, audited on-chain solvency enforcement,
+and independent review. Until then, managed-vault owner extraction remains
+unconditionally unavailable.
