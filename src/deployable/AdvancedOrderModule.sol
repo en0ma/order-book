@@ -51,6 +51,10 @@ interface IMarketMakerLiquidationCleanup {
     ) external;
 }
 
+interface IActiveInsuranceStrategyOrders {
+    function activeStrategyCount(address account) external view returns (uint32);
+}
+
 contract AdvancedOrderModule {
     uint8 internal constant FLAG_ACTIVE = 1 << 0;
     uint8 internal constant FLAG_TRIGGER_ABOVE = 1 << 1;
@@ -325,6 +329,14 @@ contract AdvancedOrderModule {
         if (module_ == address(0)) revert Unauthorized();
         if (liquidationModule != address(0)) revert LiquidationModuleAlreadyConfigured();
         liquidationModule = module_;
+    }
+
+    /// @notice True while insurance coverage would leave executable gateway inventory.
+    function activeInsuranceBlockingOrders(address account) external view returns (bool) {
+        return activeAdvancedCount[account] != 0
+            || (executionStrategyModule != address(0)
+                && IActiveInsuranceStrategyOrders(executionStrategyModule)
+                    .activeStrategyCount(account) != 0);
     }
 
     function activeAdvancedOrders(address account) external view returns (uint32) {

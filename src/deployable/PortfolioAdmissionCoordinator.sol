@@ -6,6 +6,10 @@ import {PortfolioMarginPolicy} from "./PortfolioMarginPolicy.sol";
 import {PortfolioCollateralVault} from "./PortfolioCollateralVault.sol";
 import {ILiquidationGateway} from "./ILiquidationGateway.sol";
 
+interface IPortfolioInsuranceOrderInventory {
+    function activeInsuranceBlockingOrders(address account) external view returns (bool);
+}
+
 /// @title PortfolioAdmissionCoordinator
 /// @notice Sole risk-increasing execution gateway for portfolio-mode markets.
 /// @dev Executes first, then atomically synchronizes the vault lock to portfolio health.
@@ -131,7 +135,8 @@ contract PortfolioAdmissionCoordinator {
             (int80 position,,) = market.core.accountRisk(account);
             if (
                 position != 0 || market.core.activeQuoteCount(account) != 0
-                    || ILiquidationGateway(market.gateway).activeAdvancedOrders(account) != 0
+                    || IPortfolioInsuranceOrderInventory(market.gateway)
+                        .activeInsuranceBlockingOrders(account)
             ) revert InsufficientPortfolioCollateral();
         }
 
