@@ -16,10 +16,20 @@ contract PortfolioCollateralVault {
     error InsufficientFreeCollateral();
     error TokenTransferFailed();
     error UnsupportedTokenBehavior();
+    error ReentrantCustodyCall();
 
     IERC20Minimal public immutable collateralToken;
     address public owner;
     address public controller;
+
+    uint256 private _custodyEntered;
+
+    modifier nonReentrantCustody() {
+        if (_custodyEntered != 0) revert ReentrantCustodyCall();
+        _custodyEntered = 1;
+        _;
+        _custodyEntered = 0;
+    }
 
     uint256 public totalAccountedCollateral;
     mapping(address => uint256) public balanceOf;
@@ -72,7 +82,7 @@ contract PortfolioCollateralVault {
         emit ControllerConfigured(controller_);
     }
 
-    function deposit(uint256 amount) external {
+    function deposit(uint256 amount) external nonReentrantCustody {
         if (amount == 0) revert ZeroAmount();
 
         IERC20Minimal token = collateralToken;
@@ -90,7 +100,7 @@ contract PortfolioCollateralVault {
         emit Deposited(msg.sender, amount);
     }
 
-    function withdraw(uint256 amount) external {
+    function withdraw(uint256 amount) external nonReentrantCustody {
         if (controller != address(0)) revert Unauthorized();
         if (amount == 0) revert ZeroAmount();
 
@@ -102,9 +112,7 @@ contract PortfolioCollateralVault {
             totalAccountedCollateral -= amount;
         }
 
-        if (!collateralToken.transfer(msg.sender, amount)) {
-            revert TokenTransferFailed();
-        }
+        _transferExact(msg.sender, amount);
 
         emit Withdrawn(msg.sender, amount);
     }
@@ -113,7 +121,7 @@ contract PortfolioCollateralVault {
         address account,
         address recipient,
         uint256 amount
-    ) external onlyController {
+    ) external onlyController nonReentrantCustody {
         if (recipient == address(0) || amount == 0) revert ZeroAmount();
         if (amount > totalAccountedCollateral) revert InsufficientFreeCollateral();
         // The controller may disburse realized portfolio profits, but it must
@@ -131,9 +139,7 @@ contract PortfolioCollateralVault {
         portfolioWithdrawn[account] += amount;
         totalAccountedCollateral -= amount;
 
-        if (!collateralToken.transfer(recipient, amount)) {
-            revert TokenTransferFailed();
-        }
+        _transferExact(recipient, amount);
 
         emit PortfolioWithdrawn(account, recipient, amount);
     }
@@ -184,12 +190,21 @@ contract PortfolioCollateralVault {
             : 0;
     }
 
-    function sweepExcess(address recipient, uint256 amount) external onlyOwner {
+    function sweepExcess(address recipient, uint256 amount) external onlyOwner nonReentrantCustody {
         if (recipient == address(0) || amount == 0) revert ZeroAmount();
         if (amount > excessTokenBalance()) revert InsufficientFreeCollateral();
-        if (!collateralToken.transfer(recipient, amount)) {
-            revert TokenTransferFailed();
-        }
+        _transferExact(recipient, amount);
         emit ExcessSwept(recipient, amount);
+    }
+
+    function _transferExact(address recipient, uint256 amount) internal {
+        IERC20Minimal token = collateralToken;
+        uint256 beforeBalance = token.balanceOf(address(this));
+        if (!token.transfer(recipient, amount)) revert TokenTransferFailed();
+        uint256 afterBalance = token.balanceOf(address(this));
+        if (afterBalance > beforeBalance || beforeBalance - afterBalance != amount) {
+            revert UnsupportedTokenBehavior();
+        }
+        if (afterBalance < totalAccountedCollateral) revert UnsupportedTokenBehavior();
     }
 }
