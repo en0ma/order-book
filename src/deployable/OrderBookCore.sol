@@ -331,7 +331,19 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _transferCollateralOut(address recipient, uint256 amount) internal {
+        // Standalone withdrawals and liquidation rewards must never consume
+        // collateral for an ERC-20 transfer that short-credits the recipient
+        // or silently burns additional custody.
+        uint256 custodyBefore = collateralToken.balanceOf(address(this));
+        uint256 recipientBefore = collateralToken.balanceOf(recipient);
         if (!collateralToken.transfer(recipient, amount)) revert TokenTransferFailed();
+        uint256 custodyAfter = collateralToken.balanceOf(address(this));
+        uint256 recipientAfter = collateralToken.balanceOf(recipient);
+        if (
+            custodyAfter > custodyBefore || custodyBefore - custodyAfter != amount
+                || recipientAfter < recipientBefore
+                || recipientAfter - recipientBefore != amount
+        ) revert UnsupportedTokenBehavior();
     }
 
     function protocolFeesAccrued() external view returns (uint256) {
