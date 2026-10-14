@@ -77,6 +77,8 @@ contract MockPortfolioLiquidationGateway is ILiquidationGateway {
     MockPortfolioLiquidationCore public immutable core;
     mapping(address => uint32) internal _advanced;
     uint96 public maxFill = type(uint96).max;
+    bool public fakeFill;
+    bool public overReportFill;
     address public executionStrategyModule;
 
     constructor(address core_) {
@@ -90,6 +92,9 @@ contract MockPortfolioLiquidationGateway is ILiquidationGateway {
     function setExecutionStrategyModule(address strategy) external {
         executionStrategyModule = strategy;
     }
+
+    function setFakeFill(bool enabled) external { fakeFill = enabled; }
+    function setOverReportFill(bool enabled) external { overReportFill = enabled; }
 
     function setMaxFill(uint96 maxFill_) external {
         maxFill = maxFill_;
@@ -130,7 +135,8 @@ contract MockPortfolioLiquidationGateway is ILiquidationGateway {
         uint96 lots
     ) external returns (uint96 filledLots) {
         filledLots = lots < maxFill ? lots : maxFill;
-        core.reducePosition(account, side, filledLots);
+        if (overReportFill) return lots + 1;
+        if (!fakeFill) core.reducePosition(account, side, filledLots);
     }
 
     function liquidationCoverBadDebt(address, uint256)
@@ -336,6 +342,30 @@ contract PortfolioLiquidationModuleTest is TestBase {
         (secondPosition,,) = coreB.accountRisk(TRADER);
         assertEq(int256(firstPosition), 60, "partial residual was discarded");
         assertEq(int256(secondPosition), 0, "liquid market not flattened");
+    }
+
+    function testFakeGatewayFillCannotConcealResidualRisk() public {
+        coreA.setRisk(TRADER, 100, 100, 100);
+        coreA.setEquity(TRADER, 100);
+        gatewayA.setFakeFill(true);
+        (bool ok,) = address(module).call(
+            abi.encodeCall(module.liquidate, (TRADER, _emptyCleanups()))
+        );
+        assertTrue(!ok, "gateway credited a nonexecuted liquidation");
+        (int80 position,,) = coreA.accountRisk(TRADER);
+        assertEq(int256(position), 100, "reverted phantom fill altered risk");
+    }
+
+    function testOverreportedGatewayFillCannotAdvanceLiquidation() public {
+        coreA.setRisk(TRADER, 100, 100, 100);
+        coreA.setEquity(TRADER, 100);
+        gatewayA.setOverReportFill(true);
+        (bool ok,) = address(module).call(
+            abi.encodeCall(module.liquidate, (TRADER, _emptyCleanups()))
+        );
+        assertTrue(!ok, "overreported fill advanced liquidation");
+        (int80 position,,) = coreA.accountRisk(TRADER);
+        assertEq(int256(position), 100, "failed fill mutated position");
     }
 
     function _emptyCleanups()
