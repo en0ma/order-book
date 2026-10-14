@@ -81,3 +81,28 @@ The script deploys `OrderBookCore`, `AdvancedOrderModule`, `ExecutionStrategyMod
 Track mark freshness, realized funding, maker depth, order count, insurance funds and outstanding liquidation positions. Because the standalone Core has no documented generic in-place market-delete switch, market retirement is an **operator-led process**: stop new risk through authorized pause, cancel orders, close risk with available liquidity, settle claims, support permitted withdrawals and archive the final manifest. Never promise forced settlement when opposing book liquidity is absent.
 
 Read [Governance and Keys](/docs/GOVERNANCE_AND_KEYS), [Integration Flows](/docs/INTEGRATION_FLOWS) and [Team Handbook](/docs/TEAM_HANDBOOK).
+
+
+### Portfolio retirement and migration safety gate
+
+Portfolio market sets and their vault/controller links are immutable in the current deployment model.
+There is **no authorized on-chain portfolio market retirement, collateral migration or
+controller replacement transaction**. An administrator must not re-label an old market
+as retired or transfer its accounted custody into a new vault merely because orders appear
+closed in an indexer.
+
+`PortfolioRetirementPreflight` offers two deliberately separate fail-closed *read-only*
+checks: `assertConfigurationAndReservesClear()` rejects live vault collateral, physical
+custody, nonzero market fees/insurance and inconsistent Core/policy/controller wiring;
+`assertAccountsClear(sortedUniqueAccounts)` rejects nonzero deposits/withdrawal checkpoints,
+locks, signed claims, open position envelopes, market cash claims, maker quotes and
+conditional/trailing/strategy inventory exposed by the gateway.
+
+**The preflight cannot prove the supplied accounts enumerate all historical traders or
+lazy maker claimants.** A passing sample or incomplete list is not a global solvency
+certificate, a deployment authorization or a substitute for a complete, reorg-safe
+event replay and independent liability reconciliation. In particular, a position can
+settle without eliminating an outstanding claim. A new coordinator/vault deployment
+must remain blocked until a separately reviewed complete migration mechanism,
+claimant enumeration and an audited, exact-head liability proof exist. Old claims
+must never be silently assumed to have moved.
