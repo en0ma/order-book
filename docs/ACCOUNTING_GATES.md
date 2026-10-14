@@ -53,3 +53,19 @@ current at the attested canonical block, especially after deployments or market
 migrations. A correct roster and complete liability inventory are separate
 claims; this check does not independently enumerate accounts or prove fee
 distributability. It never transfers funds.
+
+
+### Account-level liability reconciliation
+
+The optional `attestFeeSurplusFromAccounts(snapshot, accounts)` cross-checks
+positive settled and portfolio claims from strictly sorted, unique account
+addresses against the aggregate liabilities declared in the snapshot. Negative
+account claims are **not** netted against independent positive claims. Empty,
+repeated, unordered, malformed, missing-account (when totals diverge), or
+incorrectly summed entries fail closed.
+
+This protects against incorrect arithmetic and some incomplete inputs, but
+**cannot discover a claimant omitted from both the roster and declared aggregate**.
+Independent finalized-block event replay, on-chain state checks, settlement and
+funding reconciliation, and proof of full market/domain membership remain required.
+It is not a treasury withdrawal authorization.
