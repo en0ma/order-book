@@ -6,12 +6,8 @@ import {PortfolioMarginPolicy} from "./PortfolioMarginPolicy.sol";
 import {PortfolioCollateralVault} from "./PortfolioCollateralVault.sol";
 import {ILiquidationGateway} from "./ILiquidationGateway.sol";
 
-interface IPortfolioStrategyInsuranceInventory {
-    function executionStrategyModule() external view returns (address);
-}
-
-interface IPortfolioStrategyOrderCount {
-    function activeStrategyCount(address account) external view returns (uint32);
+interface IPortfolioInsuranceOrderInventory {
+    function activeInsuranceBlockingOrders(address account) external view returns (bool);
 }
 
 /// @title PortfolioAdmissionCoordinator
@@ -139,16 +135,8 @@ contract PortfolioAdmissionCoordinator {
             (int80 position,,) = market.core.accountRisk(account);
             if (
                 position != 0 || market.core.activeQuoteCount(account) != 0
-                    || ILiquidationGateway(market.gateway).activeAdvancedOrders(account) != 0
-            ) revert InsufficientPortfolioCollateral();
-
-            // Strategy orders are distinct from advanced and maker inventories.
-            // Insurance may only be consumed after every executable order is gone.
-            address strategy = IPortfolioStrategyInsuranceInventory(market.gateway)
-                .executionStrategyModule();
-            if (
-                strategy != address(0)
-                    && IPortfolioStrategyOrderCount(strategy).activeStrategyCount(account) != 0
+                    || IPortfolioInsuranceOrderInventory(market.gateway)
+                        .activeInsuranceBlockingOrders(account)
             ) revert InsufficientPortfolioCollateral();
         }
 
