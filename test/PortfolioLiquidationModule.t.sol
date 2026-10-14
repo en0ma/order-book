@@ -162,6 +162,11 @@ contract MockPortfolioLiquidationStrategy {
     function setActive(address account, uint32 count) external {
         activeStrategyCount[account] = count;
     }
+
+    function liquidationCleanup(address account, uint64[] calldata ids) external {
+        if (ids.length == 0 || ids[0] != 7) revert("wrong strategy inventory");
+        activeStrategyCount[account] = 0;
+    }
 }
 
 contract PortfolioLiquidationModuleTest is TestBase {
@@ -343,6 +348,36 @@ contract PortfolioLiquidationModuleTest is TestBase {
         assertTrue(!module.hasOpenOrders(TRADER), "empty strategy inventory not recognized");
         assertEq(uint256(module.liquidate(TRADER, _emptyCleanups())), 100,
             "clean portfolio liquidation did not complete");
+    }
+
+    function testStrategyCleanupAndMakerInventoryAcrossMarketsIsAtomic() public {
+        coreA.setRisk(TRADER, 100, 100, 100);
+        coreA.setEquity(TRADER, 100);
+        coreA.setActiveQuotes(TRADER, 1);
+        gatewayA.setActiveAdvanced(TRADER, 1);
+        MockPortfolioLiquidationStrategy strategy = new MockPortfolioLiquidationStrategy();
+        strategy.setActive(TRADER, 1);
+        gatewayB.setExecutionStrategyModule(address(strategy));
+
+        PortfolioLiquidationModule.CleanupInput[] memory cleanups = _emptyCleanups();
+        cleanups[0].makerSides = new IOrderBookCore.Side[](1);
+        cleanups[0].makerTicks = new uint16[](1);
+        cleanups[0].makerSides[0] = IOrderBookCore.Side.Ask;
+        cleanups[0].makerTicks[0] = 100;
+        cleanups[1].strategyIds = new uint64[](1);
+        cleanups[1].strategyIds[0] = 8;
+        (bool ok,) = address(module).call(
+            abi.encodeCall(module.liquidate, (TRADER, cleanups))
+        );
+        assertTrue(!ok, "wrong strategy IDs permitted liquidation");
+        assertEq(uint256(coreA.activeQuoteCount(TRADER)), 1, "maker canceled before failed strategy cleanup");
+        assertEq(uint256(gatewayA.activeAdvancedOrders(TRADER)), 1, "advanced orders canceled before failure");
+        assertEq(uint256(strategy.activeStrategyCount(TRADER)), 1, "failed cleanup lost strategy");
+
+        cleanups[1].strategyIds[0] = 7;
+        assertEq(uint256(module.liquidate(TRADER, cleanups)), 100, "complete cleanup could not liquidate");
+        assertTrue(!module.hasOpenOrders(TRADER), "orders survived complete cleanup");
+        assertEq(uint256(strategy.activeStrategyCount(TRADER)), 0, "strategy inventory survived");
     }
 
     function testZeroLiquidityRetainsExposureAndAllowsRetry() public {
