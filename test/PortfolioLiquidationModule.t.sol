@@ -239,6 +239,31 @@ contract PortfolioLiquidationModuleTest is TestBase {
         assertTrue(!module.hasOpenOrders(TRADER), "orders survived liquidation");
     }
 
+    function testPartialCleanupOfSecondMarketRevertsAllPriorCancellations() public {
+        coreA.setRisk(TRADER, 100, 100, 100);
+        coreA.setEquity(TRADER, 100);
+        coreA.setActiveQuotes(TRADER, 1);
+        coreB.setActiveQuotes(TRADER, 1);
+        gatewayA.setActiveAdvanced(TRADER, 1);
+        gatewayB.setActiveAdvanced(TRADER, 1);
+
+        PortfolioLiquidationModule.CleanupInput[] memory cleanups = _singleQuoteCleanups();
+        // Omit the second market's maker inventory while the first market
+        // is fully cleaned. The whole transaction must unwind.
+        cleanups[1].makerSides = new IOrderBookCore.Side[](0);
+        cleanups[1].makerTicks = new uint16[](0);
+        (bool ok,) = address(module).call(
+            abi.encodeCall(module.liquidate, (TRADER, cleanups))
+        );
+        assertTrue(!ok, "incomplete market inventory was accepted");
+        assertEq(uint256(coreA.activeQuoteCount(TRADER)), 1, "first market cleanup committed");
+        assertEq(uint256(coreB.activeQuoteCount(TRADER)), 1, "second market quote vanished");
+        assertEq(uint256(gatewayA.activeAdvancedOrders(TRADER)), 1, "first advanced cleanup committed");
+        assertEq(uint256(gatewayB.activeAdvancedOrders(TRADER)), 1, "second advanced cleanup committed");
+        (int80 position,,) = coreA.accountRisk(TRADER);
+        assertEq(int256(position), 100, "failed cleanup liquidated position");
+    }
+
     function testLiquidationStopsOncePortfolioRecovers() public {
         coreA.setRisk(TRADER, 100, 100, 100);
         coreB.setRisk(TRADER, 100, 100, 100);
