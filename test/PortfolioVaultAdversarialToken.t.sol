@@ -89,6 +89,34 @@ contract PortfolioVaultAdversarialTokenTest is TestBase {
         assertEq(vault.totalAccountedCollateral(), 200, "ledger payout incorrect");
     }
 
+    function testFuzz_OutgoingExtraDebitAlwaysRollsBack(uint96 amountSeed, uint8 extraSeed) public {
+        uint256 amount = uint256(amountSeed) % 200 + 1;
+        uint256 extra = uint256(extraSeed) % 20 + 1;
+        token.configure(address(vault), extra, true);
+
+        uint256 beforeCustody = token.balanceOf(address(vault));
+        uint256 beforeLedger = vault.totalAccountedCollateral();
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.withdraw, (amount)));
+
+        assertTrue(!ok, "extra-debit transfer succeeded");
+        assertEq(token.balanceOf(address(vault)), beforeCustody, "reverted debit spent funds");
+        assertEq(vault.totalAccountedCollateral(), beforeLedger, "reverted debit changed ledger");
+        assertEq(vault.balanceOf(address(this)), beforeLedger, "reverted debit changed user claim");
+    }
+
+    function testFuzz_ControllerTransferMaintainsExactBacking(uint96 amountSeed) public {
+        vault.configureController(address(this));
+        uint256 amount = uint256(amountSeed) % 300 + 1;
+        uint256 beforeCustody = token.balanceOf(address(vault));
+        uint256 beforeLedger = vault.totalAccountedCollateral();
+
+        vault.controllerWithdraw(address(this), address(this), amount);
+
+        assertEq(token.balanceOf(address(vault)), beforeCustody - amount, "physical debit mismatch");
+        assertEq(vault.totalAccountedCollateral(), beforeLedger - amount, "accounted debit mismatch");
+        assertEq(vault.portfolioWithdrawn(address(this)), amount, "withdrawal claim mismatch");
+    }
+
     function testExcessSweepRejectsUnexpectedExtraDebit() public {
         token.mint(address(vault), 50);
         token.configure(address(vault), 1, false);
