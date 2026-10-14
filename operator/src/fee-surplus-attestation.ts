@@ -69,3 +69,47 @@ export function attestFeeSurplus(snapshot: FeeSurplusSnapshot): FeeSurplusCertif
         ? snapshot.accruedProtocolFees : unencumberedSurplus,
   };
 }
+
+/**
+ * Cross-check the supplied settled account liabilities against account-level
+ * entries, rather than trusting an unaudited aggregate alone. Caller must
+ * independently prove the roster is exhaustive from finalized-chain history.
+ * These positive components intentionally do not net insolvent accounts'
+ * deficits against unrelated claimants.
+ */
+export interface AccountLiabilityEntry {
+  account: string;
+  settledCashClaim: bigint;
+  portfolioClaim: bigint;
+}
+const accountPattern = /^0x[0-9a-fA-F]{40}$/;
+
+export function attestFeeSurplusFromAccounts(
+  snapshot: FeeSurplusSnapshot,
+  accounts: readonly AccountLiabilityEntry[],
+): FeeSurplusCertificate {
+  if (!Array.isArray(accounts) || accounts.length === 0) {
+    throw new Error("nonempty claimant inventory required");
+  }
+  let previous = "";
+  let positiveSettled = 0n;
+  let positivePortfolio = 0n;
+  for (const entry of accounts) {
+    if (!entry || typeof entry.account !== "string" ||
+        !accountPattern.test(entry.account) ||
+        typeof entry.settledCashClaim !== "bigint" ||
+        typeof entry.portfolioClaim !== "bigint") {
+      throw new TypeError("invalid account liability entry");
+    }
+    const account = entry.account.toLowerCase();
+    if (account <= previous) throw new Error("claimant roster must be sorted and unique");
+    previous = account;
+    if (entry.settledCashClaim > 0n) positiveSettled += entry.settledCashClaim;
+    if (entry.portfolioClaim > 0n) positivePortfolio += entry.portfolioClaim;
+  }
+  if (positiveSettled !== snapshot.positiveSettledAccountClaims ||
+      positivePortfolio !== snapshot.outstandingPortfolioClaims) {
+    throw new Error("account-level positive liabilities differ from declared aggregates");
+  }
+  return attestFeeSurplus(snapshot);
+}
