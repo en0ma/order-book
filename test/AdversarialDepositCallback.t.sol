@@ -129,10 +129,11 @@ contract AdversarialDepositCallbackVaultTest is TestBase {
         assertTrue(trader.deposit(100, 100), "initial deposit failed");
         uint256 beforeBalance = token.balanceOf(address(vault));
         uint256 beforeTrader = token.balanceOf(address(trader));
-        assertTrue(!trader.deposit(50, 25), "deposit with successful nested withdrawal accepted");
-        assertEq(token.balanceOf(address(vault)), beforeBalance, "failed deposit changed custody");
-        assertEq(token.balanceOf(address(trader)), beforeTrader, "failed deposit moved funds");
-        assertEq(vault.balanceOf(address(trader)), 100, "failed deposit changed ledger");
-        assertEq(vault.totalAccountedCollateral(), 100, "total accounted collateral changed");
+        assertTrue(trader.deposit(50, 25), "safe deposit was incorrectly rejected");
+        assertTrue(!token.hookSucceeded(), "nested withdrawal succeeded during vault deposit");
+        assertEq(token.balanceOf(address(vault)), beforeBalance + 50, "new deposit custody not backed");
+        assertEq(token.balanceOf(address(trader)), beforeTrader - 50, "successful deposit balance incorrect");
+        assertEq(vault.balanceOf(address(trader)), 150, "new deposit was not credited");
+        assertEq(vault.totalAccountedCollateral(), 150, "accounted deposits mismatch");
     }
 }
