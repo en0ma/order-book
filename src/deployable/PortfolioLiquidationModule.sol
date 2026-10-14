@@ -44,6 +44,7 @@ contract PortfolioLiquidationModule {
     error NotLiquidatable();
     error UnsettledOrders();
     error CleanupLengthMismatch();
+    error InvalidLiquidationFill();
 
     PortfolioMarginPolicy public immutable policy;
     MarketConfig[] public markets;
@@ -168,6 +169,18 @@ contract PortfolioLiquidationModule {
                 limitTick,
                 requestedLots
             );
+            // A configured gateway must report its actual reduction. Never
+            // credit phantom liquidation progress or allow an opposite-side
+            // position change to masquerade as risk reduction.
+            (int80 positionAfter,,) = market.core.accountRisk(account);
+            int256 expectedPosition = int256(position)
+                + (side == IOrderBookCore.Side.Ask
+                    ? -int256(uint256(filledLots))
+                    : int256(uint256(filledLots)));
+            if (
+                filledLots > requestedLots || int256(positionAfter) != expectedPosition
+            ) revert InvalidLiquidationFill();
+
             totalFilledLots += filledLots;
 
             emit PortfolioMarketLiquidated(
