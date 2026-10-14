@@ -8,7 +8,9 @@ import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
 /// liquidation retry after missing liquidity, reward eligibility and terminal debt.
 contract StandaloneLiquidationLifecycleAcceptanceTest is PartialLiquidationLiquidityStressTest {
     function testHealthyAccountCannotEnterCleanupOrReceiveReward() public {
-        oracle.record(100);
+        // Restore health with collateral rather than assuming a new oracle
+        // sample removes a still-live low observation from the extrema ring.
+        _deposit(TRADER, 3_000);
         assertTrue(!liquidation.isLiquidatable(TRADER), "fixture remains distressed");
         liquidation.configureLiquidatorReward(100);
         uint256 custody = token.balanceOf(address(core));
