@@ -88,9 +88,10 @@ contract ValidatedOracleSourceRouterTest is TestBase {
 
     function testSourceSwitchDoesNotPermitReplayOfOldBackupTimestamp() public {
         adapter.publish();
-        vm.warp(block.timestamp + 61);
-        // Backup timestamp is fresh but not newer than the last published primary observation.
-        backup.set(101_00000000, 0, uint48(block.timestamp - 60));
+        vm.warp(block.timestamp + 1);
+        // A primary outage can occur before staleness; an older healthy backup
+        // must not replay the previous canonical observation.
+        primary.set(0, 0, uint48(block.timestamp));
         router.activateBackup();
         uint64 beforeId = sink.currentObservationId();
         (bool replay,) = address(adapter).call(abi.encodeCall(adapter.publish, ()));
