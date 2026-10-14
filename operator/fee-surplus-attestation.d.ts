@@ -22,3 +22,13 @@ export interface FeeSurplusCertificate {
   candidateDistributableFees: bigint;
 }
 export declare function attestFeeSurplus(snapshot: FeeSurplusSnapshot): FeeSurplusCertificate;
+
+export interface AccountLiabilityEntry {
+  account: string;
+  settledCashClaim: bigint;
+  portfolioClaim: bigint;
+}
+export declare function attestFeeSurplusFromAccounts(
+  snapshot: FeeSurplusSnapshot,
+  accounts: readonly AccountLiabilityEntry[],
+): FeeSurplusCertificate;
