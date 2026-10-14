@@ -13,6 +13,10 @@ export interface FeeSurplusSnapshot {
   pendingMakerRebates: bigint;
   unpricedOrUnsettledLiabilities: bigint;
   badDebtExposure: bigint;
+  /** Independently reconciled exhaustive claimant/order inventory at this block. */
+  completeLiabilityInventory: boolean;
+  /** Proof all market custody domains and the ERC-20 asset identity match. */
+  custodyDomainsReconciled: boolean;
 }
 export interface FeeSurplusCertificate {
   chainId: number;
@@ -29,6 +33,9 @@ export function attestFeeSurplus(snapshot: FeeSurplusSnapshot): FeeSurplusCertif
       !Number.isSafeInteger(snapshot.blockNumber) || snapshot.blockNumber < 0 ||
       typeof snapshot.blockHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(snapshot.blockHash)) {
     throw new TypeError("invalid canonical block identity");
+  }
+  if (snapshot.completeLiabilityInventory !== true || snapshot.custodyDomainsReconciled !== true) {
+    throw new Error("unverified complete liabilities or custody domains; treasury payout disabled");
   }
   const keys = [
     "custodyTokenBalance", "positiveSettledAccountClaims",
