@@ -6,6 +6,9 @@ import {PortfolioMarginPolicy} from "./PortfolioMarginPolicy.sol";
 import {PortfolioCollateralVault} from "./PortfolioCollateralVault.sol";
 import {PortfolioAdmissionCoordinator} from "./PortfolioAdmissionCoordinator.sol";
 
+interface IRetirementCollateralAsset {
+    function collateralToken() external view returns (address);
+}
 interface IRetirementMarketReserves {
     function protocolFeesAccrued() external view returns (uint256);
     function insuranceReserves() external view returns (uint256);
@@ -44,6 +47,8 @@ contract PortfolioRetirementPreflight {
             (IOrderBookCore core,) = coordinator.markets(i);
             (IOrderBookCore configured,,,) = policy.markets(i);
             if (address(core) != address(configured)
+                || IRetirementCollateralAsset(address(core)).collateralToken()
+                    != address(vault.collateralToken())
                 || core.portfolioController() != address(coordinator)
                 || IRetirementMarketReserves(address(core)).protocolFeesAccrued() != 0
                 || IRetirementMarketReserves(address(core)).insuranceReserves() != 0
