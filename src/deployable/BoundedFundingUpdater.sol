@@ -18,9 +18,13 @@ contract BoundedFundingUpdater {
     error FundingAuthorityDrift();
 
     IFundingIndexCore public immutable core;
-    address public immutable operator;
+    address public operator;
+    address public immutable governance;
+    address public pendingOperator;
     address public riskOffGuardian;
 
+    event OperatorNominated(address indexed currentOperator, address indexed nominee);
+    event OperatorChanged(address indexed previousOperator, address indexed nextOperator);
     event RiskOffGuardianChanged(address indexed previousGuardian, address indexed newGuardian);
     uint256 public immutable minIntervalSeconds;
     uint256 public immutable maxAbsDeltaX18;
@@ -36,10 +40,30 @@ contract BoundedFundingUpdater {
         ) revert InvalidConfig();
         core = IFundingIndexCore(core_);
         operator = operator_;
+        governance = msg.sender;
         minIntervalSeconds = minInterval_;
         maxAbsDeltaX18 = maxDelta_;
         lastIndexX18 = 0;
         lastUpdateTime = block.timestamp;
+    }
+
+    /// @notice Only deployment governance can nominate the next publication operator.
+    /// @dev Nominees must explicitly accept; replacing an operator revokes its guardian.
+    function nominateOperator(address nominee) external {
+        if (msg.sender != governance || nominee == address(0)) revert Unauthorized();
+        pendingOperator = nominee;
+        emit OperatorNominated(operator, nominee);
+    }
+
+    function acceptOperator() external {
+        if (msg.sender != pendingOperator || msg.sender == address(0)) revert Unauthorized();
+        address previous = operator;
+        operator = msg.sender;
+        pendingOperator = address(0);
+        address previousGuardian = riskOffGuardian;
+        riskOffGuardian = address(0);
+        if (previousGuardian != address(0)) emit RiskOffGuardianChanged(previousGuardian, address(0));
+        emit OperatorChanged(previous, msg.sender);
     }
 
     /// @notice Funding operator can nominate/revoke a pause-only guardian; no funding rights are granted.
