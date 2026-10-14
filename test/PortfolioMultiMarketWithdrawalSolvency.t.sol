@@ -214,7 +214,7 @@ contract PortfolioMultiMarketWithdrawalSolvencyTest is TestBase {
         // Both genuine Core positions remain open while oracle marks collapse.
         // Neither uncovered bad debt nor apparent portfolio exposure can mint
         // spendable token custody for a distressed account.
-        uint16 distressedMark = uint16(uint256(markSeed) % 40 + 1);
+        uint16 distressedMark = uint16(uint256(markSeed) % 20 + 1);
         firstMark.setMarkTick(distressedMark);
         secondMark.setMarkTick(distressedMark);
         assertTrue(policy.portfolioEquity(TRADER) < 0, "fixture unexpectedly solvent");
