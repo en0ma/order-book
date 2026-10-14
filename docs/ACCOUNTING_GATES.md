@@ -11,7 +11,12 @@ together with **eight independently sourced integer amounts**: physical custody,
 positive settled account claims, outstanding portfolio claims, insurance reserves,
 accrued fees, pending maker rebates, other unpriced/unsettled liabilities and
 bad-debt exposure. It rejects missing, negative or non-integer amounts, missing
-block provenance and underbacked snapshots. It conservatively reserves every
+block provenance and underbacked snapshots. It now also requires explicit
+`completeLiabilityInventory: true` and `custodyDomainsReconciled: true` claims;
+missing or false values fail closed even when the physical balance is large.
+These claims are **not cryptographic or independently checked evidence**. They
+must be substantiated by an external canonical-block replay and independent
+custody-domain roster. A self-asserted `true` cannot enable a payout. It conservatively reserves every
 declared liability and caps its `candidateDistributableFees` by both accrued
 fees and custody beyond those liabilities.
 
