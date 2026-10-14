@@ -77,6 +77,7 @@ contract MockPortfolioLiquidationGateway is ILiquidationGateway {
     MockPortfolioLiquidationCore public immutable core;
     mapping(address => uint32) internal _advanced;
     uint96 public maxFill = type(uint96).max;
+    address public executionStrategyModule;
 
     constructor(address core_) {
         core = MockPortfolioLiquidationCore(core_);
@@ -84,6 +85,10 @@ contract MockPortfolioLiquidationGateway is ILiquidationGateway {
 
     function setActiveAdvanced(address account, uint32 count) external {
         _advanced[account] = count;
+    }
+
+    function setExecutionStrategyModule(address strategy) external {
+        executionStrategyModule = strategy;
     }
 
     function setMaxFill(uint96 maxFill_) external {
@@ -142,6 +147,14 @@ contract MockPortfolioLiquidationGateway is ILiquidationGateway {
         returns (uint256)
     {
         return 0;
+    }
+}
+
+contract MockPortfolioLiquidationStrategy {
+    mapping(address => uint32) public activeStrategyCount;
+
+    function setActive(address account, uint32 count) external {
+        activeStrategyCount[account] = count;
     }
 }
 
@@ -278,6 +291,51 @@ contract PortfolioLiquidationModuleTest is TestBase {
             uint256(1),
             "failed liquidation mutated state"
         );
+    }
+
+    function testOutstandingStrategyInventoryBlocksLiquidationAtomically() public {
+        coreA.setRisk(TRADER, 100, 100, 100);
+        coreA.setEquity(TRADER, 100);
+        MockPortfolioLiquidationStrategy strategy = new MockPortfolioLiquidationStrategy();
+        strategy.setActive(TRADER, 1);
+        gatewayB.setExecutionStrategyModule(address(strategy));
+
+        assertTrue(module.hasOpenOrders(TRADER), "strategy inventory was omitted");
+        (bool ok,) = address(module).call(
+            abi.encodeCall(module.liquidate, (TRADER, _emptyCleanups()))
+        );
+        assertTrue(!ok, "unsettled strategy liquidation succeeded");
+        (int80 position,,) = coreA.accountRisk(TRADER);
+        assertEq(int256(position), 100, "failed cleanup mutated other market");
+
+        strategy.setActive(TRADER, 0);
+        assertTrue(!module.hasOpenOrders(TRADER), "empty strategy inventory not recognized");
+        assertEq(uint256(module.liquidate(TRADER, _emptyCleanups())), 100,
+            "clean portfolio liquidation did not complete");
+    }
+
+    function testZeroLiquidityRetainsExposureAndAllowsRetry() public {
+        coreA.setRisk(TRADER, 100, 100, 100);
+        coreB.setRisk(TRADER, 80, 80, 80);
+        coreA.setEquity(TRADER, 100);
+        gatewayA.setMaxFill(0);
+        gatewayB.setMaxFill(0);
+
+        assertEq(uint256(module.liquidate(TRADER, _emptyCleanups())), 0,
+            "zero-liquidity liquidation credited phantom fill");
+        (int80 firstPosition,,) = coreA.accountRisk(TRADER);
+        (int80 secondPosition,,) = coreB.accountRisk(TRADER);
+        assertEq(int256(firstPosition), 100, "first exposure disappeared");
+        assertEq(int256(secondPosition), 80, "second exposure disappeared");
+
+        gatewayA.setMaxFill(40);
+        gatewayB.setMaxFill(80);
+        assertEq(uint256(module.liquidate(TRADER, _emptyCleanups())), 120,
+            "retry did not use available cross-market liquidity");
+        (firstPosition,,) = coreA.accountRisk(TRADER);
+        (secondPosition,,) = coreB.accountRisk(TRADER);
+        assertEq(int256(firstPosition), 60, "partial residual was discarded");
+        assertEq(int256(secondPosition), 0, "liquid market not flattened");
     }
 
     function _emptyCleanups()

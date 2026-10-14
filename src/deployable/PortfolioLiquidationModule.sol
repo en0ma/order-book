@@ -115,7 +115,10 @@ contract PortfolioLiquidationModule {
                         && IPortfolioStrategyCleanup(strategy)
                             .activeStrategyCount(account) != 0
                 ) return true;
-            } catch {}
+            } catch {
+                // An unreadable strategy inventory is not proof of no orders.
+                return true;
+            }
         }
         return false;
     }
