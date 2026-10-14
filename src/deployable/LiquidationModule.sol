@@ -110,8 +110,6 @@ contract LiquidationModule {
         uint64[] calldata strategyIds
     ) external returns (uint96 closedLots) {
         if (makerSides.length != makerTicks.length) revert UnsettledOrders();
-        // Never cancel a healthy account's orders before establishing eligibility.
-        if (!policy.isLiquidatable(account)) revert NotLiquidatable();
 
         gateway.liquidationCleanupAdvanced(account, conditionalIds, trailingIds);
 
