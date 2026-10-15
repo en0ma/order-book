@@ -32,3 +32,10 @@ export declare function attestFeeSurplusFromAccounts(
   snapshot: FeeSurplusSnapshot,
   accounts: readonly AccountLiabilityEntry[],
 ): FeeSurplusCertificate;
+
+/** Diagnostic roster cross-check only: caller must prove expectedAccounts exhaustive. */
+export declare function attestFeeSurplusAgainstExpectedAccounts(
+  snapshot: FeeSurplusSnapshot,
+  accounts: readonly AccountLiabilityEntry[],
+  expectedAccounts: readonly string[],
+): FeeSurplusCertificate;

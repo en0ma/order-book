@@ -113,3 +113,39 @@ export function attestFeeSurplusFromAccounts(
   }
   return attestFeeSurplus(snapshot);
 }
+
+/**
+ * Match a reported liability inventory against a separately established
+ * canonical claimant roster. The expected roster MUST come from an independent,
+ * complete finalized-block discovery process; this function does not discover
+ * accounts or prove provenance, and its result cannot authorize withdrawals.
+ */
+export function attestFeeSurplusAgainstExpectedAccounts(
+  snapshot: FeeSurplusSnapshot,
+  accounts: readonly AccountLiabilityEntry[],
+  expectedAccounts: readonly string[],
+): FeeSurplusCertificate {
+  if (!Array.isArray(expectedAccounts) || expectedAccounts.length === 0) {
+    throw new Error("independent claimant roster required");
+  }
+  if (!Array.isArray(accounts) || accounts.length !== expectedAccounts.length) {
+    throw new Error("claimant inventory differs from independent roster");
+  }
+  let previous = "";
+  for (let i = 0; i < expectedAccounts.length; i++) {
+    const raw = expectedAccounts[i];
+    if (typeof raw !== "string" || !accountPattern.test(raw)) {
+      throw new TypeError("invalid independent claimant");
+    }
+    const expected = raw.toLowerCase();
+    if (expected <= previous) {
+      throw new Error("independent claimant roster must be sorted and unique");
+    }
+    previous = expected;
+    if (!accounts[i] || typeof accounts[i].account !== "string" ||
+        accounts[i].account.toLowerCase() !== expected) {
+      throw new Error("claimant inventory differs from independent roster");
+    }
+  }
+  return attestFeeSurplusFromAccounts(snapshot, accounts);
+}

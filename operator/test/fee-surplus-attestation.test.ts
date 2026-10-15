@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attestFeeSurplus, attestFeeSurplusFromAccounts } from "../dist/fee-surplus-attestation.js";
+import { attestFeeSurplus, attestFeeSurplusFromAccounts, attestFeeSurplusAgainstExpectedAccounts } from "../dist/fee-surplus-attestation.js";
 
 const hash = "0x" + "a".repeat(64);
 const base = {
@@ -86,4 +86,31 @@ test("account-level settlement claims match certified positive aggregates", () =
   assert.throws(() => attestFeeSurplusFromAccounts({
     ...snapshot, completeLiabilityInventory: false,
   }, entries), /unverified complete/);
+});
+
+test("independent roster detects claimant omitted from both submitted inventory and aggregates", () => {
+  const actual = [
+    { account: account("1"), settledCashClaim: 100n, portfolioClaim: 50n },
+    { account: account("2"), settledCashClaim: 900n, portfolioClaim: 300n },
+  ];
+  const forged = { ...base, custodyTokenBalance: 300n };
+  const supplied = [actual[0]];
+  // The existing aggregate arithmetic cannot catch the missing account.
+  assert.equal(attestFeeSurplusFromAccounts(forged, supplied).totalReserved, 260n);
+  assert.throws(() => attestFeeSurplusAgainstExpectedAccounts(
+    forged, supplied, actual.map(x => x.account),
+  ), /differs from independent roster/);
+  assert.throws(() => attestFeeSurplusAgainstExpectedAccounts(
+    forged, actual, actual.map(x => x.account),
+  ), /insufficient custody/);
+  assert.throws(() => attestFeeSurplusAgainstExpectedAccounts(
+    forged, supplied, [],
+  ), /independent claimant roster required/);
+  assert.throws(() => attestFeeSurplusAgainstExpectedAccounts(
+    forged, supplied, [account("1"), account("1")],
+  ), /differs from independent roster|sorted and unique/);
+  const passing = attestFeeSurplusAgainstExpectedAccounts(
+    forged, supplied, [account("1").toUpperCase().replace("0X", "0x")],
+  );
+  assert.equal(passing.totalReserved, 260n);
 });
