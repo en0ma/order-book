@@ -36,6 +36,11 @@ contract PortfolioCollateralVault {
     mapping(address => uint256) public portfolioWithdrawn;
     mapping(address => uint256) public lockedCollateral;
 
+    // Independently enumerable custody claimants, including accounts with
+    // zero current balances following withdrawal or realized profit payment.
+    address[] internal _custodyClaimants;
+    mapping(address => bool) internal _custodyClaimantRecorded;
+
     event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
     event ControllerConfigured(address indexed controller);
     event Deposited(address indexed account, uint256 amount);
@@ -82,6 +87,21 @@ contract PortfolioCollateralVault {
         emit ControllerConfigured(controller_);
     }
 
+    function custodyClaimantCount() external view returns (uint256) {
+        return _custodyClaimants.length;
+    }
+
+    function custodyClaimantAt(uint256 index) external view returns (address) {
+        return _custodyClaimants[index];
+    }
+
+    function _trackCustodyClaimant(address account) internal {
+        if (!_custodyClaimantRecorded[account]) {
+            _custodyClaimantRecorded[account] = true;
+            _custodyClaimants.push(account);
+        }
+    }
+
     function deposit(uint256 amount) external nonReentrantCustody {
         if (amount == 0) revert ZeroAmount();
 
@@ -94,6 +114,7 @@ contract PortfolioCollateralVault {
         uint256 received = token.balanceOf(address(this)) - beforeBalance;
         if (received != amount) revert UnsupportedTokenBehavior();
 
+        _trackCustodyClaimant(msg.sender);
         balanceOf[msg.sender] += amount;
         totalAccountedCollateral += amount;
 
@@ -136,6 +157,7 @@ contract PortfolioCollateralVault {
             revert InsufficientFreeCollateral();
         }
 
+        _trackCustodyClaimant(account);
         portfolioWithdrawn[account] += amount;
         totalAccountedCollateral -= amount;
 
@@ -170,6 +192,7 @@ contract PortfolioCollateralVault {
         uint256 previousLocked = lockedCollateral[account];
         if (previousLocked == nextLocked) return;
 
+        _trackCustodyClaimant(account);
         lockedCollateral[account] = nextLocked;
         emit LockedCollateralUpdated(account, previousLocked, nextLocked);
     }
