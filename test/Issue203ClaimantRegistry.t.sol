@@ -31,8 +31,8 @@ contract Issue203ClaimantRegistryTest is TestBase {
 
     function test_MonotoneUniqueClaimantsThroughMakerAndTakerMutations() public {
         assertEq(core.claimantCount(), 2, "initial deposit claimants missing");
-        assertEq(core.claimantAt(0), MAKER, "wrong maker claimant");
-        assertEq(core.claimantAt(1), TAKER, "wrong taker claimant");
+        assertTrue(core.claimantAt(0) == MAKER, "wrong maker claimant");
+        assertTrue(core.claimantAt(1) == TAKER, "wrong taker claimant");
 
         vm.prank(MAKER);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
@@ -41,8 +41,8 @@ contract Issue203ClaimantRegistryTest is TestBase {
         vm.prank(MAKER);
         core.settle(IOrderBookCore.Side.Ask, 100);
         assertEq(core.claimantCount(), 2, "duplicate claimant after settlement");
-        assertEq(core.claimantAt(0), MAKER, "maker reordered");
-        assertEq(core.claimantAt(1), TAKER, "taker reordered");
+        assertTrue(core.claimantAt(0) == MAKER, "maker reordered");
+        assertTrue(core.claimantAt(1) == TAKER, "taker reordered");
     }
 
     function testFuzz_DuplicateDepositsDoNotIncreaseRoster(uint96 amountSeed) public {
@@ -62,6 +62,6 @@ contract Issue203ClaimantRegistryTest is TestBase {
         vm.prank(newcomer);
         core.withdrawCollateral(1000);
         assertEq(core.claimantCount(), 3, "withdrawal deleted historic claimant");
-        assertEq(core.claimantAt(2), newcomer, "claimant address incorrect");
+        assertTrue(core.claimantAt(2) == newcomer, "claimant address incorrect");
     }
 }
