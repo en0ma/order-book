@@ -6,6 +6,7 @@ import {IMarkOracle} from "../interfaces/IMarkOracle.sol";
 import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {OrderBookMath} from "./OrderBookMath.sol";
 import {FundingMath} from "./FundingMath.sol";
+import {ClaimantRegistry} from "./ClaimantRegistry.sol";
 
 /// @title OrderBookCore
 /// @notice Deployable hot-path CLOB/risk/funding core.
@@ -83,7 +84,7 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => mapping(Side => mapping(uint16 => ModuleLock))) internal moduleLocks;
 
     // Append-only on-chain claimant roster; never dependent on RPC event coverage.
-    address[] internal _claimants;
+    ClaimantRegistry public immutable claimantRegistry;
     mapping(address => uint256) internal collateralBalance;
     uint256 internal totalLocalCollateral;
     mapping(address => uint256) internal reservedMargin;
@@ -177,6 +178,7 @@ contract OrderBookCore is IOrderBookCore {
         owner = msg.sender;
         fundingUpdater = msg.sender;
         collateralToken = IERC20Minimal(collateralToken_);
+        claimantRegistry = new ClaimantRegistry();
         markOracle = IMarkOracle(markOracle_);
         executionBandTicks = executionBandTicks_;
         initialMarginBps = initialMarginBps_;
@@ -303,19 +305,10 @@ contract OrderBookCore is IOrderBookCore {
             uint128(closedGenerationAccounting[side][tick][generation]);
     }
 
-    /// @notice Monotone on-chain roster; individual entries persist after closeout.
-    function claimantCount() external view returns (uint256) {
-        return _claimants.length;
-    }
-
-    function claimantAt(uint256 index) external view returns (address) {
-        return _claimants[index];
-    }
-
     function _trackClaimant(address account) internal {
         if (!_accountMeta[account].claimantRegistered) {
             _accountMeta[account].claimantRegistered = true;
-            _claimants.push(account);
+            claimantRegistry.record(account);
         }
     }
 
