@@ -68,9 +68,10 @@ contract Issue203ClaimantRegistryTest is TestBase {
         assertTrue(core.claimantRegistry().registrar() == address(core), "wrong claimant registrar");
         uint256 beforeCount = core.claimantRegistry().count();
         address outsider = address(0xBAD);
+        address registry = address(core.claimantRegistry());
         vm.prank(outsider);
-        (bool forged,) = address(core.claimantRegistry()).call(
-            abi.encodeCall(core.claimantRegistry().record, (address(0xCAFE)))
+        (bool forged,) = registry.call(
+            abi.encodeWithSignature("record(address)", address(0xCAFE))
         );
         assertTrue(!forged, "outsider registered a nonexistent claimant");
         assertEq(core.claimantRegistry().count(), beforeCount, "forgery changed claimant inventory");
