@@ -47,3 +47,18 @@ export declare function attestFeeSurplusFromDiscoveredClaimants(
   accounts: readonly AccountLiabilityEntry[],
   inventory: ClaimantInventory,
 ): FeeSurplusCertificate;
+
+/** Reader must independently authenticate the historical state and block identity. */
+export interface BlockPinnedClaimReader {
+  getChainId(): Promise<number>;
+  getBlockHash(blockNumber: number): Promise<string>;
+  readClaims(
+    account: string, blockNumber: number, blockHash: string,
+  ): Promise<{ settledCashClaim: bigint; portfolioClaim: bigint }>;
+}
+/** Diagnostic only. Does not authorize a treasury transfer. */
+export declare function attestFeeSurplusFromPinnedState(
+  snapshot: FeeSurplusSnapshot,
+  inventory: ClaimantInventory,
+  reader: BlockPinnedClaimReader,
+): Promise<FeeSurplusCertificate>;

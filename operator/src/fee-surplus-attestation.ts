@@ -176,3 +176,63 @@ export function attestFeeSurplusFromDiscoveredClaimants(
   }
   return attestFeeSurplusAgainstExpectedAccounts(snapshot, accounts, inventory.accounts);
 }
+
+/** A reader must independently authenticate each state read against this hash. */
+export interface BlockPinnedClaimReader {
+  getChainId(): Promise<number>;
+  getBlockHash(blockNumber: number): Promise<string>;
+  readClaims(
+    account: string, blockNumber: number, blockHash: string,
+  ): Promise<{ settledCashClaim: bigint; portfolioClaim: bigint }>;
+}
+
+/**
+ * Read each discovered claimant rather than accepting submitted claim amounts.
+ * This is diagnostic only: readers must use verifiable historical state, and
+ * other liability categories still require independent exhaustive verification.
+ */
+export async function attestFeeSurplusFromPinnedState(
+  snapshot: FeeSurplusSnapshot,
+  inventory: ClaimantInventory,
+  reader: BlockPinnedClaimReader,
+): Promise<FeeSurplusCertificate> {
+  if (!reader || typeof reader.getChainId !== "function" ||
+      typeof reader.getBlockHash !== "function" ||
+      typeof reader.readClaims !== "function") {
+    throw new Error("authenticated state reader required");
+  }
+  if (!inventory || inventory.chainId !== snapshot.chainId ||
+      inventory.blockNumber !== snapshot.blockNumber ||
+      typeof inventory.blockHash !== "string" ||
+      typeof snapshot.blockHash !== "string" ||
+      inventory.blockHash.toLowerCase() !== snapshot.blockHash.toLowerCase()) {
+    throw new Error("claimant discovery and liability snapshot block mismatch");
+  }
+  const expectedHash = snapshot.blockHash.toLowerCase();
+  const checkAnchor = async () => {
+    const actual = await reader.getBlockHash(snapshot.blockNumber);
+    if (typeof actual !== "string" || actual.toLowerCase() !== expectedHash ||
+        await reader.getChainId() !== snapshot.chainId) {
+      throw new Error("state reader canonical block identity changed");
+    }
+  };
+  await checkAnchor();
+  if (!Array.isArray(inventory.accounts) || inventory.accounts.length === 0) {
+    throw new Error("nonempty discovered claimant inventory required");
+  }
+  const entries: AccountLiabilityEntry[] = [];
+  for (const account of inventory.accounts) {
+    if (typeof account !== "string" || !accountPattern.test(account)) {
+      throw new Error("invalid discovered claimant");
+    }
+    const claim = await reader.readClaims(account, snapshot.blockNumber, expectedHash);
+    if (!claim || typeof claim.settledCashClaim !== "bigint" ||
+        typeof claim.portfolioClaim !== "bigint") {
+      throw new Error("invalid block-pinned account claim");
+    }
+    entries.push({ account, settledCashClaim: claim.settledCashClaim,
+      portfolioClaim: claim.portfolioClaim });
+  }
+  await checkAnchor();
+  return attestFeeSurplusFromDiscoveredClaimants(snapshot, entries, inventory);
+}

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attestFeeSurplus, attestFeeSurplusFromAccounts, attestFeeSurplusAgainstExpectedAccounts, attestFeeSurplusFromDiscoveredClaimants } from "../dist/fee-surplus-attestation.js";
+import { attestFeeSurplus, attestFeeSurplusFromAccounts, attestFeeSurplusAgainstExpectedAccounts, attestFeeSurplusFromDiscoveredClaimants, attestFeeSurplusFromPinnedState } from "../dist/fee-surplus-attestation.js";
 
 const hash = "0x" + "a".repeat(64);
 const base = {
@@ -131,4 +131,35 @@ test("history claimant inventory must match the snapshot block and every reporte
   assert.throws(() => attestFeeSurplusFromDiscoveredClaimants(base, entries, { ...inventory, blockHash: "0x" + "b".repeat(64) }), /block mismatch/);
   assert.throws(() => attestFeeSurplusFromDiscoveredClaimants(base, entries, { ...inventory, chainId: 2 }), /block mismatch/);
   assert.throws(() => attestFeeSurplusFromDiscoveredClaimants(base, entries, { ...inventory, eventCount: 0 }), /block mismatch/);
+});
+
+test("block-pinned reads reject understated, missing and stale account liabilities", async () => {
+  const inventory = {
+    chainId: 1, deploymentBlock: 10, blockNumber: 42, blockHash: hash,
+    accounts: [account("1"), account("2")], eventCount: 3,
+  };
+  const amounts = new Map([
+    [account("1"), { settledCashClaim: 100n, portfolioClaim: 50n }],
+    [account("2"), { settledCashClaim: 0n, portfolioClaim: 0n }],
+  ]);
+  const makeReader = () => ({
+    getChainId: async () => 1,
+    getBlockHash: async () => hash,
+    readClaims: async address => amounts.get(address),
+  });
+  assert.equal((await attestFeeSurplusFromPinnedState(base, inventory, makeReader())).totalReserved, 260n);
+  amounts.set(account("2"), { settledCashClaim: 500n, portfolioClaim: 0n });
+  await assert.rejects(attestFeeSurplusFromPinnedState(base, inventory, makeReader()), /differ from declared aggregates/);
+  amounts.delete(account("2"));
+  await assert.rejects(attestFeeSurplusFromPinnedState(base, inventory, makeReader()), /invalid block-pinned/);
+  let reads = 0;
+  const switching = {
+    ...makeReader(),
+    getBlockHash: async () => ++reads === 1 ? hash : "0x" + "b".repeat(64),
+    readClaims: async () => ({ settledCashClaim: 0n, portfolioClaim: 0n }),
+  };
+  await assert.rejects(attestFeeSurplusFromPinnedState(base, inventory, switching), /canonical block identity changed/);
+  await assert.rejects(attestFeeSurplusFromPinnedState(base, inventory, {
+    ...makeReader(), getChainId: async () => 2,
+  }), /canonical block identity changed/);
 });
