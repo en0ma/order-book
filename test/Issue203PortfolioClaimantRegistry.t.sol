@@ -6,11 +6,11 @@ import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
 
 contract Issue203PortfolioClaimantRegistryTest is PortfolioTwoMarketFeeIsolationTest {
     function test_CustodyRosterIncludesDepositorsWithoutTradingActivity() public {
-        assertEq(vault.custodyClaimantCount(), 2, "initial collateral depositors missing");
-        assertTrue(vault.custodyClaimantAt(0) == MAKER, "first depositor missing");
-        assertTrue(vault.custodyClaimantAt(1) == TAKER, "second depositor missing");
-        assertEq(core0.claimantCount(), 0, "market roster invented activity");
-        assertEq(core1.claimantCount(), 0, "other market roster invented activity");
+        assertEq(vault.custodyClaimantRegistry().count(), 2, "initial collateral depositors missing");
+        assertTrue(vault.custodyClaimantRegistry().at(0) == MAKER, "first depositor missing");
+        assertTrue(vault.custodyClaimantRegistry().at(1) == TAKER, "second depositor missing");
+        assertEq(core0.claimantRegistry().count(), 0, "market roster invented activity");
+        assertEq(core1.claimantRegistry().count(), 0, "other market roster invented activity");
     }
 
     function test_MarketActivityDoesNotLoseIndependentVaultClaimants() public {
@@ -19,15 +19,15 @@ contract Issue203PortfolioClaimantRegistryTest is PortfolioTwoMarketFeeIsolation
         vm.prank(TAKER);
         coordinator.take(0, IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
 
-        assertEq(core0.claimantCount(), 2, "market trading claimants missing");
-        assertEq(core1.claimantCount(), 0, "inactive market acquired claims");
-        assertEq(vault.custodyClaimantCount(), 2, "vault depositors duplicated");
-        assertTrue(vault.custodyClaimantAt(0) == MAKER, "maker depositor reordered");
-        assertTrue(vault.custodyClaimantAt(1) == TAKER, "taker depositor reordered");
+        assertEq(core0.claimantRegistry().count(), 2, "market trading claimants missing");
+        assertEq(core1.claimantRegistry().count(), 0, "inactive market acquired claims");
+        assertEq(vault.custodyClaimantRegistry().count(), 2, "vault depositors duplicated");
+        assertTrue(vault.custodyClaimantRegistry().at(0) == MAKER, "maker depositor reordered");
+        assertTrue(vault.custodyClaimantRegistry().at(1) == TAKER, "taker depositor reordered");
     }
 
     function testFuzz_DonationsDoNotManufactureClaimants(uint96 seed) public {
         token.mint(address(vault), uint256(seed) + 1);
-        assertEq(vault.custodyClaimantCount(), 2, "token donation added a false claimant");
+        assertEq(vault.custodyClaimantRegistry().count(), 2, "token donation added a false claimant");
     }
 }
