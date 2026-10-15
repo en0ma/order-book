@@ -1360,12 +1360,11 @@ contract OrderBookCore is IOrderBookCore {
         _feeAccountingPacked =
             (nextRebateReserve << 128) | nextProtocol;
 
+        a.settledPosition += side == Side.Bid ? amount : -amount;
         if (side == Side.Bid) {
-            a.settledPosition += amount;
             a.minPosition += amount;
             if (!preReserved) a.maxPosition += amount;
         } else {
-            a.settledPosition -= amount;
             a.maxPosition -= amount;
             if (!preReserved) a.minPosition -= amount;
         }
@@ -1478,12 +1477,11 @@ contract OrderBookCore is IOrderBookCore {
         AccountRisk storage a = accountRisk[maker];
         int80 amount = _positionAmount(filledLots);
 
+        a.settledPosition += side == Side.Bid ? amount : -amount;
         if (side == Side.Bid) {
-            a.settledPosition += amount;
             a.minPosition += amount;
             if (widen) a.maxPosition += amount;
         } else {
-            a.settledPosition -= amount;
             a.maxPosition -= amount;
             if (widen) a.minPosition -= amount;
         }
@@ -1518,13 +1516,9 @@ contract OrderBookCore is IOrderBookCore {
         AccountRisk storage a = accountRisk[account];
         int80 amount = _positionAmount(lots);
 
-        if (side == Side.Bid) {
-            if (expand) a.maxPosition += amount;
-            else a.maxPosition -= amount;
-        } else {
-            if (expand) a.minPosition -= amount;
-            else a.minPosition += amount;
-        }
+        int80 delta = expand ? amount : -amount;
+        if (side == Side.Bid) a.maxPosition += delta;
+        else a.minPosition -= delta;
     }
 
     function _refreshReservedMargin(address account) internal {
