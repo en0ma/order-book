@@ -101,7 +101,8 @@ test("independent roster detects claimant omitted from both submitted inventory 
     forged, supplied, actual.map(x => x.account),
   ), /differs from independent roster/);
   assert.throws(() => attestFeeSurplusAgainstExpectedAccounts(
-    forged, actual, actual.map(x => x.account),
+    { ...forged, positiveSettledAccountClaims: 1000n, outstandingPortfolioClaims: 350n },
+    actual, actual.map(x => x.account),
   ), /insufficient custody/);
   assert.throws(() => attestFeeSurplusAgainstExpectedAccounts(
     forged, supplied, [],
