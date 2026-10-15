@@ -83,6 +83,40 @@ contract PortfolioTwoMarketFeeIsolationTest is TestBase {
         assertEq(core0.protocolFeesAccrued(), feesBefore, "failed sweep changed market fees");
     }
 
+    function testFuzz_FeeToInsuranceReclassificationCannotUnlockTreasurySweep(uint16 seed) public {
+        vm.prank(MAKER);
+        coordinator.addLiquidity(0, IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        coordinator.take(0, IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        vm.prank(MAKER);
+        coordinator.addLiquidity(1, IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        coordinator.take(1, IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+
+        // Both the fee and reserved maker rebate liabilities survive until
+        // their real settlement paths; reclassification is never a payout.
+        assertEq(core0.protocolFeesAccrued(), 50, "fixture missing fee reserve");
+        assertEq(core1.protocolFeesAccrued(), 200, "fixture missing second fee");
+        core0.allocateProtocolFeesToInsurance(50);
+        core1.allocateProtocolFeesToInsurance(uint256(seed) % 200 + 1);
+
+        uint256 apparentExcess = uint256(seed) + 1;
+        token.mint(address(vault), apparentExcess);
+        uint256 beforeCustody = token.balanceOf(address(vault));
+        uint256 beforeLiabilities = vault.totalAccountedCollateral();
+        uint256 beforeRecipient = token.balanceOf(address(this));
+        (bool paid,) = address(vault).call(
+            abi.encodeCall(vault.sweepExcess, (address(this), apparentExcess))
+        );
+        assertTrue(!paid, "fee reclassification authorized owner treasury extraction");
+        assertEq(token.balanceOf(address(vault)), beforeCustody, "fees consumed custody");
+        assertEq(vault.totalAccountedCollateral(), beforeLiabilities, "fees changed deposits");
+        assertEq(token.balanceOf(address(this)), beforeRecipient, "fees were paid to treasury");
+        assertEq(core0.insuranceReserves(), 50, "failed sweep moved first reserves");
+        assertEq(core1.protocolFeesAccrued() + core1.insuranceReserves(), 200,
+            "failed sweep moved second reserves");
+    }
+
     function testIndependentMarketFeeRebatesAndInsuranceNeverMoveSharedCustody() public {
         uint256 custodyBefore = token.balanceOf(address(vault));
         vm.prank(MAKER);
