@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attestFeeSurplus, attestFeeSurplusFromAccounts, attestFeeSurplusAgainstExpectedAccounts } from "../dist/fee-surplus-attestation.js";
+import { attestFeeSurplus, attestFeeSurplusFromAccounts, attestFeeSurplusAgainstExpectedAccounts, attestFeeSurplusFromDiscoveredClaimants } from "../dist/fee-surplus-attestation.js";
 
 const hash = "0x" + "a".repeat(64);
 const base = {
@@ -114,4 +114,21 @@ test("independent roster detects claimant omitted from both submitted inventory 
     forged, supplied, [account("1").toUpperCase().replace("0X", "0x")],
   );
   assert.equal(passing.totalReserved, 260n);
+});
+
+test("history claimant inventory must match the snapshot block and every reported claimant", () => {
+  const inventory = {
+    chainId: 1, deploymentBlock: 10, blockNumber: 42, blockHash: hash,
+    accounts: [account("1"), account("2")], eventCount: 4,
+  };
+  const entries = [
+    { account: account("1"), settledCashClaim: 100n, portfolioClaim: 50n },
+    { account: account("2"), settledCashClaim: 0n, portfolioClaim: 0n },
+  ];
+  assert.equal(attestFeeSurplusFromDiscoveredClaimants(base, entries, inventory).totalReserved, 260n);
+  assert.throws(() => attestFeeSurplusFromDiscoveredClaimants(base, entries.slice(0, 1), inventory), /differs from independent roster/);
+  assert.throws(() => attestFeeSurplusFromDiscoveredClaimants(base, entries, { ...inventory, blockNumber: 41 }), /block mismatch/);
+  assert.throws(() => attestFeeSurplusFromDiscoveredClaimants(base, entries, { ...inventory, blockHash: "0x" + "b".repeat(64) }), /block mismatch/);
+  assert.throws(() => attestFeeSurplusFromDiscoveredClaimants(base, entries, { ...inventory, chainId: 2 }), /block mismatch/);
+  assert.throws(() => attestFeeSurplusFromDiscoveredClaimants(base, entries, { ...inventory, eventCount: 0 }), /block mismatch/);
 });

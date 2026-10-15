@@ -1,3 +1,4 @@
+import type { ClaimantInventory } from "./claimant-inventory.js";
 /** Conservative off-chain solvency evidence. This module never transfers tokens.
  * All figures are base units from a common canonical block and trusted sources.
  */
@@ -148,4 +149,30 @@ export function attestFeeSurplusAgainstExpectedAccounts(
     }
   }
   return attestFeeSurplusFromAccounts(snapshot, accounts);
+}
+
+/**
+ * Bind a history-derived claimant roster to the exact fee snapshot block.
+ * This cross-check does NOT establish that RPC logs, historical deployments,
+ * or unsettled economic obligations are exhaustive. Diagnostic only.
+ */
+export function attestFeeSurplusFromDiscoveredClaimants(
+  snapshot: FeeSurplusSnapshot,
+  accounts: readonly AccountLiabilityEntry[],
+  inventory: ClaimantInventory,
+): FeeSurplusCertificate {
+  if (!inventory ||
+      inventory.chainId !== snapshot.chainId ||
+      inventory.blockNumber !== snapshot.blockNumber ||
+      typeof inventory.blockHash !== "string" ||
+      typeof snapshot.blockHash !== "string" ||
+      inventory.blockHash.toLowerCase() !== snapshot.blockHash.toLowerCase() ||
+      !Number.isSafeInteger(inventory.deploymentBlock) ||
+      inventory.deploymentBlock < 0 ||
+      inventory.deploymentBlock > inventory.blockNumber ||
+      !Number.isSafeInteger(inventory.eventCount) ||
+      inventory.eventCount < 1) {
+    throw new Error("claimant discovery and liability snapshot block mismatch");
+  }
+  return attestFeeSurplusAgainstExpectedAccounts(snapshot, accounts, inventory.accounts);
 }

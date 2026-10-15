@@ -1,3 +1,4 @@
+import type { ClaimantInventory } from "./claimant-inventory.js";
 export interface FeeSurplusSnapshot {
   chainId: number;
   blockNumber: number;
@@ -38,4 +39,11 @@ export declare function attestFeeSurplusAgainstExpectedAccounts(
   snapshot: FeeSurplusSnapshot,
   accounts: readonly AccountLiabilityEntry[],
   expectedAccounts: readonly string[],
+): FeeSurplusCertificate;
+
+/** Diagnostic only; history log completeness and liabilities are not proven. */
+export declare function attestFeeSurplusFromDiscoveredClaimants(
+  snapshot: FeeSurplusSnapshot,
+  accounts: readonly AccountLiabilityEntry[],
+  inventory: ClaimantInventory,
 ): FeeSurplusCertificate;
