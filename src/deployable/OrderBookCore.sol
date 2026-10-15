@@ -81,6 +81,9 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => AccountMeta) internal _accountMeta;
     mapping(address => mapping(Side => mapping(uint16 => ModuleLock))) internal moduleLocks;
 
+    // Append-only on-chain claimant roster; never dependent on RPC event coverage.
+    address[] internal _claimants;
+    mapping(address => bool) internal _claimantRecorded;
     mapping(address => uint256) internal collateralBalance;
     uint256 internal totalLocalCollateral;
     mapping(address => uint256) internal reservedMargin;
@@ -300,8 +303,25 @@ contract OrderBookCore is IOrderBookCore {
             uint128(closedGenerationAccounting[side][tick][generation]);
     }
 
+    /// @notice Monotone on-chain roster; individual entries persist after closeout.
+    function claimantCount() external view returns (uint256) {
+        return _claimants.length;
+    }
+
+    function claimantAt(uint256 index) external view returns (address) {
+        return _claimants[index];
+    }
+
+    function _trackClaimant(address account) internal {
+        if (!_claimantRecorded[account]) {
+            _claimantRecorded[account] = true;
+            _claimants.push(account);
+        }
+    }
+
     function depositCollateral(uint256 amount) external {
         _pullCollateralExact(amount);
+        _trackClaimant(msg.sender);
 
         collateralBalance[msg.sender] += amount;
         totalLocalCollateral += amount;
@@ -595,6 +615,7 @@ contract OrderBookCore is IOrderBookCore {
         if (covered == 0) return 0;
 
         insuranceReserves = reserves - covered;
+        _trackClaimant(account);
         if (controller == address(0)) {
             collateralBalance[account] += covered;
             totalLocalCollateral += covered;
@@ -1070,6 +1091,7 @@ contract OrderBookCore is IOrderBookCore {
         uint128 mintedShares,
         uint96 lots
     ) internal {
+        _trackClaimant(maker);
         MakerQuote storage q = quotes[maker][side][tick];
         bool isNewQuote = q.shares == 0;
 
@@ -1320,6 +1342,7 @@ contract OrderBookCore is IOrderBookCore {
         uint256 reservedMakerRebate,
         bool preReserved
     ) internal {
+        _trackClaimant(account);
         _settleExistingPositionFunding(account);
 
         AccountRisk storage a = accountRisk[account];
