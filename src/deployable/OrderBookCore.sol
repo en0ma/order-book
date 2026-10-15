@@ -1371,15 +1371,17 @@ contract OrderBookCore is IOrderBookCore {
             a.settledPosition += amount;
             a.minPosition += amount;
             if (!preReserved) a.maxPosition += amount;
-            tradeCashflow[account] -= int256(notional + takerFee);
-            totalRealizedCashflow -= int256(notional + takerFee);
         } else {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
             if (!preReserved) a.minPosition -= amount;
-            tradeCashflow[account] += int256(notional) - int256(takerFee);
-            totalRealizedCashflow += int256(notional - takerFee);
         }
+
+        int256 cashDelta = side == Side.Bid
+            ? -int256(notional + takerFee)
+            : int256(notional - takerFee);
+        tradeCashflow[account] += cashDelta;
+        totalRealizedCashflow += cashDelta;
 
         _refreshReservedMargin(account);
     }
@@ -1486,15 +1488,17 @@ contract OrderBookCore is IOrderBookCore {
             a.settledPosition += amount;
             a.minPosition += amount;
             if (widen) a.maxPosition += amount;
-            tradeCashflow[maker] += int256(makerRebate) - int256(notional);
-            totalRealizedCashflow += int256(makerRebate) - int256(notional);
         } else {
             a.settledPosition -= amount;
             a.maxPosition -= amount;
             if (widen) a.minPosition -= amount;
-            tradeCashflow[maker] += int256(notional + makerRebate);
-            totalRealizedCashflow += int256(notional + makerRebate);
         }
+
+        int256 cashDelta = side == Side.Bid
+            ? int256(makerRebate) - int256(notional)
+            : int256(notional + makerRebate);
+        tradeCashflow[maker] += cashDelta;
+        totalRealizedCashflow += cashDelta;
     }
 
     function _reclaimMakerRebateDust(uint256 amount) internal {
