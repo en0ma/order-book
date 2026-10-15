@@ -37,6 +37,15 @@ const claimantField: Readonly<Record<string, string>> = {
   PortfolioLockSynchronized: "account",
 };
 
+/** Known system events without a claimant; classification is NOT proof that no liability exists. */
+const classifiedSystemEvents = new Set([
+  "InsuranceFunded", "ProtocolFeesAllocatedToInsurance",
+  "LiquidationRewardPaid", "FundingIndexUpdated",
+  "AccountingUnitScaleConfigured", "OwnershipTransferred",
+  "AdvancedModuleConfigured", "FundingUpdaterChanged",
+  "ControllerConfigured", "LockedCollateralUpdated",
+]);
+
 export function replayClaimantInventory(
   chainId: number,
   deploymentBlock: number,
@@ -76,7 +85,13 @@ export function replayClaimantInventory(
       lastTx = event.transactionIndex;
       lastLog = event.logIndex;
       const field = claimantField[event.name];
-      if (!field) throw new Error("unclassified event requires ABI coverage audit: " + event.name);
+      if (!field) {
+        if (!classifiedSystemEvents.has(event.name)) {
+          throw new Error("unclassified event requires ABI coverage audit: " + event.name);
+        }
+        eventCount++;
+        continue;
+      }
       const account = event.args?.[field];
       if (typeof account !== "string" || !address.test(account)) {
         throw new Error("missing or invalid claimant address in " + event.name);

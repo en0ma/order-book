@@ -83,3 +83,12 @@ test("anchor-pinned replay rejects wrong chain and changing canonical endpoints"
     chainId: 1, blockNumber: 11, blockHash: b.hash,
   }), /changed during history replay/);
 });
+
+test("explicit non-claimant protocol events do not block discovery", () => {
+  const extra = event(b, "ProtocolFeesAllocatedToInsurance", { amount: 7n }, 2);
+  const result = replayClaimantInventory(1, 10, [
+    history[0], { ...history[1], events: [...history[1].events, extra] },
+  ]);
+  assert.deepEqual(result.accounts, [address("1"), address("2")]);
+  assert.equal(result.eventCount, 4);
+});
