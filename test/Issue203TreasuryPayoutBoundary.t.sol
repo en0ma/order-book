@@ -53,4 +53,36 @@ contract Issue203TreasuryPayoutBoundaryTest is PortfolioTwoMarketFeeIsolationTes
         assertEq(core0.insuranceReserves(), insurance0Before, "first reserve changed");
         assertEq(core1.insuranceReserves(), insurance1Before, "second reserve changed");
     }
+    function test_TreasuryBoundaryHoldsBeforeAndAfterLazyMakerAttribution() public {
+        vm.prank(MAKER);
+        coordinator.addLiquidity(0, IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        coordinator.take(0, IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+
+        (uint128 shares,, uint32 generation) =
+            core0.quotes(MAKER, IOrderBookCore.Side.Ask, 100);
+        assertTrue(shares > 0, "maker quote was not created");
+
+        uint256 custodyBefore = token.balanceOf(address(vault));
+        uint256 recipientBefore = token.balanceOf(address(this));
+        uint256 feesBefore = core0.protocolFeesAccrued();
+
+        (bool premature,) = address(core0).call(
+            abi.encodeWithSignature("withdrawProtocolFees(address,uint256)", address(this), 1)
+        );
+        assertTrue(!premature, "unattributed maker obligation permitted treasury payout");
+
+        vm.prank(MAKER);
+        coordinator.removeLiquidity(0, IOrderBookCore.Side.Ask, 100, generation, shares);
+        assertEq(token.balanceOf(address(vault)), custodyBefore, "maker settlement transferred custody");
+
+        (bool afterSettlement,) = address(core0).call(
+            abi.encodeWithSignature("withdrawProtocolFees(address,uint256)", address(this), 1)
+        );
+        assertTrue(!afterSettlement, "settlement alone permitted unproved treasury payout");
+        assertEq(token.balanceOf(address(vault)), custodyBefore, "treasury extracted vault collateral");
+        assertEq(token.balanceOf(address(this)), recipientBefore, "treasury received tokens");
+        assertEq(core0.protocolFeesAccrued(), feesBefore, "failed treasury call altered fee ledger");
+    }
+
 }
