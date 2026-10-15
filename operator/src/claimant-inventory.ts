@@ -92,3 +92,54 @@ export function replayClaimantInventory(
     blockHash: previousHash, accounts: [...accounts].sort(), eventCount,
   };
 }
+
+/**
+ * Read every deployment-to-target block using an explicitly selected RPC
+ * adapter. Require a separately supplied trusted finalized block anchor,
+ * and re-read both endpoints to detect in-flight reorganization. An RPC
+ * provider can omit logs, so this is still NOT independently exhaustive.
+ */
+export interface ClaimantHistoryReader {
+  getChainId(): Promise<number>;
+  getBlock(blockNumber: number): Promise<BlockRef>;
+  getEvents(block: BlockRef): Promise<readonly NormalizedEvent[]>;
+}
+export interface FinalizedClaimantAnchor {
+  chainId: number;
+  blockNumber: number;
+  blockHash: string;
+}
+export async function discoverClaimantsAtAnchor(
+  reader: ClaimantHistoryReader,
+  deploymentBlock: number,
+  anchor: FinalizedClaimantAnchor,
+): Promise<ClaimantInventory> {
+  if (!reader || typeof reader.getChainId !== "function" ||
+      typeof reader.getBlock !== "function" || typeof reader.getEvents !== "function" ||
+      !anchor || !Number.isSafeInteger(anchor.blockNumber) ||
+      anchor.blockNumber < deploymentBlock || !hash.test(anchor.blockHash) ||
+      !Number.isSafeInteger(anchor.chainId) || anchor.chainId <= 0 ||
+      !Number.isSafeInteger(deploymentBlock) || deploymentBlock < 0) {
+    throw new Error("trusted finalized claimant anchor and reader required");
+  }
+  if (await reader.getChainId() !== anchor.chainId) {
+    throw new Error("claimant reader chain mismatch");
+  }
+  const history: ClaimantHistoryBlock[] = [];
+  for (let height = deploymentBlock; height <= anchor.blockNumber; height++) {
+    const block = await reader.getBlock(height);
+    history.push({ block, events: await reader.getEvents(block) });
+  }
+  const inventory = replayClaimantInventory(anchor.chainId, deploymentBlock, history);
+  if (inventory.blockHash !== anchor.blockHash.toLowerCase()) {
+    throw new Error("claimant inventory does not match trusted finalized anchor");
+  }
+  if ((await reader.getBlock(deploymentBlock)).hash.toLowerCase() !==
+        history[0].block.hash.toLowerCase() ||
+      (await reader.getBlock(anchor.blockNumber)).hash.toLowerCase() !==
+        anchor.blockHash.toLowerCase() ||
+      await reader.getChainId() !== anchor.chainId) {
+    throw new Error("claimant source changed during history replay");
+  }
+  return inventory;
+}

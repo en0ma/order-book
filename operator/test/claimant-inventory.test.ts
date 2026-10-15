@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { replayClaimantInventory } from "../dist/claimant-inventory.js";
+import { replayClaimantInventory, discoverClaimantsAtAnchor } from "../dist/claimant-inventory.js";
 const hash = digit => "0x" + digit.repeat(64);
 const address = digit => "0x" + digit.repeat(40);
 const block = (number, digit, parentDigit) => ({
@@ -49,4 +49,37 @@ test("rejects undocumented events, absent accounts, mismatched hashes and duplic
     event(b, "Trade", { taker: address("3") }),
     event(b, "Trade", { taker: address("3") }),
   ])), /duplicate/);
+});
+
+test("anchor-pinned replay succeeds with authenticated contiguous history", async () => {
+  const byNumber = new Map(history.map(x => [x.block.number, x]));
+  const reader = {
+    getChainId: async () => 1,
+    getBlock: async n => byNumber.get(n).block,
+    getEvents: async b => byNumber.get(b.number).events,
+  };
+  const inventory = await discoverClaimantsAtAnchor(reader, 10, {
+    chainId: 1, blockNumber: 11, blockHash: b.hash,
+  });
+  assert.deepEqual(inventory.accounts, [address("1"), address("2")]);
+  await assert.rejects(discoverClaimantsAtAnchor(reader, 10, {
+    chainId: 1, blockNumber: 11, blockHash: hash("f"),
+  }), /trusted finalized anchor/);
+});
+test("anchor-pinned replay rejects wrong chain and changing canonical endpoints", async () => {
+  let calls = 0;
+  const reader = {
+    getChainId: async () => 1,
+    getBlock: async n => {
+      calls++;
+      return calls > 2 && n === 10 ? { ...a, hash: hash("d") } : n === 10 ? a : b;
+    },
+    getEvents: async blockRef => blockRef.number === 10 ? history[0].events : history[1].events,
+  };
+  await assert.rejects(discoverClaimantsAtAnchor(reader, 10, {
+    chainId: 2, blockNumber: 11, blockHash: b.hash,
+  }), /chain mismatch/);
+  await assert.rejects(discoverClaimantsAtAnchor(reader, 10, {
+    chainId: 1, blockNumber: 11, blockHash: b.hash,
+  }), /changed during history replay/);
 });
