@@ -103,3 +103,15 @@ test("collateral-lock events identify claimants even without deposits or trades"
     block: a, events: [event(a, "LockedCollateralUpdated", { previousLocked: 0n })],
   }]), /missing or invalid claimant address/);
 });
+
+test("deployment-scoped claimant replay rejects untrusted event emitters", async () => {
+  const { replayClaimantInventoryForDeployment } = await import("../dist/claimant-inventory.js");
+  assert.deepEqual(replayClaimantInventoryForDeployment(1, 10, history, [address("9")]).accounts,
+    [address("1"), address("2")]);
+  assert.throws(() => replayClaimantInventoryForDeployment(1, 10, history, [address("8")]),
+    /outside trusted deployment/);
+  assert.throws(() => replayClaimantInventoryForDeployment(1, 10, history, [address("9"), address("9")]),
+    /duplicate deployment contract/);
+  assert.throws(() => replayClaimantInventoryForDeployment(1, 10, history, []),
+    /independent deployment contract inventory/);
+});
