@@ -30,9 +30,9 @@ contract Issue203ClaimantRegistryTest is TestBase {
     }
 
     function test_MonotoneUniqueClaimantsThroughMakerAndTakerMutations() public {
-        assertEq(core.claimantCount(), 2, "initial deposit claimants missing");
-        assertTrue(core.claimantAt(0) == MAKER, "wrong maker claimant");
-        assertTrue(core.claimantAt(1) == TAKER, "wrong taker claimant");
+        assertEq(core.claimantRegistry().count(), 2, "initial deposit claimants missing");
+        assertTrue(core.claimantRegistry().at(0) == MAKER, "wrong maker claimant");
+        assertTrue(core.claimantRegistry().at(1) == TAKER, "wrong taker claimant");
 
         vm.prank(MAKER);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
@@ -40,16 +40,16 @@ contract Issue203ClaimantRegistryTest is TestBase {
         core.take(IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
         vm.prank(MAKER);
         core.settle(IOrderBookCore.Side.Ask, 100);
-        assertEq(core.claimantCount(), 2, "duplicate claimant after settlement");
-        assertTrue(core.claimantAt(0) == MAKER, "maker reordered");
-        assertTrue(core.claimantAt(1) == TAKER, "taker reordered");
+        assertEq(core.claimantRegistry().count(), 2, "duplicate claimant after settlement");
+        assertTrue(core.claimantRegistry().at(0) == MAKER, "maker reordered");
+        assertTrue(core.claimantRegistry().at(1) == TAKER, "taker reordered");
     }
 
     function testFuzz_DuplicateDepositsDoNotIncreaseRoster(uint96 amountSeed) public {
         uint256 amount = uint256(amountSeed) % 1000 + 1;
         vm.prank(MAKER);
         core.depositCollateral(amount);
-        assertEq(core.claimantCount(), 2, "duplicate deposit created claimant");
+        assertEq(core.claimantRegistry().count(), 2, "duplicate deposit created claimant");
     }
 
     function test_NewAccountAddsExactlyOneClaimant() public {
@@ -61,7 +61,7 @@ contract Issue203ClaimantRegistryTest is TestBase {
         core.depositCollateral(1000);
         vm.prank(newcomer);
         core.withdrawCollateral(1000);
-        assertEq(core.claimantCount(), 3, "withdrawal deleted historic claimant");
-        assertTrue(core.claimantAt(2) == newcomer, "claimant address incorrect");
+        assertEq(core.claimantRegistry().count(), 3, "withdrawal deleted historic claimant");
+        assertTrue(core.claimantRegistry().at(2) == newcomer, "claimant address incorrect");
     }
 }
