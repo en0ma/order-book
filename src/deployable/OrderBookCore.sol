@@ -1516,6 +1516,7 @@ contract OrderBookCore is IOrderBookCore {
         uint96 lots,
         bool expand
     ) internal {
+        _trackClaimant(account);
         AccountRisk storage a = accountRisk[account];
         int80 amount = _positionAmount(lots);
 
