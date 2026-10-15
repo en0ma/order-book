@@ -1389,13 +1389,13 @@ contract OrderBookCore is IOrderBookCore {
     ) internal {
         if (filledLots == 0) return;
 
+        uint256 notional = notionalValue(filledLots, tick);
         generationMakerFillBudget[side][tick][generation] -= filledLots;
         pendingMakerTradeCashflow += side == Side.Bid
-            ? int256(notionalValue(filledLots, tick)) : -int256(notionalValue(filledLots, tick));
+            ? int256(notional) : -int256(notional);
         generationMakerFundingEntryBudget[side][tick][generation] -= entryFunding;
         pendingMakerFundingEntry -= entryFunding;
 
-        uint256 notional = notionalValue(filledLots, tick);
         uint256 requestedMakerRebate =
             notional * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
         TickPool storage p = pools[side][tick];
@@ -1447,9 +1447,10 @@ contract OrderBookCore is IOrderBookCore {
             generationMakerFundingEntryBudget[side][tick][generation];
         if (tail == 0 && entryFunding == 0) return 0;
 
+        uint256 notional = notionalValue(tail, tick);
         generationMakerFillBudget[side][tick][generation] = 0;
         pendingMakerTradeCashflow += side == Side.Bid
-            ? int256(notionalValue(tail, tick)) : -int256(notionalValue(tail, tick));
+            ? int256(notional) : -int256(notional);
         generationMakerFundingEntryBudget[side][tick][generation] = 0;
         pendingMakerFundingEntry -= entryFunding;
 
@@ -1460,7 +1461,7 @@ contract OrderBookCore is IOrderBookCore {
 
         if (tail != 0) {
             _applyMakerPositionCashflow(
-                maker, side, tail, notionalValue(tail, tick), 0, true
+                maker, side, tail, notional, 0, true
             );
             emit MakerSettled(maker, side, tick, tail, generation);
         }
