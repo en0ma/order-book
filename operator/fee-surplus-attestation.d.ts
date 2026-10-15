@@ -1,3 +1,4 @@
+import type { ClaimantInventory } from "./claimant-inventory.js";
 export interface FeeSurplusSnapshot {
   chainId: number;
   blockNumber: number;
@@ -10,6 +11,8 @@ export interface FeeSurplusSnapshot {
   pendingMakerRebates: bigint;
   unpricedOrUnsettledLiabilities: bigint;
   badDebtExposure: bigint;
+  completeLiabilityInventory: boolean;
+  custodyDomainsReconciled: boolean;
 }
 export interface FeeSurplusCertificate {
   chainId: number;
@@ -20,3 +23,42 @@ export interface FeeSurplusCertificate {
   candidateDistributableFees: bigint;
 }
 export declare function attestFeeSurplus(snapshot: FeeSurplusSnapshot): FeeSurplusCertificate;
+
+export interface AccountLiabilityEntry {
+  account: string;
+  settledCashClaim: bigint;
+  portfolioClaim: bigint;
+}
+export declare function attestFeeSurplusFromAccounts(
+  snapshot: FeeSurplusSnapshot,
+  accounts: readonly AccountLiabilityEntry[],
+): FeeSurplusCertificate;
+
+/** Diagnostic roster cross-check only: caller must prove expectedAccounts exhaustive. */
+export declare function attestFeeSurplusAgainstExpectedAccounts(
+  snapshot: FeeSurplusSnapshot,
+  accounts: readonly AccountLiabilityEntry[],
+  expectedAccounts: readonly string[],
+): FeeSurplusCertificate;
+
+/** Diagnostic only; history log completeness and liabilities are not proven. */
+export declare function attestFeeSurplusFromDiscoveredClaimants(
+  snapshot: FeeSurplusSnapshot,
+  accounts: readonly AccountLiabilityEntry[],
+  inventory: ClaimantInventory,
+): FeeSurplusCertificate;
+
+/** Reader must independently authenticate the historical state and block identity. */
+export interface BlockPinnedClaimReader {
+  getChainId(): Promise<number>;
+  getBlockHash(blockNumber: number): Promise<string>;
+  readClaims(
+    account: string, blockNumber: number, blockHash: string,
+  ): Promise<{ settledCashClaim: bigint; portfolioClaim: bigint }>;
+}
+/** Diagnostic only. Does not authorize a treasury transfer. */
+export declare function attestFeeSurplusFromPinnedState(
+  snapshot: FeeSurplusSnapshot,
+  inventory: ClaimantInventory,
+  reader: BlockPinnedClaimReader,
+): Promise<FeeSurplusCertificate>;

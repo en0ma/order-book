@@ -7,6 +7,7 @@ import {LiquidationPolicy} from "./LiquidationPolicy.sol";
 
 interface IStrategyLiquidationCleanup {
     function liquidationCleanup(address account, uint64[] calldata strategyIds) external;
+    function activeStrategyCount(address account) external view returns (uint32);
 }
 
 /// @title LiquidationModule
@@ -16,6 +17,7 @@ contract LiquidationModule {
     error InvalidLiquidationConfig();
     error NotLiquidatable();
     error UnsettledOrders();
+    error InvalidLiquidationFill();
 
     IOrderBookCore public immutable core;
     ILiquidationGateway public immutable gateway;
@@ -126,6 +128,17 @@ contract LiquidationModule {
             );
         }
 
+        // Never begin matching while any maker, advanced or strategy orders
+        // survive the supplied cleanup. Any unreadable inventory fails closed.
+        if (
+            core.activeQuoteCount(account) != 0
+                || gateway.activeAdvancedOrders(account) != 0
+        ) revert UnsettledOrders();
+        if (
+            strategy != address(0)
+                && IStrategyLiquidationCleanup(strategy).activeStrategyCount(account) != 0
+        ) revert UnsettledOrders();
+
         closedLots = _liquidatePosition(account, msg.sender);
     }
 
@@ -154,6 +167,20 @@ contract LiquidationModule {
             );
         } else {
             revert NotLiquidatable();
+        }
+
+        // The gateway is a separate module: validate its accounting against
+        // the authoritative Core, including the direction of the reduction.
+        (int80 positionAfter,,) = core.accountRisk(account);
+        uint96 requestedLots = position > 0
+            ? uint96(uint80(position))
+            : uint96(uint256(-int256(position)));
+        int256 expected = int256(position)
+            + (position > 0
+                ? -int256(uint256(closedLots))
+                : int256(uint256(closedLots)));
+        if (closedLots > requestedLots || int256(positionAfter) != expected) {
+            revert InvalidLiquidationFill();
         }
 
         emit Liquidated(liquidator, account, closedLots, equityBefore);

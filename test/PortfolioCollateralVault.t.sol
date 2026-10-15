@@ -195,6 +195,28 @@ contract PortfolioCollateralVaultTest is TestBase {
         );
     }
 
+    function testFuzz_ManagedVaultNeverSweepsUnaccountedProfitsOrDonations(uint96 seed) public {
+        vm.prank(ALICE);
+        vault.deposit(100 ether);
+        vault.configureController(CONTROLLER);
+
+        uint256 donated = uint256(seed) % (100 ether) + 1;
+        token.mint(address(vault), donated);
+        assertEq(vault.excessTokenBalance(), donated, "fixture has no apparent excess");
+
+        uint256 beforeCustody = token.balanceOf(address(vault));
+        uint256 beforeTreasury = token.balanceOf(TREASURY);
+        uint256 beforeAccounted = vault.totalAccountedCollateral();
+        (bool ok,) = address(vault).call(
+            abi.encodeCall(vault.sweepExcess, (TREASURY, donated))
+        );
+        assertTrue(!ok, "managed vault swept potential user profits");
+        assertEq(token.balanceOf(address(vault)), beforeCustody, "failed sweep moved custody");
+        assertEq(token.balanceOf(TREASURY), beforeTreasury, "treasury received unproved surplus");
+        assertEq(vault.totalAccountedCollateral(), beforeAccounted, "failed sweep moved liabilities");
+        assertEq(vault.collateralClaim(ALICE), int256(100 ether), "user claim changed");
+    }
+
     function testFuzz_LockUnlockWithdrawNeverBreaksBacking(
         uint96 depositSeed,
         uint96 lockSeed,

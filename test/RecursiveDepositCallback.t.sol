@@ -124,7 +124,7 @@ contract RecursiveDepositVaultTest is TestBase {
     function testRecursiveDepositRevertsWithoutDoubleCredit() public {
         (bool ok, bytes memory reason) = address(actor).call(abi.encodeCall(actor.depositWithCallback, (100, false)));
         assertTrue(!ok, "recursive vault deposit unexpectedly succeeded");
-        assertTrue(keccak256(reason) == keccak256(abi.encodeWithSelector(PortfolioCollateralVault.UnsupportedTokenBehavior.selector)), "unexpected revert reason");
+        assertTrue(keccak256(reason) == keccak256(abi.encodeWithSignature("Error(string)", "nested operation failed")), "unexpected revert reason");
         assertEq(token.balanceOf(address(actor)), 200, "actor tokens moved");
         assertEq(token.balanceOf(address(vault)), 300, "sponsor custody changed");
         assertEq(vault.balanceOf(address(actor)), 0, "account gained credit");

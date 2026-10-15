@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attestFeeSurplus } from "../dist/fee-surplus-attestation.js";
+import { attestFeeSurplus, attestFeeSurplusFromAccounts, attestFeeSurplusAgainstExpectedAccounts, attestFeeSurplusFromDiscoveredClaimants, attestFeeSurplusFromPinnedState } from "../dist/fee-surplus-attestation.js";
 
 const hash = "0x" + "a".repeat(64);
 const base = {
@@ -13,6 +13,8 @@ const base = {
   pendingMakerRebates: 30n,
   unpricedOrUnsettledLiabilities: 10n,
   badDebtExposure: 10n,
+  completeLiabilityInventory: true,
+  custodyDomainsReconciled: true,
 };
 test("surplus attestation reserves every declared liability before computing candidate", () => {
   const cert = attestFeeSurplus(base);
@@ -36,4 +38,128 @@ test("maker rebates, unpriced positions and bad debt reduce the attested bound",
   assert.equal(higher.candidateDistributableFees, 20n);
   assert.equal(attestFeeSurplus({ ...base, unpricedOrUnsettledLiabilities: 50n }).candidateDistributableFees, 0n);
   assert.equal(attestFeeSurplus({ ...base, badDebtExposure: 50n }).candidateDistributableFees, 0n);
+});
+
+test("fails closed when liability enumeration or custody-domain proof is absent", () => {
+  assert.throws(() => attestFeeSurplus({ ...base, completeLiabilityInventory: false }), /unverified complete/);
+  assert.throws(() => attestFeeSurplus({ ...base, custodyDomainsReconciled: false }), /unverified complete/);
+  assert.throws(() => attestFeeSurplus({ ...base, completeLiabilityInventory: undefined }), /unverified complete/);
+  assert.throws(() => attestFeeSurplus({ ...base, custodyDomainsReconciled: undefined }), /unverified complete/);
+  // Surplus arithmetic alone, even with huge physical custody, cannot certify completeness.
+  assert.throws(() => attestFeeSurplus({
+    ...base, custodyTokenBalance: 1_000_000n, completeLiabilityInventory: false,
+  }), /unverified complete/);
+});
+
+const account = hex => "0x" + hex.repeat(40);
+test("account-level settlement claims match certified positive aggregates", () => {
+  const entries = [
+    { account: account("1"), settledCashClaim: 125n, portfolioClaim: 70n },
+    { account: account("2"), settledCashClaim: -25n, portfolioClaim: -90n },
+    { account: account("3"), settledCashClaim: 25n, portfolioClaim: 10n },
+  ];
+  const snapshot = {
+    ...base,
+    positiveSettledAccountClaims: 150n,
+    outstandingPortfolioClaims: 80n,
+    custodyTokenBalance: 450n,
+  };
+  const cert = attestFeeSurplusFromAccounts(snapshot, entries);
+  assert.equal(cert.totalReserved, 340n);
+  assert.equal(cert.candidateDistributableFees, 40n);
+  assert.throws(() => attestFeeSurplusFromAccounts({
+    ...snapshot, positiveSettledAccountClaims: 125n,
+  }, entries), /differ from declared aggregates/);
+  assert.throws(() => attestFeeSurplusFromAccounts({
+    ...snapshot, outstandingPortfolioClaims: 0n,
+  }, entries), /differ from declared aggregates/);
+  assert.throws(() => attestFeeSurplusFromAccounts(snapshot, entries.slice(0, 2)),
+    /differ from declared aggregates/);
+  assert.throws(() => attestFeeSurplusFromAccounts(snapshot, [entries[1], entries[0], entries[2]]),
+    /sorted and unique/);
+  assert.throws(() => attestFeeSurplusFromAccounts(snapshot, [entries[0], entries[0], entries[2]]),
+    /sorted and unique/);
+  assert.throws(() => attestFeeSurplusFromAccounts(snapshot, []), /nonempty claimant/);
+  assert.throws(() => attestFeeSurplusFromAccounts(snapshot, [{
+    ...entries[0], settledCashClaim: Number(125),
+  }]), /invalid account liability/);
+  assert.throws(() => attestFeeSurplusFromAccounts({
+    ...snapshot, completeLiabilityInventory: false,
+  }, entries), /unverified complete/);
+});
+
+test("independent roster detects claimant omitted from both submitted inventory and aggregates", () => {
+  const actual = [
+    { account: account("1"), settledCashClaim: 100n, portfolioClaim: 50n },
+    { account: account("2"), settledCashClaim: 900n, portfolioClaim: 300n },
+  ];
+  const forged = { ...base, custodyTokenBalance: 300n };
+  const supplied = [actual[0]];
+  // The existing aggregate arithmetic cannot catch the missing account.
+  assert.equal(attestFeeSurplusFromAccounts(forged, supplied).totalReserved, 260n);
+  assert.throws(() => attestFeeSurplusAgainstExpectedAccounts(
+    forged, supplied, actual.map(x => x.account),
+  ), /differs from independent roster/);
+  assert.throws(() => attestFeeSurplusAgainstExpectedAccounts(
+    { ...forged, positiveSettledAccountClaims: 1000n, outstandingPortfolioClaims: 350n },
+    actual, actual.map(x => x.account),
+  ), /insufficient custody/);
+  assert.throws(() => attestFeeSurplusAgainstExpectedAccounts(
+    forged, supplied, [],
+  ), /independent claimant roster required/);
+  assert.throws(() => attestFeeSurplusAgainstExpectedAccounts(
+    forged, supplied, [account("1"), account("1")],
+  ), /differs from independent roster|sorted and unique/);
+  const passing = attestFeeSurplusAgainstExpectedAccounts(
+    forged, supplied, [account("1").toUpperCase().replace("0X", "0x")],
+  );
+  assert.equal(passing.totalReserved, 260n);
+});
+
+test("history claimant inventory must match the snapshot block and every reported claimant", () => {
+  const inventory = {
+    chainId: 1, deploymentBlock: 10, blockNumber: 42, blockHash: hash,
+    accounts: [account("1"), account("2")], eventCount: 4,
+  };
+  const entries = [
+    { account: account("1"), settledCashClaim: 100n, portfolioClaim: 50n },
+    { account: account("2"), settledCashClaim: 0n, portfolioClaim: 0n },
+  ];
+  assert.equal(attestFeeSurplusFromDiscoveredClaimants(base, entries, inventory).totalReserved, 260n);
+  assert.throws(() => attestFeeSurplusFromDiscoveredClaimants(base, entries.slice(0, 1), inventory), /differs from independent roster/);
+  assert.throws(() => attestFeeSurplusFromDiscoveredClaimants(base, entries, { ...inventory, blockNumber: 41 }), /block mismatch/);
+  assert.throws(() => attestFeeSurplusFromDiscoveredClaimants(base, entries, { ...inventory, blockHash: "0x" + "b".repeat(64) }), /block mismatch/);
+  assert.throws(() => attestFeeSurplusFromDiscoveredClaimants(base, entries, { ...inventory, chainId: 2 }), /block mismatch/);
+  assert.throws(() => attestFeeSurplusFromDiscoveredClaimants(base, entries, { ...inventory, eventCount: 0 }), /block mismatch/);
+});
+
+test("block-pinned reads reject understated, missing and stale account liabilities", async () => {
+  const inventory = {
+    chainId: 1, deploymentBlock: 10, blockNumber: 42, blockHash: hash,
+    accounts: [account("1"), account("2")], eventCount: 3,
+  };
+  const amounts = new Map([
+    [account("1"), { settledCashClaim: 100n, portfolioClaim: 50n }],
+    [account("2"), { settledCashClaim: 0n, portfolioClaim: 0n }],
+  ]);
+  const makeReader = () => ({
+    getChainId: async () => 1,
+    getBlockHash: async () => hash,
+    readClaims: async address => amounts.get(address),
+  });
+  assert.equal((await attestFeeSurplusFromPinnedState(base, inventory, makeReader())).totalReserved, 260n);
+  amounts.set(account("2"), { settledCashClaim: 500n, portfolioClaim: 0n });
+  await assert.rejects(attestFeeSurplusFromPinnedState(base, inventory, makeReader()), /differ from declared aggregates/);
+  amounts.delete(account("2"));
+  await assert.rejects(attestFeeSurplusFromPinnedState(base, inventory, makeReader()), /invalid block-pinned/);
+  let reads = 0;
+  const switching = {
+    ...makeReader(),
+    getBlockHash: async () => ++reads === 1 ? hash : "0x" + "b".repeat(64),
+    readClaims: async () => ({ settledCashClaim: 0n, portfolioClaim: 0n }),
+  };
+  await assert.rejects(attestFeeSurplusFromPinnedState(base, inventory, switching), /canonical block identity changed/);
+  await assert.rejects(attestFeeSurplusFromPinnedState(base, inventory, {
+    ...makeReader(), getChainId: async () => 2,
+  }), /canonical block identity changed/);
 });

@@ -13,6 +13,7 @@ const base = {
   insuranceReserves: 100n, accruedProtocolFees: 100n,
   pendingMakerRebates: 100n, unpricedOrUnsettledLiabilities: 50n,
   badDebtExposure: 50n,
+  completeLiabilityInventory: true, custodyDomainsReconciled: true,
 };
 test("reconciles two distinct custody domains without treating markets as separate vault balances", () => {
   const report = reconcileCustodyDomains([base, {

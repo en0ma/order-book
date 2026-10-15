@@ -11,7 +11,12 @@ together with **eight independently sourced integer amounts**: physical custody,
 positive settled account claims, outstanding portfolio claims, insurance reserves,
 accrued fees, pending maker rebates, other unpriced/unsettled liabilities and
 bad-debt exposure. It rejects missing, negative or non-integer amounts, missing
-block provenance and underbacked snapshots. It conservatively reserves every
+block provenance and underbacked snapshots. It now also requires explicit
+`completeLiabilityInventory: true` and `custodyDomainsReconciled: true` claims;
+missing or false values fail closed even when the physical balance is large.
+These claims are **not cryptographic or independently checked evidence**. They
+must be substantiated by an external canonical-block replay and independent
+custody-domain roster. A self-asserted `true` cannot enable a payout. It conservatively reserves every
 declared liability and caps its `candidateDistributableFees` by both accrued
 fees and custody beyond those liabilities.
 
@@ -48,3 +53,36 @@ current at the attested canonical block, especially after deployments or market
 migrations. A correct roster and complete liability inventory are separate
 claims; this check does not independently enumerate accounts or prove fee
 distributability. It never transfers funds.
+
+
+### Account-level liability reconciliation
+
+The optional `attestFeeSurplusFromAccounts(snapshot, accounts)` cross-checks
+positive settled and portfolio claims from strictly sorted, unique account
+addresses against the aggregate liabilities declared in the snapshot. Negative
+account claims are **not** netted against independent positive claims. Empty,
+repeated, unordered, malformed, missing-account (when totals diverge), or
+incorrectly summed entries fail closed.
+
+This protects against incorrect arithmetic and some incomplete inputs, but
+**cannot discover a claimant omitted from both the roster and declared aggregate**.
+Independent finalized-block event replay, on-chain state checks, settlement and
+funding reconciliation, and proof of full market/domain membership remain required.
+It is not a treasury withdrawal authorization.
+
+
+### Managed-vault excess sweep is disabled
+
+A controller-managed `PortfolioCollateralVault` now rejects `sweepExcess`
+even when the ERC-20 balance exceeds `totalAccountedCollateral`.
+The apparent difference can be subject to uncrystallized portfolio trading,
+funding, or maker claims. It is **not** a verified treasury surplus.
+Standalone unconfigured vaults retain the original donation-only excess
+sweep, which is constrained by their recorded deposits.
+
+Neither an operator-produced fee certificate nor a passing snapshot
+diagnostic enables treasury extraction. A future fee-distribution mechanism
+would require separate exhaustive liability enumeration, finalized-block
+settlement/funding reconciliation, audited on-chain solvency enforcement,
+and independent review. Until then, managed-vault owner extraction remains
+unconditionally unavailable.

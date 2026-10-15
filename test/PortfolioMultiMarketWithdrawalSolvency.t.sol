@@ -208,6 +208,41 @@ contract PortfolioMultiMarketWithdrawalSolvencyTest is TestBase {
         assertEq(token.balanceOf(address(second)), 0, "second Core obtained shared tokens");
     }
 
+    function testFuzz_TerminalCrossMarketDebtCannotDrainSharedVault(
+        uint16 markSeed, uint16 withdrawSeed
+    ) public {
+        // Both genuine Core positions remain open while oracle marks collapse.
+        // Neither uncovered bad debt nor apparent portfolio exposure can mint
+        // spendable token custody for a distressed account.
+        uint16 distressedMark = uint16(uint256(markSeed) % 20 + 1);
+        firstMark.setMarkTick(distressedMark);
+        secondMark.setMarkTick(distressedMark);
+        assertTrue(policy.portfolioEquity(TRADER) < 0, "fixture unexpectedly solvent");
+
+        uint256 custodyBefore = token.balanceOf(address(vault));
+        uint256 accountedBefore = vault.totalAccountedCollateral();
+        uint256 claimBefore = vault.balanceOf(TRADER);
+        int256 equityBefore = policy.portfolioEquity(TRADER);
+
+        (bool covered,) = address(coordinator).call(
+            abi.encodeCall(coordinator.coverBadDebt, (TRADER))
+        );
+        assertTrue(!covered, "insurance covered a still-open market exposure");
+
+        vm.prank(TRADER);
+        (bool withdrawn,) = address(coordinator).call(
+            abi.encodeCall(coordinator.withdraw, (uint256(withdrawSeed) + 1))
+        );
+        assertTrue(!withdrawn, "terminal account withdrew against shared collateral");
+
+        assertEq(token.balanceOf(address(vault)), custodyBefore, "terminal risk moved tokens");
+        assertEq(vault.totalAccountedCollateral(), accountedBefore, "terminal risk changed backing");
+        assertEq(vault.balanceOf(TRADER), claimBefore, "terminal risk changed user claim");
+        assertEq(policy.portfolioEquity(TRADER), equityBefore, "failed operations changed equity");
+        assertEq(token.balanceOf(address(first)), 0, "first Core received custody");
+        assertEq(token.balanceOf(address(second)), 0, "second Core received custody");
+    }
+
     function _deposit(address who, uint256 amount) internal {
         token.mint(who, amount);
         vm.prank(who);
