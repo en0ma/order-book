@@ -1,0 +1,19 @@
+import type { BlockRef, NormalizedEvent } from "./index.js";
+export interface ClaimantHistoryBlock {
+  block: BlockRef;
+  events: readonly NormalizedEvent[];
+}
+export interface ClaimantInventory {
+  chainId: number;
+  deploymentBlock: number;
+  blockNumber: number;
+  blockHash: string;
+  accounts: readonly string[];
+  eventCount: number;
+}
+/** Diagnostic only. Caller must prove complete ABI and finalized history coverage. */
+export declare function replayClaimantInventory(
+  chainId: number,
+  deploymentBlock: number,
+  history: readonly ClaimantHistoryBlock[],
+): ClaimantInventory;
