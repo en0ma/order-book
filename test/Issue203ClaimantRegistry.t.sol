@@ -64,4 +64,17 @@ contract Issue203ClaimantRegistryTest is TestBase {
         assertEq(core.claimantRegistry().count(), 3, "withdrawal deleted historic claimant");
         assertTrue(core.claimantRegistry().at(2) == newcomer, "claimant address incorrect");
     }
+    function test_RegistryIsBoundToCoreAndCannotBeForged() public {
+        assertTrue(core.claimantRegistry().registrar() == address(core), "wrong claimant registrar");
+        uint256 beforeCount = core.claimantRegistry().count();
+        address outsider = address(0xBAD);
+        vm.prank(outsider);
+        (bool forged,) = address(core.claimantRegistry()).call(
+            abi.encodeCall(core.claimantRegistry().record, (address(0xCAFE)))
+        );
+        assertTrue(!forged, "outsider registered a nonexistent claimant");
+        assertEq(core.claimantRegistry().count(), beforeCount, "forgery changed claimant inventory");
+    }
+
+
 }
