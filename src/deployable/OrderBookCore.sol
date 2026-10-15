@@ -38,6 +38,7 @@ contract OrderBookCore is IOrderBookCore {
         int128 fundingCheckpointX18;
         uint32 activeQuoteCount;
         uint16 riskCeilingTick;
+        bool claimantRegistered;
     }
 
     struct ModuleLock {
@@ -83,7 +84,6 @@ contract OrderBookCore is IOrderBookCore {
 
     // Append-only on-chain claimant roster; never dependent on RPC event coverage.
     address[] internal _claimants;
-    mapping(address => bool) internal _claimantRecorded;
     mapping(address => uint256) internal collateralBalance;
     uint256 internal totalLocalCollateral;
     mapping(address => uint256) internal reservedMargin;
@@ -313,8 +313,8 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _trackClaimant(address account) internal {
-        if (!_claimantRecorded[account]) {
-            _claimantRecorded[account] = true;
+        if (!_accountMeta[account].claimantRegistered) {
+            _accountMeta[account].claimantRegistered = true;
             _claimants.push(account);
         }
     }
