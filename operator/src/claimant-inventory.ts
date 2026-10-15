@@ -159,3 +159,38 @@ export async function discoverClaimantsAtAnchor(
   }
   return inventory;
 }
+
+/**
+ * Deployment-scoped claimant discovery. Contract allowlist provenance and
+ * complete historical log coverage must be independently authenticated.
+ */
+export function replayClaimantInventoryForDeployment(
+  chainId: number,
+  deploymentBlock: number,
+  history: readonly ClaimantHistoryBlock[],
+  trustedContracts: readonly string[],
+): ClaimantInventory {
+  if (!Array.isArray(trustedContracts) || trustedContracts.length === 0) {
+    throw new Error("independent deployment contract inventory required");
+  }
+  const allowed = new Set<string>();
+  for (const contract of trustedContracts) {
+    if (typeof contract !== "string" || !address.test(contract)) {
+      throw new Error("invalid deployment contract");
+    }
+    const normalized = contract.toLowerCase();
+    if (allowed.has(normalized)) throw new Error("duplicate deployment contract");
+    allowed.add(normalized);
+  }
+  if (!Array.isArray(history)) throw new Error("invalid claimant history");
+  for (const part of history) {
+    if (!part || !Array.isArray(part.events)) throw new Error("invalid claimant history");
+    for (const event of part.events) {
+      if (!event || typeof event.address !== "string" ||
+          !allowed.has(event.address.toLowerCase())) {
+        throw new Error("claimant event outside trusted deployment");
+      }
+    }
+  }
+  return replayClaimantInventory(chainId, deploymentBlock, history);
+}
