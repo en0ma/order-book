@@ -35,6 +35,7 @@ const claimantField: Readonly<Record<string, string>> = {
   Withdrawn: "account",
   PortfolioWithdrawn: "account",
   PortfolioLockSynchronized: "account",
+  LockedCollateralUpdated: "account",
 };
 
 /** Known system events without a claimant; classification is NOT proof that no liability exists. */
@@ -43,7 +44,7 @@ const classifiedSystemEvents = new Set([
   "LiquidationRewardPaid", "FundingIndexUpdated",
   "AccountingUnitScaleConfigured", "OwnershipTransferred",
   "AdvancedModuleConfigured", "FundingUpdaterChanged",
-  "ControllerConfigured", "LockedCollateralUpdated",
+  "ControllerConfigured",
 ]);
 
 export function replayClaimantInventory(

@@ -92,3 +92,14 @@ test("explicit non-claimant protocol events do not block discovery", () => {
   assert.deepEqual(result.accounts, [address("1"), address("2")]);
   assert.equal(result.eventCount, 4);
 });
+
+test("collateral-lock events identify claimants even without deposits or trades", () => {
+  const onlyLock = [{ block: a, events: [
+    event(a, "LockedCollateralUpdated", { account: address("4"),
+      previousLocked: 0n, nextLocked: 1n }),
+  ] }];
+  assert.deepEqual(replayClaimantInventory(1, 10, onlyLock).accounts, [address("4")]);
+  assert.throws(() => replayClaimantInventory(1, 10, [{
+    block: a, events: [event(a, "LockedCollateralUpdated", { previousLocked: 0n })],
+  }]), /missing or invalid claimant address/);
+});
