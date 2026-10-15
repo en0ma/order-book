@@ -34,3 +34,10 @@ export declare function discoverClaimantsAtAnchor(
   deploymentBlock: number,
   anchor: FinalizedClaimantAnchor,
 ): Promise<ClaimantInventory>;
+
+/** Diagnostic only: trustedContracts require independently verified provenance. */
+export declare function replayClaimantInventoryForDeployment(
+  chainId: number, deploymentBlock: number,
+  history: readonly ClaimantHistoryBlock[],
+  trustedContracts: readonly string[],
+): ClaimantInventory;
