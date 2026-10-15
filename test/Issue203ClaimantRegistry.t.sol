@@ -19,14 +19,14 @@ contract Issue203ClaimantRegistryTest is TestBase {
         core = new OrderBookCore(address(token), address(new MockMarkOracle(100)), 30, 1000, 100, 0);
         token.mint(MAKER, 100000);
         token.mint(TAKER, 100000);
-        vm.startPrank(MAKER);
+        vm.prank(MAKER);
         token.approve(address(core), type(uint256).max);
+        vm.prank(MAKER);
         core.depositCollateral(50000);
-        vm.stopPrank();
-        vm.startPrank(TAKER);
+        vm.prank(TAKER);
         token.approve(address(core), type(uint256).max);
+        vm.prank(TAKER);
         core.depositCollateral(50000);
-        vm.stopPrank();
     }
 
     function test_MonotoneUniqueClaimantsThroughMakerAndTakerMutations() public {
@@ -55,11 +55,12 @@ contract Issue203ClaimantRegistryTest is TestBase {
     function test_NewAccountAddsExactlyOneClaimant() public {
         address newcomer = address(0xCAFE);
         token.mint(newcomer, 1000);
-        vm.startPrank(newcomer);
+        vm.prank(newcomer);
         token.approve(address(core), 1000);
+        vm.prank(newcomer);
         core.depositCollateral(1000);
+        vm.prank(newcomer);
         core.withdrawCollateral(1000);
-        vm.stopPrank();
         assertEq(core.claimantCount(), 3, "withdrawal deleted historic claimant");
         assertEq(core.claimantAt(2), newcomer, "claimant address incorrect");
     }
