@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IERC20Minimal} from "../interfaces/IERC20Minimal.sol";
+import {ClaimantRegistry} from "./ClaimantRegistry.sol";
 
 /// @title PortfolioCollateralVault
 /// @notice Shared ERC-20 custody for portfolio-margin deployments.
@@ -38,7 +39,7 @@ contract PortfolioCollateralVault {
 
     // Independently enumerable custody claimants, including accounts with
     // zero current balances following withdrawal or realized profit payment.
-    address[] internal _custodyClaimants;
+    ClaimantRegistry public immutable custodyClaimantRegistry;
     mapping(address => bool) internal _custodyClaimantRecorded;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
@@ -61,6 +62,7 @@ contract PortfolioCollateralVault {
         if (collateralToken_ == address(0)) revert TokenTransferFailed();
         collateralToken = IERC20Minimal(collateralToken_);
         owner = msg.sender;
+        custodyClaimantRegistry = new ClaimantRegistry();
     }
 
     modifier onlyOwner() {
@@ -87,18 +89,10 @@ contract PortfolioCollateralVault {
         emit ControllerConfigured(controller_);
     }
 
-    function custodyClaimantCount() external view returns (uint256) {
-        return _custodyClaimants.length;
-    }
-
-    function custodyClaimantAt(uint256 index) external view returns (address) {
-        return _custodyClaimants[index];
-    }
-
     function _trackCustodyClaimant(address account) internal {
         if (!_custodyClaimantRecorded[account]) {
             _custodyClaimantRecorded[account] = true;
-            _custodyClaimants.push(account);
+            custodyClaimantRegistry.record(account);
         }
     }
 
