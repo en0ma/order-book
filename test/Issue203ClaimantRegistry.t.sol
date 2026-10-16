@@ -14,7 +14,7 @@ contract Issue203ClaimantRegistryTest is TestBase {
     MockERC20 internal token;
     OrderBookCore internal core;
 
-    function setUp() public {
+    function setUp() public virtual {
         token = new MockERC20();
         core = new OrderBookCore(address(token), address(new MockMarkOracle(100)), 30, 1000, 100, 0);
         token.mint(MAKER, 100000);
