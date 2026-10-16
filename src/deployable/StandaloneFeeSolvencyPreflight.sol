@@ -36,20 +36,7 @@ contract StandaloneFeeSolvencyPreflight {
         if (count > MAX_CLAIMANTS_PER_PROOF) revert TooManyClaimants();
 
         for (uint256 i; i < count; ++i) {
-            address claimant = roster.at(i);
-            (int80 position, int80 minPosition, int80 maxPosition) =
-                core.accountRisk(claimant);
-
-            address advanced = core.advancedModule();
-            if (
-                position != 0 || minPosition != 0 || maxPosition != 0
-                    || core.activeQuoteCount(claimant) != 0
-                    || (advanced != address(0)
-                        && IActiveFeeProofOrders(advanced).activeAdvancedOrders(claimant) != 0)
-            ) revert UnsettledExposure();
-
-            int256 cash = core.accountEquity(claimant);
-            if (cash > 0) positiveAccountClaims += uint256(cash);
+            positiveAccountClaims += _positiveFlatClaim(core, roster.at(i));
         }
 
         protectedReserves = positiveAccountClaims + core.insuranceReserves();
@@ -61,4 +48,21 @@ contract StandaloneFeeSolvencyPreflight {
         uint256 accrued = core.protocolFeesAccrued();
         capacity = accrued < unencumbered ? accrued : unencumbered;
     }
+    function _positiveFlatClaim(OrderBookCore core, address claimant)
+        internal
+        view
+        returns (uint256)
+    {
+        (int80 position, int80 minPosition, int80 maxPosition) = core.accountRisk(claimant);
+        if (position != 0 || minPosition != 0 || maxPosition != 0
+            || core.activeQuoteCount(claimant) != 0) revert UnsettledExposure();
+        address advanced = core.advancedModule();
+        if (advanced != address(0)
+            && IActiveFeeProofOrders(advanced).activeAdvancedOrders(claimant) != 0) {
+            revert UnsettledExposure();
+        }
+        int256 cash = core.accountEquity(claimant);
+        return cash > 0 ? uint256(cash) : 0;
+    }
+
 }
