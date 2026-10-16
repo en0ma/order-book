@@ -104,4 +104,35 @@ contract Issue203StandaloneSolvencyPreflightTest is TestBase {
             "physical ERC20 conservation failed");
     }
 
+    function test_PermissionlessTokenDrainCannotManufactureFeeCapacity() public {
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        vm.prank(MAKER);
+        core.settle(IOrderBookCore.Side.Ask, 100);
+
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 100, 100);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Ask, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        vm.prank(MAKER);
+        core.settle(IOrderBookCore.Side.Bid, 100);
+
+        (uint256 initiallyAvailable,,) = proof.conservativeCapacity(core);
+        assertEq(initiallyAvailable, 200, "initial fee claim not backed");
+
+        // Simulate collateral loss from an adversarial token/custody event.
+        // A live ERC20 cannot be presumed honest solely from the fee ledger.
+        vm.prank(address(core));
+        token.transfer(address(0xBAD), 201);
+        (uint256 remainingCapacity, uint256 claims, uint256 reserved) =
+            proof.conservativeCapacity(core);
+        assertEq(remainingCapacity, 0, "insolvent custody still authorized fees");
+        assertEq(claims, 99800, "token loss incorrectly destroyed account claims");
+        assertEq(reserved, 99800, "protected obligations silently reduced");
+        assertTrue(token.balanceOf(address(core)) < reserved,
+            "physical custody loss failed to trigger insolvency");
+    }
+
 }
