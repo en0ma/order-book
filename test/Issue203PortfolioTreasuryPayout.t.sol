@@ -50,6 +50,7 @@ contract Issue203PortfolioTreasuryPayoutTest is PortfolioTwoMarketFeeIsolationTe
         assertEq(core1.protocolFeesAccrued(), 240, "second market fee debit incorrect");
         assertEq(vault.totalAccountedCollateral(), 129800,
             "shared vault accounting not adjusted for paid fees");
+        assertEq(vault.totalProtocolFeesPaid(), 200, "partial cumulative protocol payout wrong");
 
         coordinator.setFeeDistributionEnabled(false);
         (bool paused,) = address(coordinator).call(
@@ -65,6 +66,7 @@ contract Issue203PortfolioTreasuryPayoutTest is PortfolioTwoMarketFeeIsolationTe
         assertEq(core1.protocolFeesAccrued(), 0, "second fee ledger not exhausted");
         assertEq(token.balanceOf(address(vault)), 129500, "protected vault backing spent");
         assertEq(vault.totalAccountedCollateral(), 129500, "accounted custody mismatch");
+        assertEq(vault.totalProtocolFeesPaid(), 500, "cumulative protocol payout wrong");
 
         (bool replay,) = address(coordinator).call(
             abi.encodeCall(coordinator.withdrawPortfolioProtocolFees, (_amounts(1, 0)))
@@ -85,6 +87,7 @@ contract Issue203PortfolioTreasuryPayoutTest is PortfolioTwoMarketFeeIsolationTe
         assertEq(core1.protocolFeesAccrued(), 400, "failed payout changed second market");
         assertEq(token.balanceOf(address(vault)), vaultBefore, "failed payout moved backing");
         assertEq(vault.totalAccountedCollateral(), vaultBefore, "failed payout damaged accounting");
+        assertEq(vault.totalProtocolFeesPaid(), 0, "atomic rollback failed to revert fee counter");
     }
 
     function test_OnlyPolicyOwnerMayBindImmutableTreasuryAndTransferFees() public {
