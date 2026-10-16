@@ -43,9 +43,11 @@ contract ClaimantRegistry {
     // Funding bases are deliberately monotone until separately proven settled;
     // this can reduce capacity but can never turn historical funding into surplus.
     uint256 public pendingMakerUnattributedLots;
-    uint256 public pendingMakerLongLots;
-    uint256 public pendingMakerAskGrossNotional;
     uint256 public makerFundingBasisUpper;
+    mapping(uint32 => uint256) internal _pendingLotsBySideTick;
+    mapping(uint32 => uint256) internal _pendingActiveIndexPlusOne;
+    uint32[] internal _pendingActiveTicks;
+    uint256 internal constant MAX_PENDING_PRICE_LEVELS = 64;
 
 
     event ClaimantRecorded(address indexed account, uint256 indexed index);
@@ -114,26 +116,43 @@ contract ClaimantRegistry {
         capacity = unencumbered < fees ? unencumbered : fees;
     }
 
-    function recordPendingMaker(
-        bool makerBid,
-        uint96 lots,
-        uint256 notional,
-        int256 fundingEntry
-    ) external {
+    /// @dev Side/tick buckets cannot cancel each other's positive maker PnL.
+    function recordPendingMaker(bool makerBid, uint16 tick, uint96 lots, int256 fundingEntry)
+        external
+    {
         if (msg.sender != registrar) revert UnauthorizedRegistrar();
+        uint32 key = uint32(tick) | (makerBid ? uint32(1) << 16 : 0);
+        if (_pendingLotsBySideTick[key] == 0) {
+            _pendingActiveTicks.push(key);
+            _pendingActiveIndexPlusOne[key] = _pendingActiveTicks.length;
+        }
+        _pendingLotsBySideTick[key] += lots;
         pendingMakerUnattributedLots += lots;
-        if (makerBid) pendingMakerLongLots += lots;
-        else pendingMakerAskGrossNotional += notional;
         makerFundingBasisUpper += _abs(fundingEntry);
     }
 
-    function settlePendingMaker(bool makerBid, uint96 lots, uint256 notional) external {
+    function settlePendingMaker(bool makerBid, uint16 tick, uint96 lots) external {
         if (msg.sender != registrar) revert UnauthorizedRegistrar();
+        if (lots == 0) return;
+        uint32 key = uint32(tick) | (makerBid ? uint32(1) << 16 : 0);
         pendingMakerUnattributedLots -= lots;
-        if (makerBid) pendingMakerLongLots -= lots;
-        else pendingMakerAskGrossNotional -= notional;
-        // Do not subtract attributed funding basis: pro-rata rounding and
-        // mixed-sign generations can make signed net subtraction unsafe.
+        uint256 next = _pendingLotsBySideTick[key] - lots;
+        _pendingLotsBySideTick[key] = next;
+        if (next != 0) return;
+
+        uint256 position = _pendingActiveIndexPlusOne[key] - 1;
+        uint256 last = _pendingActiveTicks.length - 1;
+        if (position != last) {
+            uint32 shifted = _pendingActiveTicks[last];
+            _pendingActiveTicks[position] = shifted;
+            _pendingActiveIndexPlusOne[shifted] = position + 1;
+        }
+        _pendingActiveTicks.pop();
+        delete _pendingActiveIndexPlusOne[key];
+    }
+
+    function pendingPriceLevelCount() external view returns (uint256) {
+        return _pendingActiveTicks.length;
     }
 
     /// @notice Conservative collateral floor for liquidation rewards with
@@ -156,9 +175,26 @@ contract ClaimantRegistry {
         // Gross pending maker value is an upper bound: a pending buyer cannot
         // gain more than gross marked long value, a pending seller cannot
         // gain more than execution proceeds. No opposite-side offset is used.
-        uint256 markedUnitValue = core.notionalValue(1, core.currentMarkTick());
-        uint256 pendingPriceBound =
-            pendingMakerLongLots * markedUnitValue + pendingMakerAskGrossNotional;
+        if (_pendingActiveTicks.length > MAX_PENDING_PRICE_LEVELS) {
+            return (0, 0, type(uint256).max);
+        }
+        uint16 mark = core.currentMarkTick();
+        uint256 unitScale = core.notionalValue(1, 1);
+        uint256 pendingPriceBound;
+        for (uint256 i; i < _pendingActiveTicks.length; ++i) {
+            uint32 key = _pendingActiveTicks[i];
+            uint16 executionTick = uint16(key);
+            bool makerBid = key >> 16 != 0;
+            // Each bucket contains only one side at one execution price.
+            // Take its favorable PnL separately; no signed cross-bucket netting.
+            if (makerBid && mark > executionTick) {
+                pendingPriceBound += uint256(mark - executionTick)
+                    * _pendingLotsBySideTick[key] * unitScale;
+            } else if (!makerBid && executionTick > mark) {
+                pendingPriceBound += uint256(executionTick - mark)
+                    * _pendingLotsBySideTick[key] * unitScale;
+            }
+        }
 
         // Each deferred fill's current-index funding is bounded by its
         // gross entry basis plus absolute index times gross lots. One unit
