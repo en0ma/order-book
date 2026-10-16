@@ -1676,38 +1676,24 @@ contract OrderBookCore is IOrderBookCore {
     {
         uint8 wi = uint8(current >> 8);
         uint8 bi = uint8(current);
+        bool ascending = side == Side.Ask;
+
         uint256 word = _tickWords[side][wi];
-
-        if (side == Side.Ask) {
-            uint256 sameWord =
-                word & (type(uint256).max << (uint256(bi) + 1));
-            if (sameWord != 0) {
-                return (true, _tickFromWord(side, wi, sameWord));
-            }
-
-            uint256 higherWords =
-                _occupiedWords[side]
-                    & (type(uint256).max << (uint256(wi) + 1));
-            if (higherWords == 0) return (false, 0);
-
-            wi = _edgeBit(side, higherWords);
-            return (true, _tickFromWord(side, wi, _tickWords[side][wi]));
-        }
-
-        uint256 sameWord = word & ((uint256(1) << bi) - 1);
+        uint256 sameWord = ascending
+            ? word & (type(uint256).max << (uint256(bi) + 1))
+            : word & ((uint256(1) << bi) - 1);
         if (sameWord != 0) {
-            return (true, (uint16(wi) << 8) | uint16(_edgeBit(side, sameWord)));
+            return (true, _tickFromWord(side, wi, sameWord));
         }
 
-        uint256 lowerWords =
-            _occupiedWords[side] & ((uint256(1) << wi) - 1);
-        if (lowerWords == 0) return (false, 0);
+        uint256 wordBits = _occupiedWords[side];
+        uint256 followingWords = ascending
+            ? wordBits & (type(uint256).max << (uint256(wi) + 1))
+            : wordBits & ((uint256(1) << wi) - 1);
+        if (followingWords == 0) return (false, 0);
 
-        wi = _edgeBit(side, lowerWords);
-        return (
-            true,
-            (uint16(wi) << 8) | uint16(_edgeBit(side, _tickWords[side][wi]))
-        );
+        wi = _edgeBit(side, followingWords);
+        return (true, _tickFromWord(side, wi, _tickWords[side][wi]));
     }
 
     function _tickFromWord(Side side, uint8 wordIndex, uint256 word)
