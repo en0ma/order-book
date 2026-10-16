@@ -63,6 +63,8 @@ contract OrderBookCore is IOrderBookCore {
     error PositionOverflow();
 
     address public owner;
+    address public treasuryRecipient;
+    uint256 private _treasuryPayoutEntered;
     bool public riskIncreasePaused;
 
     address public fundingUpdater;
@@ -156,6 +158,8 @@ contract OrderBookCore is IOrderBookCore {
     event FundingSettled(address indexed account, int256 cashflowDelta);
     event InsuranceFunded(address indexed funder, uint256 amount);
     event ProtocolFeesAllocatedToInsurance(uint256 amount);
+    event TreasuryRecipientConfigured(address indexed recipient);
+    event TreasuryFeeDistributed(address indexed recipient, uint256 amount);
     event BadDebtCovered(address indexed account, uint256 amount);
     event LiquidationRewardPaid(address indexed liquidator, uint256 amount);
     event AccountingUnitScaleConfigured(uint128 collateralUnitsPerLotTick);
@@ -379,6 +383,41 @@ contract OrderBookCore is IOrderBookCore {
 
     function protocolFeesAccrued() external view returns (uint256) {
         return uint256(uint128(_feeAccountingPacked));
+    }
+
+    /// @notice Immutable treasury recipient, authorized before any distribution.
+    function configureTreasuryRecipient(address recipient) external onlyOwner {
+        if (recipient == address(0) || treasuryRecipient != address(0)) revert Unauthorized();
+        treasuryRecipient = recipient;
+        emit TreasuryRecipientConfigured(recipient);
+    }
+
+    /// @notice Distribute only conservatively-backed, completely settled
+    /// standalone protocol fees; never spend portfolio/shared-vault tokens.
+    /// @dev Pre- and post-transfer proof prevents ERC20 callback mutations
+    /// from silently spending newly created liabilities.
+    function withdrawProtocolFees(uint256 amount) external onlyOwner {
+        _requireStandalone();
+        address recipient = treasuryRecipient;
+        if (recipient == address(0) || amount == 0 || _treasuryPayoutEntered != 0) {
+            revert Unauthorized();
+        }
+        _treasuryPayoutEntered = 1;
+
+        (uint256 available,,) = claimantRegistry.standaloneFeeCapacity();
+        if (amount > available) revert InsufficientCollateral();
+
+        // The low 128 bits are accrued protocol fees; subtract without
+        // touching escrowed high-128-bit maker rebates.
+        _feeAccountingPacked -= amount;
+        _transferCollateralOut(recipient, amount);
+
+        (,, uint256 protectedLiabilities) = claimantRegistry.standaloneFeeCapacity();
+        if (collateralToken.balanceOf(address(this)) < protectedLiabilities) {
+            revert InsufficientCollateral();
+        }
+        _treasuryPayoutEntered = 0;
+        emit TreasuryFeeDistributed(recipient, amount);
     }
 
     function allocateProtocolFeesToInsurance(uint256 amount) external onlyOwner {
