@@ -7,6 +7,7 @@ import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {OrderBookMath} from "./OrderBookMath.sol";
 import {FundingMath} from "./FundingMath.sol";
 import {ClaimantRegistry} from "./ClaimantRegistry.sol";
+import {StandaloneFeePayoutModule} from "./StandaloneFeePayoutModule.sol";
 
 /// @title OrderBookCore
 /// @notice Deployable hot-path CLOB/risk/funding core.
@@ -87,6 +88,7 @@ contract OrderBookCore is IOrderBookCore {
 
     // Append-only on-chain claimant roster; never dependent on RPC event coverage.
     ClaimantRegistry public immutable claimantRegistry;
+    StandaloneFeePayoutModule public immutable standaloneFeePayoutModule;
     mapping(address => uint256) internal collateralBalance;
     uint256 internal totalLocalCollateral;
     mapping(address => uint256) internal reservedMargin;
@@ -184,6 +186,7 @@ contract OrderBookCore is IOrderBookCore {
         fundingUpdater = msg.sender;
         collateralToken = IERC20Minimal(collateralToken_);
         claimantRegistry = new ClaimantRegistry();
+        standaloneFeePayoutModule = new StandaloneFeePayoutModule();
         markOracle = IMarkOracle(markOracle_);
         executionBandTicks = executionBandTicks_;
         initialMarginBps = initialMarginBps_;
@@ -411,27 +414,42 @@ contract OrderBookCore is IOrderBookCore {
         emit FeeDistributionStatusChanged(enabled);
     }
 
+    /// @notice Owner-only entry; immutable delegated verifier checks the
+    /// complete physical custody floor before and after ERC20 transfer.
     function withdrawProtocolFees(uint256 amount) external onlyOwner {
         _requireStandalone();
-        address recipient = treasuryRecipient;
-        if (!feeDistributionEnabled || recipient == address(0) || amount == 0 || _treasuryPayoutEntered != 0) {
-            revert Unauthorized();
-        }
+        if (
+            !feeDistributionEnabled || treasuryRecipient == address(0)
+                || amount == 0 || _treasuryPayoutEntered != 0
+        ) revert Unauthorized();
         _treasuryPayoutEntered = 1;
 
-        (uint256 available,,) = claimantRegistry.standaloneFeeCapacity();
-        if (amount > available) revert InsufficientCollateral();
+        (bool ok, bytes memory result) = address(standaloneFeePayoutModule).delegatecall(
+            abi.encodeWithSelector(StandaloneFeePayoutModule.execute.selector, amount)
+        );
+        if (!ok) {
+            assembly ("memory-safe") {
+                revert(add(result, 32), mload(result))
+            }
+        }
 
-        // The low 128 bits are accrued protocol fees; subtract without
-        // touching escrowed high-128-bit maker rebates.
-        _feeAccountingPacked -= amount;
-        _transferCollateralOut(recipient, amount);
+        _treasuryPayoutEntered = 0;
+    }
 
-        (,, uint256 protectedLiabilities) = claimantRegistry.standaloneFeeCapacity();
-        if (collateralToken.balanceOf(address(this)) < protectedLiabilities) {
+    /// @notice Payout ledger/token debit callable exclusively by this Core
+    /// during its actively guarded, owner-authorized delegated verification.
+    function moduleExecuteTreasuryFeePayout(uint256 amount) external {
+        if (
+            msg.sender != address(this) || _treasuryPayoutEntered != 1
+                || !feeDistributionEnabled
+        ) revert Unauthorized();
+        uint256 packed = _feeAccountingPacked;
+        if (amount == 0 || amount > uint256(uint128(packed))) {
             revert InsufficientCollateral();
         }
-        _treasuryPayoutEntered = 0;
+        _feeAccountingPacked = packed - amount;
+        address recipient = treasuryRecipient;
+        _transferCollateralOut(recipient, amount);
         emit TreasuryFeeDistributed(recipient, amount);
     }
 
