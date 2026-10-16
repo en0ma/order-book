@@ -104,7 +104,7 @@ contract Issue203HostileTreasuryTokenTest is TestBase {
         core.settle(IOrderBookCore.Side.Bid, 100);
 
         core.configureTreasuryRecipient(TREASURY);
-        core.activateFeeDistribution();
+        core.setFeeDistributionEnabled(true);
         core.transferOwnership(address(token));
     }
 
