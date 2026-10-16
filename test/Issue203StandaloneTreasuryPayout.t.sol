@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {TestBase} from "./TestBase.sol";
 import {OrderBookCore} from "../src/deployable/OrderBookCore.sol";
+import {AdvancedOrderModule} from "../src/deployable/AdvancedOrderModule.sol";
 import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockMarkOracle} from "./mocks/MockMarkOracle.sol";
@@ -157,6 +158,28 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
         assertTrue(!paid, "fee distribution enabled without independent activation");
         assertEq(token.balanceOf(TREASURY), 0, "inactive treasury received tokens");
         assertEq(core.protocolFeesAccrued(), 200, "inactive fee call altered accounting");
+    }
+
+    function test_ExistingLegitimateLiquidationRewardAndTreasuryShareOneFeeLedger() public {
+        core.configureTreasuryRecipient(TREASURY);
+        core.setFeeDistributionEnabled(true);
+        _settleRoundTrip();
+
+        AdvancedOrderModule gateway =
+            new AdvancedOrderModule(address(core), address(new MockMarkOracle(100)));
+        core.configureAdvancedModule(address(gateway));
+        address liquidator = address(0xCAFE);
+
+        vm.prank(address(gateway));
+        uint256 paid = core.modulePayLiquidationReward(liquidator, 30);
+        assertEq(paid, 30, "existing valid liquidation reward was blocked");
+        assertEq(token.balanceOf(liquidator), 30, "liquidation reward underpaid");
+        assertEq(core.protocolFeesAccrued(), 170, "reward did not debit fee reserve");
+
+        core.withdrawProtocolFees(170);
+        assertEq(token.balanceOf(TREASURY), 170, "treasury double spent reward");
+        assertEq(core.protocolFeesAccrued(), 0, "rewards and treasury fees were counted twice");
+        assertEq(token.balanceOf(address(core)), 99800, "customer claims lost their backing");
     }
 
 }
