@@ -66,6 +66,7 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
 
     function test_PartialAndFullPayoutArePhysicallyBackedAfterSettlement() public {
         core.configureTreasuryRecipient(TREASURY);
+        core.activateFeeDistribution();
         _settleRoundTrip();
 
         (uint256 available, uint256 claims, uint256 liabilities) =
@@ -98,6 +99,7 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
 
     function testFuzz_RejectsUnprovedAndOverCapDistributions(uint16 extra) public {
         core.configureTreasuryRecipient(TREASURY);
+        core.activateFeeDistribution();
         _settleRoundTrip();
         uint256 requested = 201 + uint256(extra);
         (bool paid,) = address(core).call(
@@ -111,6 +113,7 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
 
     function test_PendingMakerObligationsPreventPayoutEvenWithDonations() public {
         core.configureTreasuryRecipient(TREASURY);
+        core.activateFeeDistribution();
         vm.prank(MAKER);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
         vm.prank(TAKER);
