@@ -121,6 +121,7 @@ contract ClaimantRegistry {
         external
     {
         if (msg.sender != registrar) revert UnauthorizedRegistrar();
+        if (lots == 0) return;
         uint32 key = uint32(tick) | (makerBid ? uint32(1) << 16 : 0);
         if (_pendingLotsBySideTick[key] == 0) {
             _pendingActiveTicks.push(key);
