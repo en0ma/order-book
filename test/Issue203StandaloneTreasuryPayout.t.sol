@@ -302,4 +302,16 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
         assertEq(token.balanceOf(TREASURY), 0, "unauthorized path transferred collateral");
     }
 
+    function test_ExactTransferModuleDirectCallCannotSpendCoreCustody() public {
+        _settleRoundTrip();
+        uint256 custodyBefore = token.balanceOf(address(core));
+        (bool ok,) = address(core.exactCollateralTransferModule()).call(
+            abi.encodeWithSignature("transferExact(address,uint256)", TREASURY, uint256(1))
+        );
+        assertTrue(!ok, "helper direct call misappropriated Core ERC20");
+        assertEq(token.balanceOf(address(core)), custodyBefore,
+            "helper directly debited nondelegating Core");
+        assertEq(token.balanceOf(TREASURY), 0, "helper directly credited treasury");
+    }
+
 }
