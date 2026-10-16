@@ -114,4 +114,22 @@ contract Issue203PendingMakerSolvencyTest is TestBase {
             "closed generation has live positive maker payout risk");
     }
 
+    function test_MakerPendingBucketsPreventStandaloneFeeProofEvenAfterDonations() public {
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        token.mint(address(core), 100000);
+        (bool proved,) = address(core.claimantRegistry()).call(
+            abi.encodeWithSignature("standaloneFeeCapacity()")
+        );
+        assertTrue(!proved, "unattributed maker fill was treated as distributable fees");
+        assertEq(core.claimantRegistry().pendingMakerUnattributedLots(), 100,
+            "pending maker accounting unexpectedly disappeared");
+        vm.prank(MAKER);
+        core.settle(IOrderBookCore.Side.Ask, 100);
+        assertEq(core.claimantRegistry().pendingMakerUnattributedLots(), 0,
+            "maker settlement failed to consume pending fill inventory");
+    }
+
 }
