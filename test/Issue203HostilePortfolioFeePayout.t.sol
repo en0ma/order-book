@@ -100,6 +100,7 @@ contract Issue203HostilePortfolioFeePayoutTest is TestBase {
         assertEq(core0.protocolFeesAccrued(), 100, "first market fees changed");
         assertEq(core1.protocolFeesAccrued(), 400, "second market fees changed");
         assertEq(vault.totalAccountedCollateral(), 130000, "failed payout changed custody ledger");
+        assertEq(vault.totalProtocolFeesPaid(), 0, "failed payout advanced cumulative fee ledger");
         assertEq(token.balanceOf(TREASURY), 0, "failed payout credited treasury");
     }
 
@@ -111,6 +112,7 @@ contract Issue203HostilePortfolioFeePayoutTest is TestBase {
         assertEq(core1.protocolFeesAccrued(), 400, "failed transfer debited second fee ledger");
         assertEq(token.balanceOf(address(vault)), 130000, "failed transfer damaged vault backing");
         assertEq(vault.totalAccountedCollateral(), 130000, "failed transfer damaged ledger");
+        assertEq(vault.totalProtocolFeesPaid(), 0, "failed transfer marked fees paid");
     }
 
     function test_TokenCallbackCannotRecursivelyReenterManagedCustody() public {
@@ -124,6 +126,7 @@ contract Issue203HostilePortfolioFeePayoutTest is TestBase {
         assertEq(core1.protocolFeesAccrued(), 370, "second market fee debit mismatch");
         assertEq(token.balanceOf(TREASURY), 50, "treasury credited wrong fee amount");
         assertEq(vault.totalAccountedCollateral(), 129950, "portfolio claims changed incorrectly");
+        assertEq(vault.totalProtocolFeesPaid(), 50, "cumulative protocol debit mismatch");
         assertEq(token.balanceOf(address(vault)), 129950, "fee transfer did not conserve vault custody");
     }
 }
