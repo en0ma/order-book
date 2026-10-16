@@ -154,4 +154,18 @@ contract Issue203PortfolioTreasuryPayoutTest is PortfolioTwoMarketFeeIsolationTe
         assertEq(vault.totalAccountedCollateral(), 130000, "inactive payout changed custody");
     }
 
+    function test_EmergencyPauseOnEitherMarketBlocksGlobalVaultDistribution() public {
+        coordinator.configureTreasuryRecipient(TREASURY);
+        coordinator.setFeeDistributionEnabled(true);
+        _closedPortfolioRoundTrip();
+        core1.setRiskIncreasePaused(true);
+        (bool paid,) = address(coordinator).call(
+            abi.encodeCall(coordinator.withdrawPortfolioProtocolFees, (_amounts(10, 10)))
+        );
+        assertTrue(!paid, "paused second market was omitted from portfolio fee proof");
+        assertEq(core0.protocolFeesAccrued(), 100, "failed payout altered first market fees");
+        assertEq(core1.protocolFeesAccrued(), 400, "failed payout altered second market fees");
+        assertEq(token.balanceOf(address(vault)), 130000, "emergency pause moved collateral");
+    }
+
 }
