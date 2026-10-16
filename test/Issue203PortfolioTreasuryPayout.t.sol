@@ -168,4 +168,25 @@ contract Issue203PortfolioTreasuryPayoutTest is PortfolioTwoMarketFeeIsolationTe
         assertEq(token.balanceOf(address(vault)), 130000, "emergency pause moved collateral");
     }
 
+    function test_ImmutablePayoutModuleCannotBeInvokedAsAnUntrustedSeparateCustodian() public {
+        _closedPortfolioRoundTrip();
+        coordinator.configureTreasuryRecipient(TREASURY);
+        coordinator.setFeeDistributionEnabled(true);
+        uint256[] memory allocations = _amounts(10, 20);
+
+        (bool paid,) = address(coordinator.feePayoutModule()).call(
+            abi.encodeWithSignature("execute(uint256[])", allocations)
+        );
+        assertTrue(!paid, "external call spoofed the coordinator's custody domain");
+        assertEq(core0.protocolFeesAccrued(), 100, "direct module call debited first market");
+        assertEq(core1.protocolFeesAccrued(), 400, "direct module call debited second market");
+        assertEq(token.balanceOf(TREASURY), 0, "direct module call transferred vault assets");
+
+        (bool directDebit,) = address(core0).call(
+            abi.encodeCall(core0.moduleDebitPortfolioFees, (uint256(1)))
+        );
+        assertTrue(!directDebit, "owner bypassed the sole portfolio controller");
+        assertEq(core0.protocolFeesAccrued(), 100, "unauthorized fee debit succeeded");
+    }
+
 }
