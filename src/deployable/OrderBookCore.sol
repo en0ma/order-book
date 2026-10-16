@@ -355,6 +355,11 @@ contract OrderBookCore is IOrderBookCore {
         ) revert UnsupportedTokenBehavior();
     }
 
+    /// @notice Canonical physical ERC20 domain for independent on-chain solvency checks.
+    function collateralAsset() external view returns (address) {
+        return address(collateralToken);
+    }
+
     function protocolFeesAccrued() external view returns (uint256) {
         return uint256(uint128(_feeAccountingPacked));
     }
