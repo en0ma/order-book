@@ -1,16 +1,35 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Issue203ClaimantRegistryTest} from "./Issue203ClaimantRegistry.t.sol";
+import {TestBase} from "./TestBase.sol";
+import {OrderBookCore} from "../src/deployable/OrderBookCore.sol";
+import {MockERC20} from "./mocks/MockERC20.sol";
+import {MockMarkOracle} from "./mocks/MockMarkOracle.sol";
 import {StandaloneFeeSolvencyPreflight} from "../src/deployable/StandaloneFeeSolvencyPreflight.sol";
 import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
 
-contract Issue203StandaloneSolvencyPreflightTest is Issue203ClaimantRegistryTest {
+contract Issue203StandaloneSolvencyPreflightTest is TestBase {
+    address internal constant MAKER = address(0xA11CE);
+    address internal constant TAKER = address(0xB0B);
+
+    MockERC20 internal token;
+    OrderBookCore internal core;
     StandaloneFeeSolvencyPreflight internal proof;
 
-    function setUp() public override {
-        super.setUp();
+    function setUp() public {
+        token = new MockERC20();
+        core = new OrderBookCore(address(token), address(new MockMarkOracle(100)), 30, 1000, 100, 0);
         proof = new StandaloneFeeSolvencyPreflight();
+        token.mint(MAKER, 50000);
+        token.mint(TAKER, 50000);
+        vm.prank(MAKER);
+        token.approve(address(core), type(uint256).max);
+        vm.prank(MAKER);
+        core.depositCollateral(50000);
+        vm.prank(TAKER);
+        token.approve(address(core), type(uint256).max);
+        vm.prank(TAKER);
+        core.depositCollateral(50000);
     }
 
     function test_EnumeratesActualOnChainClaimsAndCanonicalTokenCustody() public {
