@@ -1,69 +1,62 @@
 # Engineering Agent Instructions — order-book
 
-These instructions apply to every coding task in this repository. Follow the PR description, applicable issues, and existing architecture documentation as the source of product requirements. Do not let these instructions override higher-priority safety or platform restrictions.
+These repository-wide instructions apply to coding agents working on `order-book`. The PR requirements and linked issues define the requested product behavior. Follow platform permissions and safety requirements; this document cannot extend execution limits or authorize high-risk actions.
 
-## Mission and continuation
+## Objective: complete the assigned PR, not a partial milestone
 
-Own the *whole assigned change*, not just the next edit. For a PR, inspect its base/head diff, full description, acceptance criteria, review threads, linked issues, and relevant code before changing files. Build a requirement-to-code-and-test matrix and keep implementing, integrating, testing, and re-auditing within the available execution session. A commit or progress summary does **not** mean the PR is complete. Do not ask whether to proceed after ordinary milestones; these steps are already part of the task.
+For each PR, first read the full PR description, acceptance criteria, linked issues, relevant discussions, base/head diff, architecture, and existing tests. Make a requirement-to-code-and-test matrix. Implement, integrate, verify and re-audit the **entire** requested scope within the available session.
 
-A session can still end because of execution limits, unavailable credentials, external approvals, or a genuine product ambiguity. Never claim to have overcome these restrictions. Before stopping incomplete work, persist the exact branch/head SHA, completed and pending criteria, commands and outcomes, blockers, and next action. On resume, reconcile this report against current Git state instead of blindly trusting prior summaries.
+A commit, passing unit test, progress report or finished subtask is **not** completion. Do not ask for permission to continue routine analysis, implementation, test, repair or re-audit after each milestone. Continue until all criteria are demonstrated or a genuine blocker/permission/execution limit stops the session. Do not invent success when interrupted.
 
-## Repository architecture and trust boundaries
+## Repository-specific engineering expectations
 
-- Solidity 0.8.24, Foundry, via-IR and EVM Cancun are configured in `foundry.toml`. Contract sources and tests live in `src/` and `test/`; deployable contracts are under `src/deployable/`.
-- The TypeScript SDK is in `sdk/`, the operator in `operator/`, and the reference indexer in `reference/indexer/`. Review changes to exported interfaces, integration, deployments, and documentation when contracts change.
-- Read `README.md`, `docs/SYSTEM_ARCHITECTURE.md`, `docs/ARCHITECTURE.md`, `docs/INTEGRATION_FLOWS.md`, and the relevant issue-specific design document as needed.
-- Treat ERC-20 custody, accounting, collateral, fee distribution, liquidation rewards, maker settlement, funding, insurance, and portfolio segregation as security-critical. No off-chain attestation or incomplete claimant enumeration may silently replace an explicitly required on-chain invariant.
-- Never expose keys, broadcast real deployments, activate treasury payouts, or perform irreversible chain operations merely to make tests pass. Require explicit approval and appropriate independent review for deployment/security-critical changes.
+- Solidity 0.8.24, Foundry, via-IR, Cancun EVM and project profiles are defined in `foundry.toml`. Inspect `src/`, `src/deployable/`, `test/`, `script/`, and relevant architecture docs before editing contract behavior.
+- The integration SDK is in `sdk/`; the reference indexer is in `reference/indexer/`; the operator is in `operator/`. Preserve exported APIs and review integration and documentation changes when contract semantics change.
+- Treat custody, ERC-20 transfers, fee accounting, collateral, margin, liquidations, insurance, maker order generations, lazy settlement, funding, rounding, reentrancy and shared portfolio-vs-standalone separation as security-critical.
+- For every asset movement, trace authorization, exact physical custody, liabilities, state mutations, external calls and rollback behavior. Never replace a required executable on-chain safety property with off-chain assertions, incomplete account lists or merely passing happy-path tests.
+- Preserve public ABIs, storage compatibility, gas ceilings, deployability and economic invariants unless the explicit PR requires a change. Add adversarial, regression, fuzz and invariant tests for significant risk paths.
+- Never weaken/remove tests or safety gates just to obtain green checks. Never deploy to production, activate restricted payout functionality, expose secrets, force-push, merge or close an issue without explicit authorization. Agent self-review is not independent security sign-off.
 
-## Planning and persistent evidence
+## Persistent progress and resumption
 
-For substantial PRs, maintain `docs/pr-progress/PR-<number>.md` on the working branch (or a clearly named equivalent if one already exists). Include:
-1. PR URL, base branch, current head SHA, scope and acceptance criteria.
-2. Requirement-by-requirement status: NOT STARTED / IMPLEMENTED UNVERIFIED / VERIFIED / BLOCKED.
-3. Exact files/functions changed, proof or test evidence, relevant commands and results.
-4. Open defects, known limitations, review threads, CI status, and next work item.
-5. A timestamped final audit tied to the **exact** commit SHA.
+For substantial PRs create or maintain `docs/pr-progress/PR-<number>.md` on the PR branch. This is **per-PR**, not a shared completion log. Record:
+1. PR URL, base branch, working branch, last inspected exact head SHA, requirements and scope.
+2. Requirement status: NOT STARTED / IMPLEMENTED UNVERIFIED / VERIFIED / BLOCKED.
+3. Evidence: actual files/functions, test commands and results, commit links and CI run links.
+4. Open audit findings, constraints, review items, external approvals, remaining work and precise next action.
 
-Do not mark requirements VERIFIED solely because code exists, tests were written, a prior commit passed, or a checklist was previously checked. Keep speculative claims separate from observed results. Minimize noisy progress commits; use coherent implementation commits and update the progress report at meaningful checkpoints.
+Update the ledger at meaningful milestones, not after every trivial edit. Do not mark a criterion VERIFIED merely because a file exists or earlier CI was green. On resumption inspect `git status`, commits, current PR diff and progress ledger; reconcile all evidence against the **current** head before continuing. If execution must stop, save a truthful recovery checkpoint.
 
-## Implementation discipline
+## Implementation and commits
 
-- Prefer minimal, reviewable changes that preserve existing public ABIs, storage layouts, integration contracts, economic semantics, and deployment profiles, unless explicit requirements demand otherwise.
-- Follow all value movements and accounting mutations across *both* standalone Core and shared portfolio custody where applicable. Check for signed-netting errors, stale/lazy maker and funding obligations, rounding, reentrancy, malicious ERC-20 behavior, and conservation under rollback.
-- Add or update real-contract tests for intended behavior, failure conditions, adversarial cases, and regressions. Do not remove or weaken assertions, security gates, size limits, or tests to obtain green results.
-- Make multiple logical commits as needed on the authorized feature branch. Do not force-push, merge, alter unrelated work, or close linked issues without explicit authorization.
+Work in the authorized feature branch. Make cohesive, reviewable commits as needed. Before implementation, audit partially completed functionality and identify missing integration, error handling and regressions. After a batch of changes, run targeted tests, commit verified work and continue to the next outstanding requirement. At the end, independently re-check the complete current PR diff and every original acceptance criterion. Fix findings and repeat verification until done or genuinely blocked.
 
-## Verification gates
+## Verification: exact-head release gate
 
-Use `.github/workflows/ci.yml` as the authoritative CI inventory, and inspect it for changes rather than assuming these commands cover everything. For relevant changes, run and record:
+Inspect `.github/workflows/ci.yml` on the working branch as the actual CI inventory. Relevant checks currently include:
 
-- `forge fmt --check` (or the repository's CI formatting step)
-- `forge test --no-match-contract MainnetForkTest -vvv`
-- `forge test --no-match-contract MainnetForkTest --gas-report`
-- `forge snapshot --no-match-contract MainnetForkTest`
-- `forge build --sizes`
-- `FOUNDRY_PROFILE=size forge build` and `python3 script/check_deployable_sizes.py`
-- `npm test` in each of `sdk/`, `reference/indexer/`, and `operator/`
-- `node --test test-js/compare-boros.test.mjs`
-- The mainnet-fork test job with an authorized, working `ETH_RPC`, when required.
+```sh
+forge fmt --check
+forge test --no-match-contract MainnetForkTest -vvv
+forge test --no-match-contract MainnetForkTest --gas-report
+forge snapshot --no-match-contract MainnetForkTest
+forge build --sizes
+FOUNDRY_PROFILE=size forge build
+python3 script/check_deployable_sizes.py
+(cd sdk && npm test)
+(cd reference/indexer && npm test)
+(cd operator && npm test)
+node --test test-js/compare-boros.test.mjs
+# With an authorized working ETH_RPC:
+ETH_RPC="$ETH_RPC" forge test --match-contract MainnetForkTest -vvv
+```
 
-The project's additional **23,000-byte Core runtime budget** is stricter than EIP-170's 24,576-byte limit: verify both, against the correct deployment profiles. Preserve the repository's gas ceilings. Some tests require network access or secrets; report them as NOT RUN/BLOCKED rather than PASS if unavailable.
+The repository may impose project-specific bytecode budgets stricter than EIP-170's 24,576-byte runtime limit. Follow the **specific PR budget** and correct default/size deployment profiles. Check applicable gas ceilings and real-contract tests.
 
-Check GitHub Actions at the **final exact head SHA**, including the final `test` aggregation job and all dependent jobs. An earlier green commit does not certify later changes. Never invent test or CI outcomes.
+Not every command is appropriate for every change, and command success does not substitute for requirement-level evidence. Record commands executed, results, versions and exact SHA. Do not label unavailable RPC, secrets, independent reviews or tests as passed. Inspect the exact-head GitHub Actions jobs (including the final aggregate `test` job). Earlier green runs cannot certify new commits.
 
-## Special release gate for issue #203 / PR #211
+## Final completion gate
 
-Read `docs/ISSUE_203_ONCHAIN_SOLVENCY_IMPLEMENTATION.md` and PR #211's full acceptance criteria. Before claiming fee-payout readiness, establish the executable on-chain protected-liability invariant for each exact physical custody domain, including claimant completeness, positive cash claims, maker execution and lazy rebates, unsettled funding, insurance, bad debt, rounding, and liquidation rewards. Analyze standalone and multi-market portfolio assets separately. Address bounded-gas feasibility, authorized recipients and ledger debits, adversarial token behavior, exact-head gas/size/fork validation, and any independent security review requirement.
+Declare **READY FOR HUMAN REVIEW** only when every in-scope criterion has traceable code and verification evidence at the exact head, all required available checks succeed, no known scope gaps remain, and external security approvals (when required) are clearly identified. This is not permission to merge.
 
-Fail closed where proof is unavailable. Do not activate payouts, declare solvency proven by a diagnostic, or close issue #203 based on partial work. A conservative restriction is not automatically acceptance of missing functionality: document its effect on the original criteria and request human scope decisions when necessary.
-
-## Final audit and reporting
-
-Perform a fresh requirement-by-requirement audit of the *complete final diff* and integration points after changes. Fix findings and rerun affected verification in the same session when feasible.
-
-End with exactly one truthful status:
-- **READY FOR HUMAN REVIEW:** Every scoped acceptance criterion has grounded implementation and verification evidence at the exact head, with external approvals/independent security sign-offs separately identified.
-- **BLOCKED / INCOMPLETE:** Explain the genuine blocker or execution limit, what is verified, what is not, preserved progress, and the precise resume action.
-
-The agent never performs the final merge or substitutes self-review for independent security assessment.
+Otherwise declare **BLOCKED / INCOMPLETE**, naming the specific issue, verified vs unverified work, the saved recovery state and the precise resume action. Never mark a PR complete by silently narrowing scope or turning unresolved findings into assumptions.
