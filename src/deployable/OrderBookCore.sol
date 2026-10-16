@@ -69,7 +69,8 @@ contract OrderBookCore is IOrderBookCore {
     address public owner;
     address public treasuryRecipient;
     bool public feeDistributionEnabled;
-    uint256 private _treasuryPayoutEntered;
+    // Packs with the treasury address and enabled flag; values are only 0 or 1.
+    uint8 private _treasuryPayoutEntered;
     bool public riskIncreasePaused;
 
     address public fundingUpdater;
