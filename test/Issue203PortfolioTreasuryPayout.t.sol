@@ -130,4 +130,17 @@ contract Issue203PortfolioTreasuryPayoutTest is PortfolioTwoMarketFeeIsolationTe
         assertEq(token.balanceOf(address(vault)), 129600, "insurance backing consumed");
         assertEq(vault.totalAccountedCollateral(), 129600, "custody accounting drifted");
     }
+    function test_DistributionDisabledByDefaultEvenWithFullySettledBacking() public {
+        _closedPortfolioRoundTrip();
+        coordinator.configureTreasuryRecipient(TREASURY);
+        assertTrue(!coordinator.feeDistributionEnabled(), "treasury enabled on deployment");
+        (bool paid,) = address(coordinator).call(
+            abi.encodeCall(coordinator.withdrawPortfolioProtocolFees, (_amounts(1, 0)))
+        );
+        assertTrue(!paid, "treasury paid out before explicit enablement");
+        assertEq(token.balanceOf(TREASURY), 0, "treasury received inactive funds");
+        assertEq(core0.protocolFeesAccrued(), 100, "inactive payout changed market fees");
+        assertEq(vault.totalAccountedCollateral(), 130000, "inactive payout changed custody");
+    }
+
 }
