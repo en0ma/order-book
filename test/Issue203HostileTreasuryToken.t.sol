@@ -19,6 +19,7 @@ contract Issue203HostileTreasuryToken {
     uint256 public recipientShortfall;
     bool public attemptCallback;
     bool public callbackRejected;
+    bytes public callbackData;
 
     function mint(address account, uint256 amount) external {
         balanceOf[account] += amount;
@@ -44,11 +45,15 @@ contract Issue203HostileTreasuryToken {
         attemptCallback = recursive;
     }
 
+    function setCallbackData(bytes calldata data) external { callbackData = data; }
+
     function transfer(address recipient, uint256 amount) external returns (bool) {
         if (attemptCallback) {
-            (bool succeeded,) = msg.sender.call(
-                abi.encodeWithSignature("withdrawProtocolFees(uint256)", uint256(1))
-            );
+            bytes memory data = callbackData;
+            if (data.length == 0) {
+                data = abi.encodeWithSignature("withdrawProtocolFees(uint256)", uint256(1));
+            }
+            (bool succeeded,) = msg.sender.call(data);
             callbackRejected = !succeeded;
         }
 
