@@ -305,7 +305,19 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _trackClaimant(address account) internal {
-        claimantRegistry.record(account);
+        // The registry is a constructor-bound immutable. Use the minimal
+        // no-return ABI call instead of repeating compiler-generated call
+        // decoding/returndata logic at every economic mutation.
+        address roster = address(claimantRegistry);
+        bytes4 selector = ClaimantRegistry.record.selector;
+        assembly ("memory-safe") {
+            let ptr := mload(0x40)
+            mstore(ptr, selector)
+            mstore(add(ptr, 4), account)
+            if iszero(call(gas(), roster, 0, ptr, 36, 0, 0)) {
+                revert(0, 0)
+            }
+        }
     }
 
     function depositCollateral(uint256 amount) external {
