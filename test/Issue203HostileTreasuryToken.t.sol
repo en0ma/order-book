@@ -139,4 +139,18 @@ contract Issue203HostileTreasuryTokenTest is TestBase {
         assertEq(token.balanceOf(TREASURY), 0, "undercredit sent tokens");
         assertEq(token.balanceOf(address(core)), 100000, "undercredit spent custody");
     }
+    function test_RewardHelperCannotBypassRealLiquidationModule() public {
+        uint256 accrued = core.protocolFeesAccrued();
+        (bool directModule,) = address(core.liquidationRewardPayoutModule()).call(
+            abi.encodeWithSignature("execute(address,uint256)", TREASURY, uint256(1))
+        );
+        assertTrue(!directModule, "standalone reward helper transferred tokens directly");
+        (bool forgedDebit,) = address(core).call(
+            abi.encodeCall(core.moduleExecuteLiquidationReward, (TREASURY, uint256(1)))
+        );
+        assertTrue(!forgedDebit, "reward debit bypassed module-only guarded entrypoint");
+        assertEq(core.protocolFeesAccrued(), accrued, "unauthorized reward consumed accrued fees");
+        assertEq(token.balanceOf(TREASURY), 0, "unauthorized reward transferred tokens");
+    }
+
 }
