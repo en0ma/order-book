@@ -60,7 +60,7 @@ contract Issue203HostilePortfolioFeePayoutTest is TestBase {
         vm.prank(TAKER);
         vault.deposit(30000);
         coordinator.configureTreasuryRecipient(TREASURY);
-        coordinator.activateFeeDistribution();
+        coordinator.setFeeDistributionEnabled(true);
     }
 
     function _closeRoundTrips() internal {
