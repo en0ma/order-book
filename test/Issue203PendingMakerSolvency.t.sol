@@ -63,4 +63,55 @@ contract Issue203PendingMakerSolvencyTest is TestBase {
             "post-settlement maker/position/funding claims fail conservation");
         assertEq(token.balanceOf(address(core)), custody, "settlement transferred custody");
     }
+    function test_GrossPendingMakerRiskCannotCancelBetweenBothOrderSides() public {
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 40);
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 100, 40);
+
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Bid, 100, 40, IOrderBookCore.FillPolicy.IOC);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Ask, 100, 40, IOrderBookCore.FillPolicy.IOC);
+
+        assertEq(core.claimantRegistry().pendingMakerUnattributedLots(), 80,
+            "opposite-side pending lots were wrongly netted");
+        assertEq(core.claimantRegistry().pendingPriceLevelCount(), 2,
+            "opposite-side fills shared an invalid signed price bucket");
+
+        oracle.setMarkTick(120);
+        (uint256 capacity, uint256 claims, uint256 protected) =
+            core.claimantRegistry().conservativeRewardCapacity();
+        assertTrue(protected >= claims + core.pendingMakerRebateReserve(),
+            "pending-maker liabilities cancelled against unrelated losses");
+        assertTrue(capacity <= core.protocolFeesAccrued(),
+            "opposing maker fills manufactured protocol fees");
+
+        vm.prank(MAKER);
+        core.settle(IOrderBookCore.Side.Ask, 100);
+        vm.prank(MAKER);
+        core.settle(IOrderBookCore.Side.Bid, 100);
+        assertEq(core.claimantRegistry().pendingMakerUnattributedLots(), 0,
+            "maker attribution did not consume all execution exposures");
+        assertEq(core.claimantRegistry().pendingPriceLevelCount(), 0,
+            "stale pending execution-price buckets remained after settlement");
+    }
+
+    function test_ClosedGenerationAndMakerTopupConsumeAllGrossPendingBuckets() public {
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 40);
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 60);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        assertEq(core.claimantRegistry().pendingMakerUnattributedLots(), 100,
+            "maker top-up lost attributed fill inventory");
+        vm.prank(MAKER);
+        core.settle(IOrderBookCore.Side.Ask, 100);
+        assertEq(core.claimantRegistry().pendingMakerUnattributedLots(), 0,
+            "closed-generation maker accounting did not clear");
+        assertEq(core.claimantRegistry().pendingPriceLevelCount(), 0,
+            "closed generation has live positive maker payout risk");
+    }
+
 }
