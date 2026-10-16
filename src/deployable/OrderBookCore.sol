@@ -8,6 +8,7 @@ import {OrderBookMath} from "./OrderBookMath.sol";
 import {FundingMath} from "./FundingMath.sol";
 import {ClaimantRegistry} from "./ClaimantRegistry.sol";
 import {StandaloneFeePayoutModule} from "./StandaloneFeePayoutModule.sol";
+import {AccountValuationModule} from "./AccountValuationModule.sol";
 
 /// @title OrderBookCore
 /// @notice Deployable hot-path CLOB/risk/funding core.
@@ -89,6 +90,7 @@ contract OrderBookCore is IOrderBookCore {
     // Append-only on-chain claimant roster; never dependent on RPC event coverage.
     ClaimantRegistry public immutable claimantRegistry;
     StandaloneFeePayoutModule public immutable standaloneFeePayoutModule;
+    AccountValuationModule public immutable accountValuationModule;
     mapping(address => uint256) internal collateralBalance;
     uint256 internal totalLocalCollateral;
     mapping(address => uint256) internal reservedMargin;
@@ -187,6 +189,7 @@ contract OrderBookCore is IOrderBookCore {
         collateralToken = IERC20Minimal(collateralToken_);
         claimantRegistry = new ClaimantRegistry();
         standaloneFeePayoutModule = new StandaloneFeePayoutModule();
+        accountValuationModule = new AccountValuationModule();
         markOracle = IMarkOracle(markOracle_);
         executionBandTicks = executionBandTicks_;
         initialMarginBps = initialMarginBps_;
@@ -769,25 +772,17 @@ contract OrderBookCore is IOrderBookCore {
         public
         view
         override
-        returns (int256 value)
+        returns (int256)
     {
-        AccountRisk memory a = accountRisk[account];
-
-        int256 pendingFunding =
-            -(int256(a.settledPosition)
-                * (int256(fundingIndexX18)
-                    - int256(_accountMeta[account].fundingCheckpointX18))
-                / FUNDING_SCALE);
-
-        int256 markedPositionValue;
-        if (a.settledPosition != 0) {
-            uint96 absLots = uint96(uint80(OrderBookMath.absPosition(a.settledPosition)));
-            int256 marked = int256(notionalValue(absLots, currentMarkTick()));
-            markedPositionValue = a.settledPosition > 0 ? marked : -marked;
-        }
-
-        value = tradeCashflow[account] + fundingCashflow[account]
-            + pendingFunding + markedPositionValue;
+        return accountValuationModule.marketValue(
+            accountRisk[account].settledPosition,
+            fundingIndexX18,
+            _accountMeta[account].fundingCheckpointX18,
+            currentMarkTick(),
+            collateralUnitsPerLotTick,
+            tradeCashflow[account],
+            fundingCashflow[account]
+        );
     }
 
     function accountEquity(address account) public view override returns (int256 equity) {
