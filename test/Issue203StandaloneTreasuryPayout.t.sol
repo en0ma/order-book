@@ -182,4 +182,17 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
         assertEq(token.balanceOf(address(core)), 99800, "customer claims lost their backing");
     }
 
+    function test_EmergencyRiskPauseBlocksFeeDistributionWithoutDebitingLedger() public {
+        core.configureTreasuryRecipient(TREASURY);
+        core.setFeeDistributionEnabled(true);
+        _settleRoundTrip();
+        core.setRiskIncreasePaused(true);
+        (bool paid,) = address(core).call(
+            abi.encodeCall(core.withdrawProtocolFees, (uint256(1)))
+        );
+        assertTrue(!paid, "treasury paid while risk circuit breaker was active");
+        assertEq(core.protocolFeesAccrued(), 200, "emergency pause consumed protocol fees");
+        assertEq(token.balanceOf(TREASURY), 0, "emergency pause leaked ERC20");
+    }
+
 }
