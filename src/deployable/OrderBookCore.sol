@@ -64,6 +64,7 @@ contract OrderBookCore is IOrderBookCore {
 
     address public owner;
     address public treasuryRecipient;
+    bool public feeDistributionEnabled;
     uint256 private _treasuryPayoutEntered;
     bool public riskIncreasePaused;
 
@@ -159,6 +160,7 @@ contract OrderBookCore is IOrderBookCore {
     event InsuranceFunded(address indexed funder, uint256 amount);
     event ProtocolFeesAllocatedToInsurance(uint256 amount);
     event TreasuryRecipientConfigured(address indexed recipient);
+    event FeeDistributionActivated();
     event TreasuryFeeDistributed(address indexed recipient, uint256 amount);
     event BadDebtCovered(address indexed account, uint256 amount);
     event LiquidationRewardPaid(address indexed liquidator, uint256 amount);
@@ -396,10 +398,17 @@ contract OrderBookCore is IOrderBookCore {
     /// standalone protocol fees; never spend portfolio/shared-vault tokens.
     /// @dev Pre- and post-transfer proof prevents ERC20 callback mutations
     /// from silently spending newly created liabilities.
+    /// @notice Explicit post-review activation; never enabled by deployment.
+    function activateFeeDistribution() external onlyOwner {
+        if (feeDistributionEnabled || treasuryRecipient == address(0)) revert Unauthorized();
+        feeDistributionEnabled = true;
+        emit FeeDistributionActivated();
+    }
+
     function withdrawProtocolFees(uint256 amount) external onlyOwner {
         _requireStandalone();
         address recipient = treasuryRecipient;
-        if (recipient == address(0) || amount == 0 || _treasuryPayoutEntered != 0) {
+        if (!feeDistributionEnabled || recipient == address(0) || amount == 0 || _treasuryPayoutEntered != 0) {
             revert Unauthorized();
         }
         _treasuryPayoutEntered = 1;
