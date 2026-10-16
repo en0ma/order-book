@@ -67,12 +67,12 @@ contract Issue203PendingMakerSolvencyTest is TestBase {
         vm.prank(MAKER);
         core.addLiquidity(IOrderBookCore.Side.Ask, 100, 40);
         vm.prank(MAKER);
-        core.addLiquidity(IOrderBookCore.Side.Bid, 100, 40);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 80, 40);
 
         vm.prank(TAKER);
         core.take(IOrderBookCore.Side.Bid, 100, 40, IOrderBookCore.FillPolicy.IOC);
         vm.prank(TAKER);
-        core.take(IOrderBookCore.Side.Ask, 100, 40, IOrderBookCore.FillPolicy.IOC);
+        core.take(IOrderBookCore.Side.Ask, 80, 40, IOrderBookCore.FillPolicy.IOC);
 
         assertEq(core.claimantRegistry().pendingMakerUnattributedLots(), 80,
             "opposite-side pending lots were wrongly netted");
@@ -90,7 +90,7 @@ contract Issue203PendingMakerSolvencyTest is TestBase {
         vm.prank(MAKER);
         core.settle(IOrderBookCore.Side.Ask, 100);
         vm.prank(MAKER);
-        core.settle(IOrderBookCore.Side.Bid, 100);
+        core.settle(IOrderBookCore.Side.Bid, 80);
         assertEq(core.claimantRegistry().pendingMakerUnattributedLots(), 0,
             "maker attribution did not consume all execution exposures");
         assertEq(core.claimantRegistry().pendingPriceLevelCount(), 0,
