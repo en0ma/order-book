@@ -138,6 +138,7 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
 
     function test_NonzeroFeeCannotLeaveInsuranceReserveUnderbacked() public {
         core.configureTreasuryRecipient(TREASURY);
+        core.setFeeDistributionEnabled(true);
         _settleRoundTrip();
         token.mint(address(this), 250);
         token.approve(address(core), 250);
