@@ -47,6 +47,9 @@ contract PortfolioClaimantTopology {
                 address(marketCore) == address(0) || gateway == address(0)
                     || address(marketCore) != address(policyCore)
                     || marketCore.portfolioController() != address(coordinator)
+                    || OrderBookCore(address(marketCore)).collateralAsset()
+                        != address(vault.collateralToken())
+                    || OrderBookCore(address(marketCore)).advancedModule() != gateway
             ) revert InvalidCustodyTopology();
 
             ClaimantRegistry roster = OrderBookCore(address(marketCore)).claimantRegistry();
