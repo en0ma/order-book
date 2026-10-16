@@ -61,7 +61,8 @@ contract PortfolioFeeSolvencyPreflight {
         for (uint256 market; market < marketCount; ++market) {
             (IOrderBookCore marketCore,) = coordinator.markets(market);
             OrderBookCore core = OrderBookCore(address(marketCore));
-            protectedLiabilities += core.insuranceReserves();
+            protectedLiabilities += core.insuranceReserves()
+                + core.pendingMakerRebateReserve();
             accrued += core.protocolFeesAccrued();
         }
 
