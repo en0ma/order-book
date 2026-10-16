@@ -39,7 +39,7 @@ contract Issue203PortfolioTreasuryPayoutTest is PortfolioTwoMarketFeeIsolationTe
 
     function test_PartialAndFullPortfolioPayoutDebitsBothMarketFeeLedgers() public {
         coordinator.configureTreasuryRecipient(TREASURY);
-        coordinator.activateFeeDistribution();
+        coordinator.setFeeDistributionEnabled(true);
         _closedPortfolioRoundTrip();
         assertEq(core0.protocolFeesAccrued(), 100, "first earned market fees wrong");
         assertEq(core1.protocolFeesAccrued(), 400, "second earned market fees wrong");
@@ -103,7 +103,7 @@ contract Issue203PortfolioTreasuryPayoutTest is PortfolioTwoMarketFeeIsolationTe
 
     function test_AnyUnsettledMarketFailsClosedDespiteEarnedFeesAndDonations() public {
         coordinator.configureTreasuryRecipient(TREASURY);
-        coordinator.activateFeeDistribution();
+        coordinator.setFeeDistributionEnabled(true);
         vm.prank(MAKER);
         coordinator.addLiquidity(0, IOrderBookCore.Side.Ask, 100, 100);
         vm.prank(TAKER);
