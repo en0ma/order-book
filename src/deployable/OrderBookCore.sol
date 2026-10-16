@@ -372,16 +372,23 @@ contract OrderBookCore is IOrderBookCore {
 
     /// @notice Exact custody transfer, delegated to immutable verified runtime.
     function _transferCollateralOut(address recipient, uint256 amount) internal {
-        (bool ok, bytes memory reason) = address(exactCollateralTransferModule).delegatecall(
-            abi.encodeWithSelector(
-                ExactCollateralTransferModule.transferExact.selector, recipient, amount
-            )
+        _delegatePayout(
+            address(exactCollateralTransferModule),
+            abi.encodeWithSelector(ExactCollateralTransferModule.transferExact.selector, recipient, amount)
         );
+    }
+
+    /// @dev Share revert bubbling and return-data handling across isolated payout modules.
+    function _delegatePayout(address module, bytes memory input)
+        internal returns (bytes memory result)
+    {
+        (bool ok, bytes memory output) = module.delegatecall(input);
         if (!ok) {
             assembly ("memory-safe") {
-                revert(add(reason, 32), mload(reason))
+                revert(add(output, 32), mload(output))
             }
         }
+        return output;
     }
 
     /// @notice Canonical physical ERC20 domain for independent on-chain solvency checks.
@@ -433,14 +440,10 @@ contract OrderBookCore is IOrderBookCore {
         ) revert Unauthorized();
         _treasuryPayoutEntered = 1;
 
-        (bool ok, bytes memory result) = address(standaloneFeePayoutModule).delegatecall(
+        _delegatePayout(
+            address(standaloneFeePayoutModule),
             abi.encodeWithSelector(StandaloneFeePayoutModule.execute.selector, amount)
         );
-        if (!ok) {
-            assembly ("memory-safe") {
-                revert(add(result, 32), mload(result))
-            }
-        }
 
         _treasuryPayoutEntered = 0;
     }
@@ -738,17 +741,12 @@ contract OrderBookCore is IOrderBookCore {
             return 0;
         }
         _treasuryPayoutEntered = 1;
-        (bool ok, bytes memory result) = address(liquidationRewardPayoutModule).delegatecall(
-            abi.encodeWithSelector(
-                LiquidationRewardPayoutModule.execute.selector, liquidator, requested
-            )
+        paid = abi.decode(
+            _delegatePayout(
+                address(liquidationRewardPayoutModule),
+                abi.encodeWithSelector(LiquidationRewardPayoutModule.execute.selector, liquidator, requested)
+            ), (uint256)
         );
-        if (!ok) {
-            assembly ("memory-safe") {
-                revert(add(result, 32), mload(result))
-            }
-        }
-        paid = abi.decode(result, (uint256));
         _treasuryPayoutEntered = 0;
     }
 
