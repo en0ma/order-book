@@ -7,6 +7,37 @@ Until **all** gates below are implemented, audited and tested, the PR stays draf
 and no treasury fee withdrawal is enabled. PR #208 already merged and hardens
 custody/liquidation/retirement while explicitly deferring this proof.
 
+## Implemented proposal (not yet release-authorized)
+
+This draft branch includes disabled-by-default, governance-controlled treasury
+payout entrypoints for standalone Core and shared portfolio coordinator/vault.
+They use independent on-chain claimant registries, exact physical custody
+balances, positive-only customer liabilities, insurance and escrowed rebates,
+and immutable portfolio topology. An immutable verifier is invoked before
+and after every proposed ERC20 transfer; portfolio mode debits the originating
+market fee ledgers atomically.
+
+**Conservative limitations:** new treasury payouts require every market
+position and maker/advanced order to be fully settled. Standalone verification
+has a 64-claimant maximum; portfolio verification has 64 raw registry entries,
+a 256 account-market-pair limit and a maximum of 32 markets. Deployments
+exceeding these caps **cannot distribute fees** through these methods.
+The registries are constructor-bound and do not retroactively certify
+historical unenumerated deployments. This is a denial-of-payout limitation,
+not permission to omit claimants.
+
+Liquidation rewards use a separate on-chain conservative bound over positive
+marked account claims, per-side/per-execution-tick unassigned maker exposure,
+gross pending funding bases, maker rebate escrow, insurance reserves and
+rounding dust. If the bounded proof is unavailable or capacity is insufficient,
+the **reward is capped or skipped without reverting liquidation**. This must
+be independently reviewed for rounding coverage and economic liveness.
+
+The implementation has not yet passed exact-head release validation. No
+deployment should activate the payout toggle or treat these diagnostics as
+production-reviewed authorization until all checklist gates, bytecode/gas
+budgets, and external review are satisfied.
+
 ## Physical custody and protected claim invariant
 
 For every permitted external protocol-fee payout from a standalone Core, at
@@ -35,7 +66,7 @@ The protected liability bound must conservatively account for:
 6. Market isolation: standalone Core and portfolio-vault ERC20 balances must
    not be added together to justify a withdrawal from only one of them.
 
-## Mutation audit — required before any payout endpoint
+## Mutation audit — required for any payout endpoint
 
 Review and reconcile **every** accounting transition:
 `depositCollateral`, `withdrawCollateral`, `_debitSettledCash`,
