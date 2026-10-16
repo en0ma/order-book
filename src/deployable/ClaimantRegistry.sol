@@ -18,6 +18,10 @@ interface IRegisteredStandaloneCore {
     function pendingMakerRebateReserve() external view returns (uint256);
     function protocolFeesAccrued() external view returns (uint256);
     function collateralAsset() external view returns (address);
+    function currentMarkTick() external view returns (uint16);
+    function notionalValue(uint96 lots, uint16 tick) external view returns (uint256);
+    function currentFundingIndexX18() external view returns (int128);
+    function pendingMakerRoundingLiability() external view returns (uint256);
 }
 
 interface IRegisteredAdvancedOrders {
@@ -35,6 +39,14 @@ contract ClaimantRegistry {
     address public immutable registrar;
     address[] internal _accounts;
     mapping(address => bool) internal _seen;
+    // Unsigned, non-nettable upper bounds for still-unattributed maker fills.
+    // Funding bases are deliberately monotone until separately proven settled;
+    // this can reduce capacity but can never turn historical funding into surplus.
+    uint256 public pendingMakerUnattributedLots;
+    uint256 public pendingMakerLongLots;
+    uint256 public pendingMakerAskGrossNotional;
+    uint256 public makerFundingBasisUpper;
+
 
     event ClaimantRecorded(address indexed account, uint256 indexed index);
 
@@ -100,6 +112,78 @@ contract ClaimantRegistry {
         uint256 unencumbered = balance - protectedLiabilities;
         uint256 fees = core.protocolFeesAccrued();
         capacity = unencumbered < fees ? unencumbered : fees;
+    }
+
+    function recordPendingMaker(
+        bool makerBid,
+        uint96 lots,
+        uint256 notional,
+        int256 fundingEntry
+    ) external {
+        if (msg.sender != registrar) revert UnauthorizedRegistrar();
+        pendingMakerUnattributedLots += lots;
+        if (makerBid) pendingMakerLongLots += lots;
+        else pendingMakerAskGrossNotional += notional;
+        makerFundingBasisUpper += _abs(fundingEntry);
+    }
+
+    function settlePendingMaker(bool makerBid, uint96 lots, uint256 notional) external {
+        if (msg.sender != registrar) revert UnauthorizedRegistrar();
+        pendingMakerUnattributedLots -= lots;
+        if (makerBid) pendingMakerLongLots -= lots;
+        else pendingMakerAskGrossNotional -= notional;
+        // Do not subtract attributed funding basis: pro-rata rounding and
+        // mixed-sign generations can make signed net subtraction unsafe.
+    }
+
+    /// @notice Conservative collateral floor for liquidation rewards with
+    /// open positions and lazily attributed maker fills. Unlike treasury,
+    /// a reward may be partially paid or skipped when proof gas is bounded.
+    function conservativeRewardCapacity()
+        external
+        view
+        returns (uint256 available, uint256 claims, uint256 protectedLiabilities)
+    {
+        IRegisteredStandaloneCore core = IRegisteredStandaloneCore(registrar);
+        if (core.portfolioController() != address(0)) revert PortfolioNotStandalone();
+        if (_accounts.length > MAX_PROOF_ACCOUNTS) return (0, 0, type(uint256).max);
+
+        for (uint256 i; i < _accounts.length; ++i) {
+            int256 equity = core.accountEquity(_accounts[i]);
+            if (equity > 0) claims += uint256(equity);
+        }
+
+        // Gross pending maker value is an upper bound: a pending buyer cannot
+        // gain more than gross marked long value, a pending seller cannot
+        // gain more than execution proceeds. No opposite-side offset is used.
+        uint256 markedUnitValue = core.notionalValue(1, core.currentMarkTick());
+        uint256 pendingPriceBound =
+            pendingMakerLongLots * markedUnitValue + pendingMakerAskGrossNotional;
+
+        // Each deferred fill's current-index funding is bounded by its
+        // gross entry basis plus absolute index times gross lots. One unit
+        // per pending lot protects per-share directed rounding.
+        int256 fundingIndex = int256(core.currentFundingIndexX18());
+        uint256 indexMagnitude = _abs(fundingIndex);
+        uint256 fundingBound =
+            (pendingMakerUnattributedLots * indexMagnitude + 1e18 - 1) / 1e18
+                + pendingMakerUnattributedLots + makerFundingBasisUpper;
+
+        protectedLiabilities = claims + core.insuranceReserves()
+            + core.pendingMakerRebateReserve() + pendingPriceBound
+            + fundingBound + core.pendingMakerRoundingLiability();
+
+        uint256 custody = IERC20Minimal(core.collateralAsset()).balanceOf(registrar);
+        if (custody <= protectedLiabilities) return (0, claims, protectedLiabilities);
+        uint256 unencumbered = custody - protectedLiabilities;
+        uint256 accrued = core.protocolFeesAccrued();
+        available = accrued < unencumbered ? accrued : unencumbered;
+    }
+
+    function _abs(int256 value) internal pure returns (uint256) {
+        if (value >= 0) return uint256(value);
+        // Cannot negate type(int256).min in signed arithmetic.
+        return uint256(-(value + 1)) + 1;
     }
 
 }
