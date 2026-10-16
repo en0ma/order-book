@@ -316,4 +316,19 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
         assertEq(token.balanceOf(TREASURY), 0, "helper directly credited treasury");
     }
 
+    function test_InvalidCustodialTreasuryAddressesCannotBeLockedIn() public {
+        (bool self,) = address(core).call(
+            abi.encodeCall(core.configureTreasuryRecipient, (address(core)))
+        );
+        assertTrue(!self, "self-treasury would trap permanently configured recipient");
+        (bool tokenAddress,) = address(core).call(
+            abi.encodeCall(core.configureTreasuryRecipient, (address(token)))
+        );
+        assertTrue(!tokenAddress, "ERC20 contract erroneously authorized as recipient");
+        assertTrue(core.treasuryRecipient() == address(0),
+            "invalid recipient irreversibly configured treasury");
+        core.configureTreasuryRecipient(TREASURY);
+        assertTrue(core.treasuryRecipient() == TREASURY, "valid treasury rejected");
+    }
+
 }
