@@ -372,6 +372,11 @@ contract OrderBookCore is IOrderBookCore {
         return address(collateralToken);
     }
 
+    /// @notice Fees escrowed for maker rebates, not distributable protocol revenue.
+    function pendingMakerRebateReserve() external view returns (uint256) {
+        return _feeAccountingPacked >> 128;
+    }
+
     function protocolFeesAccrued() external view returns (uint256) {
         return uint256(uint128(_feeAccountingPacked));
     }
