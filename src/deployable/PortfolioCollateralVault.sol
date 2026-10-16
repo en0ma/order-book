@@ -181,15 +181,11 @@ contract PortfolioCollateralVault {
         uint256 balance = balanceOf[account];
         uint256 withdrawn = portfolioWithdrawn[account];
 
-        if (balance >= withdrawn) {
-            uint256 positive = balance - withdrawn;
-            if (positive > uint256(type(int256).max)) revert InsufficientFreeCollateral();
-            return int256(positive);
-        }
-
-        uint256 deficit = withdrawn - balance;
-        if (deficit > uint256(type(int256).max)) revert InsufficientFreeCollateral();
-        return -int256(deficit);
+        // Both unsigned inputs must be safely cast before a signed delta.
+        // Oversized unrepresentable claims fail closed instead of truncating.
+        uint256 maxSigned = uint256(type(int256).max);
+        if (balance > maxSigned || withdrawn > maxSigned) revert InsufficientFreeCollateral();
+        return int256(balance) - int256(withdrawn);
     }
 
     function setLockedCollateral(address account, uint256 nextLocked)
@@ -242,14 +238,13 @@ contract PortfolioCollateralVault {
         if (!token.transfer(recipient, amount)) revert TokenTransferFailed();
         uint256 afterBalance = token.balanceOf(address(this));
         uint256 recipientAfter = token.balanceOf(recipient);
-        if (afterBalance > beforeBalance || beforeBalance - afterBalance != amount) {
-            revert UnsupportedTokenBehavior();
-        }
-        // A burn/tax on receipt otherwise silently destroys the withdrawing
-        // user's claim despite an exact debit from vault custody.
-        if (recipientAfter < recipientBefore || recipientAfter - recipientBefore != amount) {
-            revert UnsupportedTokenBehavior();
-        }
-        if (afterBalance < totalAccountedCollateral) revert UnsupportedTokenBehavior();
+        // Exact sender debit, exact recipient credit and remaining real custody
+        // are one atomic requirement, including callback/fee-on-transfer tokens.
+        if (
+            beforeBalance < amount || afterBalance != beforeBalance - amount
+                || recipientAfter < recipientBefore
+                || recipientAfter - recipientBefore != amount
+                || afterBalance < totalAccountedCollateral
+        ) revert UnsupportedTokenBehavior();
     }
 }
