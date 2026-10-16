@@ -252,4 +252,35 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
             "rejected proof altered physical collateral");
     }
 
+    function test_QuoteTopUpsCannotHideLazyFundingOrRebateLiabilityFromPayoutProof() public {
+        core.configureTreasuryRecipient(TREASURY);
+        core.setFeeDistributionEnabled(true);
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 40);
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 60);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+
+        (bool premature,) = address(core).call(
+            abi.encodeCall(core.withdrawProtocolFees, (uint256(1)))
+        );
+        assertTrue(!premature, "quote top-up lost unsettled maker claim");
+        assertEq(core.protocolFeesAccrued(), 100, "early quote fill fee incorrect");
+        vm.prank(MAKER);
+        core.settle(IOrderBookCore.Side.Ask, 100);
+
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 100, 100);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Ask, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        vm.prank(MAKER);
+        core.settle(IOrderBookCore.Side.Bid, 100);
+
+        core.withdrawProtocolFees(200);
+        assertEq(core.protocolFeesAccrued(), 0, "completed maker quote duplicated fees");
+        assertEq(token.balanceOf(TREASURY), 200, "reconciled fee payout incorrect");
+        assertEq(token.balanceOf(address(core)), 99800, "maker top-up spent customer claims");
+    }
+
 }
