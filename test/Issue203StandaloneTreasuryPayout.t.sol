@@ -195,4 +195,36 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
         assertEq(token.balanceOf(TREASURY), 0, "emergency pause leaked ERC20");
     }
 
+    function testFuzz_BothFundingSignsAfterCompleteSettlementProtectPhysicalClaims(bool positive) public {
+        core.configureTreasuryRecipient(TREASURY);
+        core.setFeeDistributionEnabled(true);
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        vm.prank(MAKER);
+        core.settle(IOrderBookCore.Side.Ask, 100);
+
+        core.setFundingIndex(positive ? int128(1e18) : -int128(1e18));
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 100, 100);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Ask, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        vm.prank(MAKER);
+        core.settle(IOrderBookCore.Side.Bid, 100);
+
+        (uint256 capacity, uint256 claims, uint256 protected) =
+            core.claimantRegistry().standaloneFeeCapacity();
+        assertTrue(claims <= protected, "funding caused negative reserve calculation");
+        assertTrue(token.balanceOf(address(core)) >= protected,
+            "fully settled funding consumed physical custody");
+        assertTrue(capacity <= core.protocolFeesAccrued(),
+            "signed funding minted protocol-owned tokens");
+        core.withdrawProtocolFees(capacity);
+        assertEq(token.balanceOf(TREASURY), capacity,
+            "funded treasury transfer was not exact");
+        assertTrue(token.balanceOf(address(core)) >= protected,
+            "treasury payout spent settlement funding claims");
+    }
+
 }
