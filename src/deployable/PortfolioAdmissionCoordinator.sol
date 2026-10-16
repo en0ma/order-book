@@ -41,7 +41,7 @@ contract PortfolioAdmissionCoordinator {
 
     event PortfolioProtocolFeeDistributed(address indexed recipient, uint256 amount);
     event TreasuryRecipientConfigured(address indexed recipient);
-    event FeeDistributionActivated();
+    event FeeDistributionStatusChanged(bool enabled);
 
     event PortfolioLockSynchronized(
         address indexed account,
@@ -106,11 +106,13 @@ contract PortfolioAdmissionCoordinator {
     /// and all configured markets. Individual market fee ledgers are debited
     /// atomically with the exact underlying ERC20 transfer.
     /// @notice Disabled by default pending deployment-specific solvency review.
-    function activateFeeDistribution() external {
-        if (msg.sender != policy.owner() || treasuryRecipient == address(0)
-            || feeDistributionEnabled) revert InvalidPortfolioAdmissionConfig();
-        feeDistributionEnabled = true;
-        emit FeeDistributionActivated();
+    function setFeeDistributionEnabled(bool enabled) external {
+        if (msg.sender != policy.owner()
+            || (enabled && treasuryRecipient == address(0))) {
+            revert InvalidPortfolioAdmissionConfig();
+        }
+        feeDistributionEnabled = enabled;
+        emit FeeDistributionStatusChanged(enabled);
     }
 
     function withdrawPortfolioProtocolFees(uint256[] calldata marketAmounts) external {
