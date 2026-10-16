@@ -241,3 +241,25 @@ jobs:
               exit 1
             fi
           done
+
+  issue203-solc-isolation:
+    name: FEE-03 isolate ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - src/deployable/OrderBookCore.sol
+          - src/deployable/PortfolioCollateralVault.sol
+          - src/deployable/PortfolioClaimantTopology.sol
+          - src/deployable/StandaloneFeeSolvencyPreflight.sol
+          - test/Issue203PendingMakerSolvency.t.sol
+          - test/Issue203StandaloneSolvencyPreflight.t.sol
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Isolate Yul compilation by dependency closure
+        run: forge build "${{ matrix.target }}"
