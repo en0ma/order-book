@@ -379,6 +379,12 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     /// @notice Fees escrowed for maker rebates, not distributable protocol revenue.
+    /// @notice Absolute non-withdrawable funding rounding-dust exposure.
+    function pendingMakerRoundingLiability() external view returns (uint256) {
+        int256 dust = makerFundingRoundingDust;
+        return dust >= 0 ? uint256(dust) : uint256(-(dust + 1)) + 1;
+    }
+
     function pendingMakerRebateReserve() external view returns (uint256) {
         return _feeAccountingPacked >> 128;
     }
@@ -861,6 +867,9 @@ contract OrderBookCore is IOrderBookCore {
         int256 fundingEntry = _currentFunding(makerSide, fill);
         generationMakerFundingEntryBudget[makerSide][tick][generation] += fundingEntry;
         pendingMakerFundingEntry += fundingEntry;
+        claimantRegistry.recordPendingMaker(
+            makerSide == Side.Bid, fill, notionalValue(fill, tick), fundingEntry
+        );
         p.remainingLots -= fill;
 
         if (p.remainingLots != 0) return (fill, reservedMakerRebate);
@@ -1474,6 +1483,7 @@ contract OrderBookCore is IOrderBookCore {
             ? int256(notional) : -int256(notional);
         generationMakerFundingEntryBudget[side][tick][generation] -= entryFunding;
         pendingMakerFundingEntry -= entryFunding;
+        claimantRegistry.settlePendingMaker(side == Side.Bid, filledLots, notional);
 
         uint256 requestedMakerRebate =
             notional * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
@@ -1532,6 +1542,7 @@ contract OrderBookCore is IOrderBookCore {
             ? int256(notional) : -int256(notional);
         generationMakerFundingEntryBudget[side][tick][generation] = 0;
         pendingMakerFundingEntry -= entryFunding;
+        if (tail != 0) claimantRegistry.settlePendingMaker(side == Side.Bid, tail, notional);
 
         _settleExistingPositionFunding(maker);
 
