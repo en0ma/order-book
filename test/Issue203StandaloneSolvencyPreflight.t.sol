@@ -73,4 +73,35 @@ contract Issue203StandaloneSolvencyPreflightTest is TestBase {
         );
         assertTrue(!verified, "unbounded claimant scan was accepted");
     }
+    function test_CompletedRoundTripCanEarnAConservativelyBackedFeeCandidate() public {
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        vm.prank(MAKER);
+        core.settle(IOrderBookCore.Side.Ask, 100);
+
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 100, 100);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Ask, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        vm.prank(MAKER);
+        core.settle(IOrderBookCore.Side.Bid, 100);
+
+        (int80 makerPosition,,) = core.accountRisk(MAKER);
+        (int80 takerPosition,,) = core.accountRisk(TAKER);
+        assertEq(int256(makerPosition), 0, "maker position not closed");
+        assertEq(int256(takerPosition), 0, "taker position not closed");
+        assertEq(core.activeQuoteCount(MAKER), 0, "maker quote remains");
+        assertEq(core.protocolFeesAccrued(), 200, "roundtrip accrued fee mismatch");
+
+        (uint256 capacity, uint256 claims, uint256 reserves) =
+            proof.conservativeCapacity(core);
+        assertEq(claims, 99800, "settled positive claims do not reconcile");
+        assertEq(reserves, 99800, "incorrect conservative liability floor");
+        assertEq(capacity, 200, "fully settled fees were not conservatively backed");
+        assertEq(token.balanceOf(address(core)), claims + capacity,
+            "physical ERC20 conservation failed");
+    }
+
 }
