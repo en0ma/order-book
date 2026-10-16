@@ -1194,6 +1194,8 @@ contract OrderBookCore is IOrderBookCore {
         uint128 mintedShares,
         uint96 lots
     ) internal {
+        // Never allow custody-scale repricing after the first live maker lot.
+        unitScaleLocked = true;
         MakerQuote storage q = quotes[maker][side][tick];
         bool isNewQuote = q.shares == 0;
 
@@ -1623,6 +1625,8 @@ contract OrderBookCore is IOrderBookCore {
         uint96 lots,
         bool expand
     ) internal {
+        // Reservations are live economic exposure even before an order fills.
+        unitScaleLocked = true;
         _trackClaimant(account);
         AccountRisk storage a = accountRisk[account];
         int80 amount = _positionAmount(lots);
