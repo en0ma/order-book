@@ -160,7 +160,7 @@ contract OrderBookCore is IOrderBookCore {
     event InsuranceFunded(address indexed funder, uint256 amount);
     event ProtocolFeesAllocatedToInsurance(uint256 amount);
     event TreasuryRecipientConfigured(address indexed recipient);
-    event FeeDistributionActivated();
+    event FeeDistributionStatusChanged(bool enabled);
     event TreasuryFeeDistributed(address indexed recipient, uint256 amount);
     event BadDebtCovered(address indexed account, uint256 amount);
     event LiquidationRewardPaid(address indexed liquidator, uint256 amount);
@@ -399,10 +399,10 @@ contract OrderBookCore is IOrderBookCore {
     /// @dev Pre- and post-transfer proof prevents ERC20 callback mutations
     /// from silently spending newly created liabilities.
     /// @notice Explicit post-review activation; never enabled by deployment.
-    function activateFeeDistribution() external onlyOwner {
-        if (feeDistributionEnabled || treasuryRecipient == address(0)) revert Unauthorized();
-        feeDistributionEnabled = true;
-        emit FeeDistributionActivated();
+    function setFeeDistributionEnabled(bool enabled) external onlyOwner {
+        if (enabled && treasuryRecipient == address(0)) revert Unauthorized();
+        feeDistributionEnabled = enabled;
+        emit FeeDistributionStatusChanged(enabled);
     }
 
     function withdrawProtocolFees(uint256 amount) external onlyOwner {
