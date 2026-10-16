@@ -35,6 +35,7 @@ contract PortfolioCollateralVault {
     }
 
     uint256 public totalAccountedCollateral;
+    uint256 public totalProtocolFeesPaid;
     mapping(address => uint256) public balanceOf;
     mapping(address => uint256) public portfolioWithdrawn;
     mapping(address => uint256) public lockedCollateral;
@@ -182,6 +183,7 @@ contract PortfolioCollateralVault {
         // The coordinator atomically debits the originating market fee ledgers
         // before calling this function.
         totalAccountedCollateral -= amount;
+        totalProtocolFeesPaid += amount;
         _transferExact(recipient, amount);
 
         (,, protectedLiabilities) = protocolFeeProof.conservativeCapacity(coordinator);
