@@ -1,0 +1,139 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {TestBase} from "./TestBase.sol";
+import {OrderBookCore} from "../src/deployable/OrderBookCore.sol";
+import {IOrderBookCore} from "../src/deployable/IOrderBookCore.sol";
+import {MockERC20} from "./mocks/MockERC20.sol";
+import {MockMarkOracle} from "./mocks/MockMarkOracle.sol";
+
+contract Issue203StandaloneTreasuryPayoutTest is TestBase {
+    address internal constant MAKER = address(0xA11CE);
+    address internal constant TAKER = address(0xB0B);
+    address internal constant TREASURY = address(0xFEED);
+    MockERC20 internal token;
+    OrderBookCore internal core;
+
+    function setUp() public {
+        token = new MockERC20();
+        core = new OrderBookCore(address(token), address(new MockMarkOracle(100)), 30, 1000, 100, 0);
+        token.mint(MAKER, 50000);
+        token.mint(TAKER, 50000);
+        vm.prank(MAKER);
+        token.approve(address(core), type(uint256).max);
+        vm.prank(MAKER);
+        core.depositCollateral(50000);
+        vm.prank(TAKER);
+        token.approve(address(core), type(uint256).max);
+        vm.prank(TAKER);
+        core.depositCollateral(50000);
+    }
+
+    function _settleRoundTrip() internal {
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        vm.prank(MAKER);
+        core.settle(IOrderBookCore.Side.Ask, 100);
+
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 100, 100);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Ask, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        vm.prank(MAKER);
+        core.settle(IOrderBookCore.Side.Bid, 100);
+    }
+
+    function test_OnlyOwnerCanConfigureImmutableNonzeroTreasury() public {
+        vm.prank(MAKER);
+        (bool unauthorized,) = address(core).call(
+            abi.encodeCall(core.configureTreasuryRecipient, (TREASURY))
+        );
+        assertTrue(!unauthorized, "unauthorized user configured protocol treasury");
+
+        (bool invalid,) = address(core).call(
+            abi.encodeCall(core.configureTreasuryRecipient, (address(0)))
+        );
+        assertTrue(!invalid, "zero treasury authorized");
+        core.configureTreasuryRecipient(TREASURY);
+        (bool replaced,) = address(core).call(
+            abi.encodeCall(core.configureTreasuryRecipient, (MAKER))
+        );
+        assertTrue(!replaced, "treasury authorization was mutable after approval");
+        assertTrue(core.treasuryRecipient() == TREASURY, "wrong authorized recipient");
+    }
+
+    function test_PartialAndFullPayoutArePhysicallyBackedAfterSettlement() public {
+        core.configureTreasuryRecipient(TREASURY);
+        _settleRoundTrip();
+
+        (uint256 available, uint256 claims, uint256 liabilities) =
+            core.claimantRegistry().standaloneFeeCapacity();
+        assertEq(available, 200, "earned fees were not backed by standalone custody");
+        assertEq(claims, 99800, "signed settlements did not conserve claimant cash");
+        assertEq(liabilities, 99800, "incorrect protected liability floor");
+
+        vm.prank(TAKER);
+        (bool unauthorized,) = address(core).call(
+            abi.encodeCall(core.withdrawProtocolFees, (uint256(1)))
+        );
+        assertTrue(!unauthorized, "taker withdrew treasury funds");
+
+        core.withdrawProtocolFees(75);
+        assertEq(token.balanceOf(TREASURY), 75, "partial treasury transfer mismatch");
+        assertEq(core.protocolFeesAccrued(), 125, "partial fee debit incorrect");
+        assertEq(token.balanceOf(address(core)), 99925, "partial custody debit incorrect");
+
+        core.withdrawProtocolFees(125);
+        assertEq(token.balanceOf(TREASURY), 200, "full treasury transfer mismatch");
+        assertEq(core.protocolFeesAccrued(), 0, "repeated fee payout possible");
+        assertEq(token.balanceOf(address(core)), 99800, "remaining backing mismatch");
+
+        (bool replay,) = address(core).call(
+            abi.encodeCall(core.withdrawProtocolFees, (uint256(1)))
+        );
+        assertTrue(!replay, "zero-fee payout replay succeeded");
+    }
+
+    function testFuzz_RejectsUnprovedAndOverCapDistributions(uint16 extra) public {
+        core.configureTreasuryRecipient(TREASURY);
+        _settleRoundTrip();
+        uint256 requested = 201 + uint256(extra);
+        (bool paid,) = address(core).call(
+            abi.encodeCall(core.withdrawProtocolFees, (requested))
+        );
+        assertTrue(!paid, "withdrawal exceeded global on-chain surplus");
+        assertEq(core.protocolFeesAccrued(), 200, "failed payout debited fee ledger");
+        assertEq(token.balanceOf(TREASURY), 0, "failed payout transferred ERC20");
+        assertEq(token.balanceOf(address(core)), 100000, "failed payout damaged custody");
+    }
+
+    function test_PendingMakerObligationsPreventPayoutEvenWithDonations() public {
+        core.configureTreasuryRecipient(TREASURY);
+        vm.prank(MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        core.take(IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+        token.mint(address(core), 1000000);
+
+        (bool paid,) = address(core).call(
+            abi.encodeCall(core.withdrawProtocolFees, (uint256(1)))
+        );
+        assertTrue(!paid, "unsettled maker position authorized fee extraction");
+        assertEq(token.balanceOf(TREASURY), 0, "unsettled fee moved to treasury");
+    }
+
+    function test_NonzeroFeeCannotLeaveInsuranceReserveUnderbacked() public {
+        core.configureTreasuryRecipient(TREASURY);
+        _settleRoundTrip();
+        token.mint(address(this), 250);
+        token.approve(address(core), 250);
+        core.fundInsurance(250);
+
+        core.withdrawProtocolFees(200);
+        assertEq(core.insuranceReserves(), 250, "fee payment consumed insurance reserve");
+        assertEq(token.balanceOf(address(core)), 100050,
+            "positive account claims and insurance not physically backed");
+    }
+}
