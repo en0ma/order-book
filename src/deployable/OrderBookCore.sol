@@ -718,12 +718,32 @@ contract OrderBookCore is IOrderBookCore {
         uint256 packed = _feeAccountingPacked;
         uint256 accrued = uint256(uint128(packed));
         paid = requested < accrued ? requested : accrued;
+        if (paid == 0 || _treasuryPayoutEntered != 0) return 0;
+
+        // Do not abort an otherwise valid liquidation when a bounded proof
+        // cannot fit in gas or the market is already insolvent. Pay only
+        // whatever compensation remains provably backed, possibly zero.
+        uint256 available;
+        try claimantRegistry.conservativeRewardCapacity() returns (
+            uint256 capacity, uint256, uint256
+        ) {
+            available = capacity;
+        } catch {
+            return 0;
+        }
+        if (paid > available) paid = available;
         if (paid == 0) return 0;
 
+        _treasuryPayoutEntered = 1;
         _feeAccountingPacked =
             ((packed >> 128) << 128) | (accrued - paid);
         _transferCollateralOut(liquidator, paid);
 
+        (,, uint256 remainingLiabilities) = claimantRegistry.conservativeRewardCapacity();
+        if (collateralToken.balanceOf(address(this)) < remainingLiabilities) {
+            revert InsufficientCollateral();
+        }
+        _treasuryPayoutEntered = 0;
         emit LiquidationRewardPaid(liquidator, paid);
     }
 
