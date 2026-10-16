@@ -450,14 +450,8 @@ contract OrderBookCore is IOrderBookCore {
             msg.sender != address(this) || _treasuryPayoutEntered != 1
                 || !feeDistributionEnabled
         ) revert Unauthorized();
-        uint256 packed = _feeAccountingPacked;
-        if (amount == 0 || amount > uint256(uint128(packed))) {
-            revert InsufficientCollateral();
-        }
-        _feeAccountingPacked = packed - amount;
-        address recipient = treasuryRecipient;
-        _transferCollateralOut(recipient, amount);
-        emit TreasuryFeeDistributed(recipient, amount);
+        _payAccruedProtocolFee(treasuryRecipient, amount);
+        emit TreasuryFeeDistributed(treasuryRecipient, amount);
     }
 
     function allocateProtocolFeesToInsurance(uint256 amount) external onlyOwner {
@@ -761,12 +755,19 @@ contract OrderBookCore is IOrderBookCore {
         if (msg.sender != address(this) || _treasuryPayoutEntered != 1) {
             revert Unauthorized();
         }
-        uint256 packed = _feeAccountingPacked;
-        uint256 accrued = uint256(uint128(packed));
-        if (paid == 0 || paid > accrued) revert InsufficientCollateral();
-        _feeAccountingPacked = packed - paid;
-        _transferCollateralOut(liquidator, paid);
+        _payAccruedProtocolFee(liquidator, paid);
         emit LiquidationRewardPaid(liquidator, paid);
+    }
+
+    /// @dev One exact protocol-fee debit for treasury and liquidation, never
+    /// touching the high-half maker-rebate escrow or user collateral ledger.
+    function _payAccruedProtocolFee(address recipient, uint256 amount) internal {
+        uint256 packed = _feeAccountingPacked;
+        if (amount == 0 || amount > uint256(uint128(packed))) {
+            revert InsufficientCollateral();
+        }
+        _feeAccountingPacked = packed - amount;
+        _transferCollateralOut(recipient, amount);
     }
 
     function accountMarketValue(address account)
