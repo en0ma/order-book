@@ -86,6 +86,14 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
         assertEq(core.protocolFeesAccrued(), 125, "partial fee debit incorrect");
         assertEq(token.balanceOf(address(core)), 99925, "partial custody debit incorrect");
 
+        core.setFeeDistributionEnabled(false);
+        (bool paused,) = address(core).call(
+            abi.encodeCall(core.withdrawProtocolFees, (uint256(1)))
+        );
+        assertTrue(!paused, "paused fee distribution transferred tokens");
+        assertEq(core.protocolFeesAccrued(), 125, "pause changed earned fee ledger");
+        core.setFeeDistributionEnabled(true);
+
         core.withdrawProtocolFees(125);
         assertEq(token.balanceOf(TREASURY), 200, "full treasury transfer mismatch");
         assertEq(core.protocolFeesAccrued(), 0, "repeated fee payout possible");
