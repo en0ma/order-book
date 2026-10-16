@@ -887,9 +887,7 @@ contract OrderBookCore is IOrderBookCore {
         int256 fundingEntry = _currentFunding(makerSide, fill);
         generationMakerFundingEntryBudget[makerSide][tick][generation] += fundingEntry;
         pendingMakerFundingEntry += fundingEntry;
-        claimantRegistry.recordPendingMaker(
-            makerSide == Side.Bid, fill, notionalValue(fill, tick), fundingEntry
-        );
+        claimantRegistry.recordPendingMaker(makerSide == Side.Bid, tick, fill, fundingEntry);
         p.remainingLots -= fill;
 
         if (p.remainingLots != 0) return (fill, reservedMakerRebate);
@@ -1505,7 +1503,7 @@ contract OrderBookCore is IOrderBookCore {
             ? int256(notional) : -int256(notional);
         generationMakerFundingEntryBudget[side][tick][generation] -= entryFunding;
         pendingMakerFundingEntry -= entryFunding;
-        claimantRegistry.settlePendingMaker(side == Side.Bid, filledLots, notional);
+        claimantRegistry.settlePendingMaker(side == Side.Bid, tick, filledLots);
 
         uint256 requestedMakerRebate =
             notional * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
@@ -1564,7 +1562,7 @@ contract OrderBookCore is IOrderBookCore {
             ? int256(notional) : -int256(notional);
         generationMakerFundingEntryBudget[side][tick][generation] = 0;
         pendingMakerFundingEntry -= entryFunding;
-        if (tail != 0) claimantRegistry.settlePendingMaker(side == Side.Bid, tail, notional);
+        if (tail != 0) claimantRegistry.settlePendingMaker(side == Side.Bid, tick, tail);
 
         _settleExistingPositionFunding(maker);
 
