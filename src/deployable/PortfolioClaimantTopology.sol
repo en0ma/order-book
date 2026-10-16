@@ -41,21 +41,29 @@ contract PortfolioClaimantTopology {
         vaultClaimants = vaultRegistry.count();
 
         for (uint256 i; i < marketCount; ++i) {
-            (IOrderBookCore marketCore, address gateway) = coordinator.markets(i);
-            (IOrderBookCore policyCore,,,) = policy.markets(i);
-            if (
-                address(marketCore) == address(0) || gateway == address(0)
-                    || address(marketCore) != address(policyCore)
-                    || marketCore.portfolioController() != address(coordinator)
-                    || OrderBookCore(address(marketCore)).collateralAsset()
-                        != address(vault.collateralToken())
-                    || OrderBookCore(address(marketCore)).advancedModule() != gateway
-            ) revert InvalidCustodyTopology();
-
-            ClaimantRegistry roster = OrderBookCore(address(marketCore)).claimantRegistry();
-            if (address(roster) == address(0) || roster.registrar() != address(marketCore)) {
-                revert InvalidCustodyTopology();
-            }
+            _verifyMarket(coordinator, policy, vault, i);
         }
     }
+    function _verifyMarket(
+        PortfolioAdmissionCoordinator coordinator,
+        PortfolioMarginPolicy policy,
+        PortfolioCollateralVault vault,
+        uint256 index
+    ) internal view {
+        (IOrderBookCore marketCore, address gateway) = coordinator.markets(index);
+        (IOrderBookCore policyCore,,,) = policy.markets(index);
+        if (address(marketCore) == address(0) || gateway == address(0)
+            || address(marketCore) != address(policyCore)
+            || marketCore.portfolioController() != address(coordinator)) {
+            revert InvalidCustodyTopology();
+        }
+        OrderBookCore core = OrderBookCore(address(marketCore));
+        if (core.collateralAsset() != address(vault.collateralToken())
+            || core.advancedModule() != gateway) revert InvalidCustodyTopology();
+        ClaimantRegistry roster = core.claimantRegistry();
+        if (address(roster) == address(0) || roster.registrar() != address(core)) {
+            revert InvalidCustodyTopology();
+        }
+    }
+
 }
