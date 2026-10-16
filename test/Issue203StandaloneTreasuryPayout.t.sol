@@ -139,4 +139,16 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
         assertEq(token.balanceOf(address(core)), 100050,
             "positive account claims and insurance not physically backed");
     }
+    function test_DistributionRemainsDisabledOnNewDeploymentEvenWhenFullyBacked() public {
+        _settleRoundTrip();
+        core.configureTreasuryRecipient(TREASURY);
+        assertTrue(!core.feeDistributionEnabled(), "treasury enabled by deployment");
+        (bool paid,) = address(core).call(
+            abi.encodeCall(core.withdrawProtocolFees, (uint256(1)))
+        );
+        assertTrue(!paid, "fee distribution enabled without independent activation");
+        assertEq(token.balanceOf(TREASURY), 0, "inactive treasury received tokens");
+        assertEq(core.protocolFeesAccrued(), 200, "inactive fee call altered accounting");
+    }
+
 }
