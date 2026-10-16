@@ -432,6 +432,21 @@ contract OrderBookCore is IOrderBookCore {
         emit ProtocolFeesAllocatedToInsurance(amount);
     }
 
+    /// @notice Move earned fee accounting into a coordinator-controlled
+    /// portfolio distribution, never from a standalone market.
+    /// @dev The coordinator must first verify global portfolio custody.
+    function moduleDebitPortfolioFees(uint256 amount) external {
+        if (portfolioController == address(0) || msg.sender != portfolioController) {
+            revert Unauthorized();
+        }
+        uint256 packed = _feeAccountingPacked;
+        if (amount == 0 || amount > uint256(uint128(packed))) {
+            revert InsufficientCollateral();
+        }
+        // Only debit accrued low-half fees; never touch the maker rebate escrow.
+        _feeAccountingPacked = packed - amount;
+    }
+
     function withdrawCollateral(uint256 amount) external {
         _requireStandalone();
         if (amount == 0) revert ZeroAmount();
