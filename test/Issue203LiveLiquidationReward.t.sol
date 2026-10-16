@@ -86,4 +86,35 @@ contract Issue203LiveLiquidationRewardTest is TestBase {
         );
         assertTrue(!treasurySucceeded, "open partial liquidation enabled treasury extraction");
     }
+    function test_TerminalInsuranceCoverageCannotManufactureWithdrawableTreasuryFees() public {
+        token.mint(address(this), 1000);
+        token.approve(address(core), 1000);
+        core.fundInsurance(1000);
+
+        vm.prank(EXIT_MAKER);
+        core.addLiquidity(IOrderBookCore.Side.Bid, 80, 100);
+        uint256 beforeCustody = token.balanceOf(address(core));
+        uint256 beforeLiquidator = token.balanceOf(address(this));
+
+        IOrderBookCore.Side[] memory sides = new IOrderBookCore.Side[](0);
+        uint16[] memory ticks = new uint16[](0);
+        uint64[] memory ids = new uint64[](0);
+        uint96 closed = liquidation.liquidate(TRADER, sides, ticks, ids, ids, ids);
+        assertEq(uint256(closed), 100, "terminal liquidation failed");
+        assertEq(token.balanceOf(address(this)) - beforeLiquidator, 80,
+            "fully filled earned liquidator reward was lost");
+        assertEq(token.balanceOf(address(core)), beforeCustody - 80,
+            "insurance classification unexpectedly transferred custody");
+        assertTrue(core.insuranceReserves() < 1000,
+            "terminal bad debt coverage omitted insurance");
+        assertEq(core.accountEquity(TRADER), int256(0),
+            "terminal bad debt was not covered");
+
+        (bool paid,) = address(core).call(
+            abi.encodeCall(core.withdrawProtocolFees, (uint256(1)))
+        );
+        assertTrue(!paid, "lazy maker positions and bad debt made treasury funds available");
+        assertEq(token.balanceOf(TREASURY), 0, "unsettled recovery leaked to treasury");
+    }
+
 }
