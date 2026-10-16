@@ -1085,7 +1085,6 @@ contract OrderBookCore is IOrderBookCore {
         uint128 mintedShares,
         uint96 lots
     ) internal {
-        _trackClaimant(maker);
         MakerQuote storage q = quotes[maker][side][tick];
         bool isNewQuote = q.shares == 0;
 
