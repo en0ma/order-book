@@ -39,7 +39,8 @@ contract StandaloneFeeSolvencyPreflight {
             positiveAccountClaims += _positiveFlatClaim(core, roster.at(i));
         }
 
-        protectedReserves = positiveAccountClaims + core.insuranceReserves();
+        protectedReserves = positiveAccountClaims + core.insuranceReserves()
+            + core.pendingMakerRebateReserve();
         uint256 physicalCustody =
             IERC20Minimal(core.collateralAsset()).balanceOf(address(core));
 
