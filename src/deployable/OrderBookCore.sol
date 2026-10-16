@@ -9,6 +9,7 @@ import {FundingMath} from "./FundingMath.sol";
 import {ClaimantRegistry} from "./ClaimantRegistry.sol";
 import {StandaloneFeePayoutModule} from "./StandaloneFeePayoutModule.sol";
 import {AccountValuationModule} from "./AccountValuationModule.sol";
+import {LiquidationRewardPayoutModule} from "./LiquidationRewardPayoutModule.sol";
 
 /// @title OrderBookCore
 /// @notice Deployable hot-path CLOB/risk/funding core.
@@ -91,6 +92,7 @@ contract OrderBookCore is IOrderBookCore {
     ClaimantRegistry public immutable claimantRegistry;
     StandaloneFeePayoutModule public immutable standaloneFeePayoutModule;
     AccountValuationModule public immutable accountValuationModule;
+    LiquidationRewardPayoutModule public immutable liquidationRewardPayoutModule;
     mapping(address => uint256) internal collateralBalance;
     uint256 internal totalLocalCollateral;
     mapping(address => uint256) internal reservedMargin;
@@ -190,6 +192,7 @@ contract OrderBookCore is IOrderBookCore {
         claimantRegistry = new ClaimantRegistry();
         standaloneFeePayoutModule = new StandaloneFeePayoutModule();
         accountValuationModule = new AccountValuationModule();
+        liquidationRewardPayoutModule = new LiquidationRewardPayoutModule();
         markOracle = IMarkOracle(markOracle_);
         executionBandTicks = executionBandTicks_;
         initialMarginBps = initialMarginBps_;
@@ -734,37 +737,34 @@ contract OrderBookCore is IOrderBookCore {
         onlyModule
         returns (uint256 paid)
     {
-        if (liquidator == address(0) || requested == 0) return 0;
-
-        uint256 packed = _feeAccountingPacked;
-        uint256 accrued = uint256(uint128(packed));
-        paid = requested < accrued ? requested : accrued;
-        if (paid == 0 || _treasuryPayoutEntered != 0) return 0;
-
-        // Do not abort an otherwise valid liquidation when a bounded proof
-        // cannot fit in gas or the market is already insolvent. Pay only
-        // whatever compensation remains provably backed, possibly zero.
-        uint256 available;
-        try claimantRegistry.conservativeRewardCapacity() returns (
-            uint256 capacity, uint256, uint256
-        ) {
-            available = capacity;
-        } catch {
+        if (liquidator == address(0) || requested == 0 || _treasuryPayoutEntered != 0) {
             return 0;
         }
-        if (paid > available) paid = available;
-        if (paid == 0) return 0;
-
         _treasuryPayoutEntered = 1;
-        _feeAccountingPacked =
-            ((packed >> 128) << 128) | (accrued - paid);
-        _transferCollateralOut(liquidator, paid);
-
-        (,, uint256 remainingLiabilities) = claimantRegistry.conservativeRewardCapacity();
-        if (collateralToken.balanceOf(address(this)) < remainingLiabilities) {
-            revert InsufficientCollateral();
+        (bool ok, bytes memory result) = address(liquidationRewardPayoutModule).delegatecall(
+            abi.encodeWithSelector(
+                LiquidationRewardPayoutModule.execute.selector, liquidator, requested
+            )
+        );
+        if (!ok) {
+            assembly ("memory-safe") {
+                revert(add(result, 32), mload(result))
+            }
         }
+        paid = abi.decode(result, (uint256));
         _treasuryPayoutEntered = 0;
+    }
+
+    /// @notice Only this Core, during guarded reward proof, can move reward ERC20s.
+    function moduleExecuteLiquidationReward(address liquidator, uint256 paid) external {
+        if (msg.sender != address(this) || _treasuryPayoutEntered != 1) {
+            revert Unauthorized();
+        }
+        uint256 packed = _feeAccountingPacked;
+        uint256 accrued = uint256(uint128(packed));
+        if (paid == 0 || paid > accrued) revert InsufficientCollateral();
+        _feeAccountingPacked = packed - paid;
+        _transferCollateralOut(liquidator, paid);
         emit LiquidationRewardPaid(liquidator, paid);
     }
 
