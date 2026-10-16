@@ -38,7 +38,8 @@ contract PortfolioAdmissionCoordinator {
     MarketConfig[] public markets;
     address public treasuryRecipient;
     bool public feeDistributionEnabled;
-    uint256 private _feePayoutEntered;
+    // Packs with the treasury address and enabled flag; only 0/1 values.
+    uint8 private _feePayoutEntered;
 
     event PortfolioProtocolFeeDistributed(address indexed recipient, uint256 amount);
     event TreasuryRecipientConfigured(address indexed recipient);
