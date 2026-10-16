@@ -220,7 +220,9 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
             "fully settled funding consumed physical custody");
         assertTrue(capacity <= core.protocolFeesAccrued(),
             "signed funding minted protocol-owned tokens");
-        core.withdrawProtocolFees(capacity);
+        // A fully settled but undercollateralized account set may still
+        // conservatively have zero fee capacity; zero is not a valid payout.
+        if (capacity != 0) core.withdrawProtocolFees(capacity);
         assertEq(token.balanceOf(TREASURY), capacity,
             "funded treasury transfer was not exact");
         assertTrue(token.balanceOf(address(core)) >= protected,
