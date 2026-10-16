@@ -132,6 +132,7 @@ contract Issue203PortfolioTreasuryPayoutTest is PortfolioTwoMarketFeeIsolationTe
 
     function test_InsuranceAllocationCannotBePaidAsPortfolioFee() public {
         coordinator.configureTreasuryRecipient(TREASURY);
+        coordinator.setFeeDistributionEnabled(true);
         _closedPortfolioRoundTrip();
         core1.allocateProtocolFeesToInsurance(100);
 
