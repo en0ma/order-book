@@ -99,6 +99,8 @@ contract PortfolioAdmissionCoordinator {
     /// @notice Bind treasury once to the same governance owner as portfolio policy.
     function configureTreasuryRecipient(address recipient) external {
         if (msg.sender != policy.owner() || recipient == address(0)
+            || recipient == address(this) || recipient == address(vault)
+            || recipient == address(vault.collateralToken())
             || treasuryRecipient != address(0)) revert InvalidPortfolioAdmissionConfig();
         treasuryRecipient = recipient;
         emit TreasuryRecipientConfigured(recipient);
