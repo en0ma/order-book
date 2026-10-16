@@ -933,6 +933,9 @@ contract OrderBookCore is IOrderBookCore {
         );
 
         mintedShares = _mintPoolShares(p, lots);
+        // Pre-reserved modules skip _adjustRisk, so their maker must still
+        // enter the immutable claimant universe before any quote can fill.
+        if (preReserved) _trackClaimant(maker);
         _creditMakerQuote(maker, side, tick, p.generation, mintedShares, lots);
 
         if (!preReserved) {
