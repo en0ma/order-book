@@ -5,6 +5,7 @@ import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {PortfolioMarginPolicy} from "./PortfolioMarginPolicy.sol";
 import {PortfolioCollateralVault} from "./PortfolioCollateralVault.sol";
 import {ILiquidationGateway} from "./ILiquidationGateway.sol";
+import {OrderBookCore} from "./OrderBookCore.sol";
 
 interface IPortfolioInsuranceOrderInventory {
     function activeInsuranceBlockingOrders(address account) external view returns (bool);
@@ -34,6 +35,11 @@ contract PortfolioAdmissionCoordinator {
     PortfolioMarginPolicy public immutable policy;
     PortfolioCollateralVault public immutable vault;
     MarketConfig[] public markets;
+    address public treasuryRecipient;
+    uint256 private _feePayoutEntered;
+
+    event PortfolioProtocolFeeDistributed(address indexed recipient, uint256 amount);
+    event TreasuryRecipientConfigured(address indexed recipient);
 
     event PortfolioLockSynchronized(
         address indexed account,
@@ -84,6 +90,41 @@ contract PortfolioAdmissionCoordinator {
 
     function marketCount() external view returns (uint256) {
         return markets.length;
+    }
+
+    /// @notice Bind treasury once to the same governance owner as portfolio policy.
+    function configureTreasuryRecipient(address recipient) external {
+        if (msg.sender != policy.owner() || recipient == address(0)
+            || treasuryRecipient != address(0)) revert InvalidPortfolioAdmissionConfig();
+        treasuryRecipient = recipient;
+        emit TreasuryRecipientConfigured(recipient);
+    }
+
+    /// @notice Distribute only earned fees backed across the *entire* vault
+    /// and all configured markets. Individual market fee ledgers are debited
+    /// atomically with the exact underlying ERC20 transfer.
+    function withdrawPortfolioProtocolFees(uint256[] calldata marketAmounts) external {
+        if (msg.sender != policy.owner() || treasuryRecipient == address(0)
+            || _feePayoutEntered != 0 || marketAmounts.length != markets.length) {
+            revert InvalidPortfolioAdmissionConfig();
+        }
+        _feePayoutEntered = 1;
+        uint256 amount;
+        for (uint256 i; i < marketAmounts.length; ++i) amount += marketAmounts[i];
+        if (amount == 0) revert InvalidPortfolioAdmissionConfig();
+
+        (uint256 capacity,,) = vault.protocolFeeProof().conservativeCapacity(this);
+        if (amount > capacity) revert InsufficientPortfolioCollateral();
+
+        for (uint256 i; i < marketAmounts.length; ++i) {
+            uint256 marketFee = marketAmounts[i];
+            if (marketFee != 0) {
+                OrderBookCore(address(markets[i].core)).moduleDebitPortfolioFees(marketFee);
+            }
+        }
+        vault.controllerPayProtocolFees(treasuryRecipient, amount);
+        _feePayoutEntered = 0;
+        emit PortfolioProtocolFeeDistributed(treasuryRecipient, amount);
     }
 
     function settledCashEquity(address account) public view returns (int256 cashEquity) {
