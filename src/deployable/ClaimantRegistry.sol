@@ -7,6 +7,7 @@ import {IERC20Minimal} from "../interfaces/IERC20Minimal.sol";
 
 interface IRegisteredStandaloneCore {
     function portfolioController() external view returns (address);
+    function riskIncreasePaused() external view returns (bool);
     function accountRisk(address account) external view returns (
         int80 settledPosition, int80 minPosition, int80 maxPosition
     );
@@ -74,6 +75,7 @@ contract ClaimantRegistry {
     {
         IRegisteredStandaloneCore core = IRegisteredStandaloneCore(registrar);
         if (core.portfolioController() != address(0)) revert PortfolioNotStandalone();
+        if (core.riskIncreasePaused()) revert UnsettledExposure();
 
         uint256 length = _accounts.length;
         if (length > MAX_PROOF_ACCOUNTS) revert ExcessiveClaimantCount();
