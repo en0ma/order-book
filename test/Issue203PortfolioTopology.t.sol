@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {PortfolioTwoMarketFeeIsolationTest} from "./PortfolioTwoMarketFeeIsolation.t.sol";
 import {PortfolioClaimantTopology} from "../src/deployable/PortfolioClaimantTopology.sol";
+import {StandaloneFeeSolvencyPreflight} from "../src/deployable/StandaloneFeeSolvencyPreflight.sol";
 import {PortfolioAdmissionCoordinator} from "../src/deployable/PortfolioAdmissionCoordinator.sol";
 
 contract Issue203PortfolioTopologyTest is PortfolioTwoMarketFeeIsolationTest {
@@ -41,4 +42,15 @@ contract Issue203PortfolioTopologyTest is PortfolioTwoMarketFeeIsolationTest {
         );
         assertTrue(!accepted, "forged market coordinator accepted as vault authority");
     }
+    function test_StandaloneFeeProofRejectsBothPortfolioMarketCores() public {
+        StandaloneFeeSolvencyPreflight proof = new StandaloneFeeSolvencyPreflight();
+        (bool accepted0,) = address(proof).call(
+            abi.encodeCall(proof.conservativeCapacity, (core0))
+        );
+        (bool accepted1,) = address(proof).call(
+            abi.encodeCall(proof.conservativeCapacity, (core1))
+        );
+        assertTrue(!accepted0 && !accepted1, "market Core treated vault custody as local backing");
+    }
+
 }
