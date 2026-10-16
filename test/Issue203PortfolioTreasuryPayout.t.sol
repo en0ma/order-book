@@ -51,6 +51,14 @@ contract Issue203PortfolioTreasuryPayoutTest is PortfolioTwoMarketFeeIsolationTe
         assertEq(vault.totalAccountedCollateral(), 129800,
             "shared vault accounting not adjusted for paid fees");
 
+        coordinator.setFeeDistributionEnabled(false);
+        (bool paused,) = address(coordinator).call(
+            abi.encodeCall(coordinator.withdrawPortfolioProtocolFees, (_amounts(1, 0)))
+        );
+        assertTrue(!paused, "paused portfolio distribution succeeded");
+        assertEq(core0.protocolFeesAccrued(), 60, "pause altered first market fees");
+        coordinator.setFeeDistributionEnabled(true);
+
         coordinator.withdrawPortfolioProtocolFees(_amounts(60, 240));
         assertEq(token.balanceOf(TREASURY), 500, "full treasury payout not exact");
         assertEq(core0.protocolFeesAccrued(), 0, "first fee ledger not exhausted");
