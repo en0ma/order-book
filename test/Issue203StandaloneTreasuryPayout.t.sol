@@ -283,4 +283,23 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
         assertEq(token.balanceOf(address(core)), 99800, "maker top-up spent customer claims");
     }
 
+    function test_ExtractedPayoutModuleCannotBypassCoreOwnerOrGuard() public {
+        _settleRoundTrip();
+        core.configureTreasuryRecipient(TREASURY);
+        core.setFeeDistributionEnabled(true);
+        uint256 beforeFees = core.protocolFeesAccrued();
+
+        (bool viaModule,) = address(core.standaloneFeePayoutModule()).call(
+            abi.encodeWithSignature("execute(uint256)", uint256(1))
+        );
+        assertTrue(!viaModule, "direct helper call bypassed the Core authorization gate");
+
+        (bool directDebit,) = address(core).call(
+            abi.encodeCall(core.moduleExecuteTreasuryFeePayout, (uint256(1)))
+        );
+        assertTrue(!directDebit, "caller forged self-only fee debit");
+        assertEq(core.protocolFeesAccrued(), beforeFees, "unauthorized path debited fees");
+        assertEq(token.balanceOf(TREASURY), 0, "unauthorized path transferred collateral");
+    }
+
 }
