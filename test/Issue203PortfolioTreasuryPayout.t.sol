@@ -189,4 +189,23 @@ contract Issue203PortfolioTreasuryPayoutTest is PortfolioTwoMarketFeeIsolationTe
         assertEq(core0.protocolFeesAccrued(), 100, "unauthorized fee debit succeeded");
     }
 
+    function test_InvalidCustodialTreasuryAddressesCannotBeLockedIn() public {
+        (bool coordinatorAddress,) = address(coordinator).call(
+            abi.encodeCall(coordinator.configureTreasuryRecipient, (address(coordinator)))
+        );
+        assertTrue(!coordinatorAddress, "coordinator self-recipient accepted");
+        (bool vaultAddress,) = address(coordinator).call(
+            abi.encodeCall(coordinator.configureTreasuryRecipient, (address(vault)))
+        );
+        assertTrue(!vaultAddress, "treasury could redirect custody into vault");
+        (bool tokenAddress,) = address(coordinator).call(
+            abi.encodeCall(coordinator.configureTreasuryRecipient, (address(token)))
+        );
+        assertTrue(!tokenAddress, "ERC20 contract accepted as treasury");
+        assertTrue(coordinator.treasuryRecipient() == address(0),
+            "invalid treasury irreversibly configured");
+        coordinator.configureTreasuryRecipient(TREASURY);
+        assertTrue(coordinator.treasuryRecipient() == TREASURY, "valid treasury rejected");
+    }
+
 }
