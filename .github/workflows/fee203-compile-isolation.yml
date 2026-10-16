@@ -1,0 +1,33 @@
+name: FEE-03 isolated compilation diagnostics
+
+on:
+  push:
+    branches:
+      - feature/issue-203-onchain-net-liability-solvency
+    paths:
+      - 'src/deployable/**'
+      - 'test/Issue203*.t.sol'
+      - '.github/workflows/fee203-compile-isolation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-solc:
+    name: Isolate ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - src/deployable/OrderBookCore.sol
+          - src/deployable/PortfolioCollateralVault.sol
+          - src/deployable/PortfolioClaimantTopology.sol
+          - src/deployable/StandaloneFeeSolvencyPreflight.sol
+          - test/Issue203PendingMakerSolvency.t.sol
+          - test/Issue203StandaloneSolvencyPreflight.t.sol
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Compile one Solidity dependency closure
+        run: forge build "${{ matrix.target }}"
