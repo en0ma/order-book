@@ -27,7 +27,7 @@ contract Issue203AccountValuationEquivalenceTest is TestBase {
         );
         int256 markedPositionValue;
         if (position != 0) {
-            uint96 lots = uint96(uint80(position > 0 ? int256(position) : -int256(position)));
+            uint96 lots = uint96(uint256(position > 0 ? int256(position) : -int256(position)));
             int256 marked = int256(uint256(lots) * uint256(mark) * uint256(unitScale));
             markedPositionValue = position > 0 ? marked : -marked;
         }
