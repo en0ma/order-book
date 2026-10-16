@@ -367,7 +367,7 @@ contract OrderBookCore is IOrderBookCore {
         uint256 custodyAfter = collateralToken.balanceOf(address(this));
         uint256 recipientAfter = collateralToken.balanceOf(recipient);
         if (
-            custodyAfter > custodyBefore || custodyBefore - custodyAfter != amount
+            custodyBefore < amount || custodyAfter != custodyBefore - amount
                 || recipientAfter < recipientBefore
                 || recipientAfter - recipientBefore != amount
         ) revert UnsupportedTokenBehavior();
