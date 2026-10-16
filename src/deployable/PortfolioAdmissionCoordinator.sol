@@ -36,10 +36,12 @@ contract PortfolioAdmissionCoordinator {
     PortfolioCollateralVault public immutable vault;
     MarketConfig[] public markets;
     address public treasuryRecipient;
+    bool public feeDistributionEnabled;
     uint256 private _feePayoutEntered;
 
     event PortfolioProtocolFeeDistributed(address indexed recipient, uint256 amount);
     event TreasuryRecipientConfigured(address indexed recipient);
+    event FeeDistributionActivated();
 
     event PortfolioLockSynchronized(
         address indexed account,
@@ -103,9 +105,17 @@ contract PortfolioAdmissionCoordinator {
     /// @notice Distribute only earned fees backed across the *entire* vault
     /// and all configured markets. Individual market fee ledgers are debited
     /// atomically with the exact underlying ERC20 transfer.
+    /// @notice Disabled by default pending deployment-specific solvency review.
+    function activateFeeDistribution() external {
+        if (msg.sender != policy.owner() || treasuryRecipient == address(0)
+            || feeDistributionEnabled) revert InvalidPortfolioAdmissionConfig();
+        feeDistributionEnabled = true;
+        emit FeeDistributionActivated();
+    }
+
     function withdrawPortfolioProtocolFees(uint256[] calldata marketAmounts) external {
         if (msg.sender != policy.owner() || treasuryRecipient == address(0)
-            || _feePayoutEntered != 0 || marketAmounts.length != markets.length) {
+            || !feeDistributionEnabled || _feePayoutEntered != 0 || marketAmounts.length != markets.length) {
             revert InvalidPortfolioAdmissionConfig();
         }
         _feePayoutEntered = 1;
