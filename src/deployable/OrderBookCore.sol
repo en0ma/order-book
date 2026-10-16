@@ -39,7 +39,6 @@ contract OrderBookCore is IOrderBookCore {
         int128 fundingCheckpointX18;
         uint32 activeQuoteCount;
         uint16 riskCeilingTick;
-        bool claimantRegistered;
     }
 
     struct ModuleLock {
@@ -306,10 +305,7 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _trackClaimant(address account) internal {
-        if (!_accountMeta[account].claimantRegistered) {
-            _accountMeta[account].claimantRegistered = true;
-            claimantRegistry.record(account);
-        }
+        claimantRegistry.record(account);
     }
 
     function depositCollateral(uint256 amount) external {
