@@ -40,7 +40,6 @@ contract PortfolioCollateralVault {
     // Independently enumerable custody claimants, including accounts with
     // zero current balances following withdrawal or realized profit payment.
     ClaimantRegistry public immutable custodyClaimantRegistry;
-    mapping(address => bool) internal _custodyClaimantRecorded;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
     event ControllerConfigured(address indexed controller);
@@ -90,10 +89,7 @@ contract PortfolioCollateralVault {
     }
 
     function _trackCustodyClaimant(address account) internal {
-        if (!_custodyClaimantRecorded[account]) {
-            _custodyClaimantRecorded[account] = true;
-            custodyClaimantRegistry.record(account);
-        }
+        custodyClaimantRegistry.record(account);
     }
 
     function deposit(uint256 amount) external nonReentrantCustody {
