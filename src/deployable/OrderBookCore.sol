@@ -405,7 +405,8 @@ contract OrderBookCore is IOrderBookCore {
 
     /// @notice Immutable treasury recipient, authorized before any distribution.
     function configureTreasuryRecipient(address recipient) external onlyOwner {
-        if (recipient == address(0) || treasuryRecipient != address(0)) revert Unauthorized();
+        if (recipient == address(0) || recipient == address(this)
+            || recipient == address(collateralToken) || treasuryRecipient != address(0)) revert Unauthorized();
         treasuryRecipient = recipient;
         emit TreasuryRecipientConfigured(recipient);
     }
