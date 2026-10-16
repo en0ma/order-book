@@ -182,7 +182,6 @@ contract PortfolioCollateralVault {
         uint256 previousLocked = lockedCollateral[account];
         if (previousLocked == nextLocked) return;
 
-        _trackCustodyClaimant(account);
         lockedCollateral[account] = nextLocked;
         emit LockedCollateralUpdated(account, previousLocked, nextLocked);
     }
