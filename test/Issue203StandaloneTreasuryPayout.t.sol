@@ -227,4 +227,29 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
             "treasury payout spent settlement funding claims");
     }
 
+    function test_ExhaustiveRosterRequirementRejectsUnsupportedClaimantCardinality() public {
+        core.configureTreasuryRecipient(TREASURY);
+        core.setFeeDistributionEnabled(true);
+        _settleRoundTrip();
+        for (uint256 i; i < 63; ++i) {
+            address account = address(uint160(i + 1000));
+            token.mint(account, 1);
+            vm.prank(account);
+            token.approve(address(core), 1);
+            vm.prank(account);
+            core.depositCollateral(1);
+        }
+
+        assertEq(core.claimantRegistry().count(), 65, "funded account roster truncated");
+        uint256 custodyBefore = token.balanceOf(address(core));
+        (bool paid,) = address(core).call(
+            abi.encodeCall(core.withdrawProtocolFees, (uint256(1)))
+        );
+        assertTrue(!paid, "payout accepted an incomplete bounded claimant proof");
+        assertEq(core.protocolFeesAccrued(), 200, "invalid proof changed fee reserve");
+        assertEq(token.balanceOf(TREASURY), 0, "unsupported claimant proof sent fees");
+        assertEq(token.balanceOf(address(core)), custodyBefore,
+            "rejected proof altered physical collateral");
+    }
+
 }
