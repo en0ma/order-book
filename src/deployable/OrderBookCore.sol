@@ -10,6 +10,7 @@ import {ClaimantRegistry} from "./ClaimantRegistry.sol";
 import {StandaloneFeePayoutModule} from "./StandaloneFeePayoutModule.sol";
 import {AccountValuationModule} from "./AccountValuationModule.sol";
 import {LiquidationRewardPayoutModule} from "./LiquidationRewardPayoutModule.sol";
+import {ExactCollateralTransferModule} from "./ExactCollateralTransferModule.sol";
 
 /// @title OrderBookCore
 /// @notice Deployable hot-path CLOB/risk/funding core.
@@ -93,6 +94,7 @@ contract OrderBookCore is IOrderBookCore {
     StandaloneFeePayoutModule public immutable standaloneFeePayoutModule;
     AccountValuationModule public immutable accountValuationModule;
     LiquidationRewardPayoutModule public immutable liquidationRewardPayoutModule;
+    ExactCollateralTransferModule public immutable exactCollateralTransferModule;
     mapping(address => uint256) internal collateralBalance;
     uint256 internal totalLocalCollateral;
     mapping(address => uint256) internal reservedMargin;
@@ -193,6 +195,7 @@ contract OrderBookCore is IOrderBookCore {
         standaloneFeePayoutModule = new StandaloneFeePayoutModule();
         accountValuationModule = new AccountValuationModule();
         liquidationRewardPayoutModule = new LiquidationRewardPayoutModule();
+        exactCollateralTransferModule = new ExactCollateralTransferModule();
         markOracle = IMarkOracle(markOracle_);
         executionBandTicks = executionBandTicks_;
         initialMarginBps = initialMarginBps_;
@@ -366,20 +369,18 @@ contract OrderBookCore is IOrderBookCore {
         }
     }
 
+    /// @notice Exact custody transfer, delegated to immutable verified runtime.
     function _transferCollateralOut(address recipient, uint256 amount) internal {
-        // Standalone withdrawals and liquidation rewards must never consume
-        // collateral for an ERC-20 transfer that short-credits the recipient
-        // or silently burns additional custody.
-        uint256 custodyBefore = collateralToken.balanceOf(address(this));
-        uint256 recipientBefore = collateralToken.balanceOf(recipient);
-        if (!collateralToken.transfer(recipient, amount)) revert TokenTransferFailed();
-        uint256 custodyAfter = collateralToken.balanceOf(address(this));
-        uint256 recipientAfter = collateralToken.balanceOf(recipient);
-        if (
-            custodyBefore < amount || custodyAfter != custodyBefore - amount
-                || recipientAfter < recipientBefore
-                || recipientAfter - recipientBefore != amount
-        ) revert UnsupportedTokenBehavior();
+        (bool ok, bytes memory reason) = address(exactCollateralTransferModule).delegatecall(
+            abi.encodeWithSelector(
+                ExactCollateralTransferModule.transferExact.selector, recipient, amount
+            )
+        );
+        if (!ok) {
+            assembly ("memory-safe") {
+                revert(add(reason, 32), mload(reason))
+            }
+        }
     }
 
     /// @notice Canonical physical ERC20 domain for independent on-chain solvency checks.
