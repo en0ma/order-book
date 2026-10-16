@@ -5,7 +5,7 @@ import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {PortfolioMarginPolicy} from "./PortfolioMarginPolicy.sol";
 import {PortfolioCollateralVault} from "./PortfolioCollateralVault.sol";
 import {ILiquidationGateway} from "./ILiquidationGateway.sol";
-import {OrderBookCore} from "./OrderBookCore.sol";
+import {PortfolioFeePayoutModule} from "./PortfolioFeePayoutModule.sol";
 
 interface IPortfolioInsuranceOrderInventory {
     function activeInsuranceBlockingOrders(address account) external view returns (bool);
@@ -34,6 +34,7 @@ contract PortfolioAdmissionCoordinator {
 
     PortfolioMarginPolicy public immutable policy;
     PortfolioCollateralVault public immutable vault;
+    PortfolioFeePayoutModule public immutable feePayoutModule;
     MarketConfig[] public markets;
     address public treasuryRecipient;
     bool public feeDistributionEnabled;
@@ -88,6 +89,7 @@ contract PortfolioAdmissionCoordinator {
 
         policy = policyRef;
         vault = PortfolioCollateralVault(vault_);
+        feePayoutModule = new PortfolioFeePayoutModule();
     }
 
     function marketCount() external view returns (uint256) {
@@ -121,20 +123,15 @@ contract PortfolioAdmissionCoordinator {
             revert InvalidPortfolioAdmissionConfig();
         }
         _feePayoutEntered = 1;
-        uint256 amount;
-        for (uint256 i; i < marketAmounts.length; ++i) amount += marketAmounts[i];
-        if (amount == 0) revert InvalidPortfolioAdmissionConfig();
-
-        (uint256 capacity,,) = vault.protocolFeeProof().conservativeCapacity(this);
-        if (amount > capacity) revert InsufficientPortfolioCollateral();
-
-        for (uint256 i; i < marketAmounts.length; ++i) {
-            uint256 marketFee = marketAmounts[i];
-            if (marketFee != 0) {
-                OrderBookCore(address(markets[i].core)).moduleDebitPortfolioFees(marketFee);
+        (bool ok, bytes memory result) = address(feePayoutModule).delegatecall(
+            abi.encodeWithSelector(PortfolioFeePayoutModule.execute.selector, marketAmounts)
+        );
+        if (!ok) {
+            assembly ("memory-safe") {
+                revert(add(result, 32), mload(result))
             }
         }
-        vault.controllerPayProtocolFees(treasuryRecipient, amount);
+        uint256 amount = abi.decode(result, (uint256));
         _feePayoutEntered = 0;
         emit PortfolioProtocolFeeDistributed(treasuryRecipient, amount);
     }
