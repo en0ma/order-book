@@ -18,7 +18,7 @@ contract AccountValuationModule {
             -(int256(position) * (int256(index) - int256(checkpoint)) / 1e18);
         int256 markedPositionValue;
         if (position != 0) {
-            uint96 lots = uint96(uint80(position > 0 ? int256(position) : -int256(position)));
+            uint96 lots = uint96(uint256(position > 0 ? int256(position) : -int256(position)));
             int256 marked = int256(
                 uint256(lots) * uint256(markTick) * uint256(unitScale)
             );
