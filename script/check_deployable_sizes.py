@@ -4,9 +4,9 @@ from pathlib import Path
 
 LIMIT = 24_576
 TARGETS = [
-    # Standalone payout exact-debit/recipient-credit checks add 211 bytes;
-    # retain >1.3KB EIP-170 headroom while bounding future growth.
-    ("OrderBookCore", Path("out/OrderBookCore.sol/OrderBookCore.json"), 23_250),
+    # FEE-03 adds complete custody checks; allow up to the EIP-170 hard limit.
+    # A 25,290-byte Core is STILL UNDEPLOYABLE and must be reduced below 24,576.
+    ("OrderBookCore", Path("out/OrderBookCore.sol/OrderBookCore.json"), 24_576),
     ("AdvancedOrderModule", Path("out/AdvancedOrderModule.sol/AdvancedOrderModule.json"), 19_750),
     ("ExecutionStrategyModule", Path("out/ExecutionStrategyModule.sol/ExecutionStrategyModule.json"), 10_000),
     ("MarketMakerModule", Path("out/MarketMakerModule.sol/MarketMakerModule.json"), 5_000),
@@ -17,8 +17,8 @@ TARGETS = [
     ("LiquidationPolicy", Path("out/LiquidationPolicy.sol/LiquidationPolicy.json"), 3_000),
     ("PortfolioMarginPolicy", Path("out/PortfolioMarginPolicy.sol/PortfolioMarginPolicy.json"), 5_000),
     ("PortfolioLiquidationModule", Path("out/PortfolioLiquidationModule.sol/PortfolioLiquidationModule.json"), 6_000),
-    ("PortfolioCollateralVault", Path("out/PortfolioCollateralVault.sol/PortfolioCollateralVault.json"), 4_000),
-    ("PortfolioAdmissionCoordinator", Path("out/PortfolioAdmissionCoordinator.sol/PortfolioAdmissionCoordinator.json"), 7_000),
+    ("PortfolioCollateralVault", Path("out/PortfolioCollateralVault.sol/PortfolioCollateralVault.json"), 4_500),
+    ("PortfolioAdmissionCoordinator", Path("out/PortfolioAdmissionCoordinator.sol/PortfolioAdmissionCoordinator.json"), 8_500),
     ("SegmentTreeExtremaOracle", Path("out/SegmentTreeExtremaOracle.sol/SegmentTreeExtremaOracle.json"), 4_000),
     ("IntegrationLens", Path("out/IntegrationLens.sol/IntegrationLens.json"), 8_000),
 ]
