@@ -1,6 +1,7 @@
 name: ci
 
 on:
+  # Explicit feature-branch push allows exact-head validation without a PR event.
   workflow_dispatch:
   pull_request:
   push:
