@@ -86,4 +86,20 @@ contract Issue203PortfolioFeeSolvencyTest is PortfolioTwoMarketFeeIsolationTest 
             "physical vault collateral diverged from net user claims and fees");
     }
 
+    function test_ReservedLazyMakerRebateCannotBeCalledProtocolFees() public {
+        vm.prank(MAKER);
+        coordinator.addLiquidity(0, IOrderBookCore.Side.Ask, 100, 100);
+        vm.prank(TAKER);
+        coordinator.take(0, IOrderBookCore.Side.Bid, 100, 100, IOrderBookCore.FillPolicy.IOC);
+
+        assertEq(core0.protocolFeesAccrued(), 50, "expected protocol fee mismatch");
+        assertEq(core0.pendingMakerRebateReserve(), 50, "unattributed maker rebate not protected");
+        assertEq(core1.pendingMakerRebateReserve(), 0, "other market invented rebate");
+
+        vm.prank(MAKER);
+        core0.settle(IOrderBookCore.Side.Ask, 100);
+        assertEq(core0.pendingMakerRebateReserve(), 0, "settled maker rebate remains escrowed");
+        assertEq(core0.protocolFeesAccrued(), 50, "maker settlement reclaimed protocol fee");
+    }
+
 }
