@@ -93,6 +93,11 @@ contract ClaimantRegistry {
 
         uint256 length = _accounts.length;
         if (length > MAX_PROOF_ACCOUNTS) revert ExcessiveClaimantCount();
+        // No fee is distributable while lazy maker execution remains outside
+        // fully attributed account cash/position ledgers.
+        if (pendingMakerUnattributedLots != 0 || _pendingActiveTicks.length != 0) {
+            revert UnsettledExposure();
+        }
         address advanced = core.advancedModule();
         for (uint256 i; i < length; ++i) {
             address account = _accounts[i];
