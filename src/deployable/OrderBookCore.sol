@@ -1580,15 +1580,11 @@ contract OrderBookCore is IOrderBookCore {
     {
         int80 position = accountRisk[account].settledPosition;
 
-        if (side == Side.Bid) {
-            if (position >= 0) return 0;
-            uint80 shortReducible = uint80(-position);
-            return requested < shortReducible ? requested : uint96(shortReducible);
-        }
-
-        if (position <= 0) return 0;
-        uint80 longReducible = uint80(position);
-        return requested < longReducible ? requested : uint96(longReducible);
+        int256 reducible = side == Side.Bid
+            ? -int256(position) : int256(position);
+        if (reducible <= 0) return 0;
+        uint96 bound = uint96(uint256(reducible));
+        return requested < bound ? requested : bound;
     }
 
     function _positionAmount(uint96 lots) internal pure returns (int80 amount) {
@@ -1611,13 +1607,10 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _assertPostOnly(Side side, uint16 tick) internal view {
-        if (side == Side.Bid) {
-            (bool ok, uint16 ask) = _bestTick(Side.Ask);
-            if (ok && tick >= ask) revert CrossesBook();
-        } else {
-            (bool ok, uint16 bid) = _bestTick(Side.Bid);
-            if (ok && tick <= bid) revert CrossesBook();
-        }
+        bool isBid = side == Side.Bid;
+        Side opposite = isBid ? Side.Ask : Side.Bid;
+        (bool ok, uint16 best) = _bestTick(opposite);
+        if (ok && (isBid ? tick >= best : tick <= best)) revert CrossesBook();
     }
 
     function _bestExecutableTick(Side side) internal view returns (bool ok, uint16 tick) {
