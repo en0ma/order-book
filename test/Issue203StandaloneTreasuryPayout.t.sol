@@ -13,11 +13,13 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
     address internal constant TAKER = address(0xB0B);
     address internal constant TREASURY = address(0xFEED);
     MockERC20 internal token;
+    MockMarkOracle internal oracle;
     OrderBookCore internal core;
 
     function setUp() public {
         token = new MockERC20();
-        core = new OrderBookCore(address(token), address(new MockMarkOracle(100)), 30, 1000, 100, 0);
+        oracle = new MockMarkOracle(100);
+        core = new OrderBookCore(address(token), address(oracle), 30, 1000, 100, 0);
         token.mint(MAKER, 50000);
         token.mint(TAKER, 50000);
         vm.prank(MAKER);
@@ -167,7 +169,7 @@ contract Issue203StandaloneTreasuryPayoutTest is TestBase {
         _settleRoundTrip();
 
         AdvancedOrderModule gateway =
-            new AdvancedOrderModule(address(core), address(new MockMarkOracle(100)));
+            new AdvancedOrderModule(address(core), address(oracle));
         core.configureAdvancedModule(address(gateway));
         address liquidator = address(0xCAFE);
 
