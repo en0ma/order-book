@@ -5,6 +5,10 @@ import {OrderBookCore} from "./OrderBookCore.sol";
 import {ClaimantRegistry} from "./ClaimantRegistry.sol";
 import {IERC20Minimal} from "../interfaces/IERC20Minimal.sol";
 
+interface IActiveFeeProofOrders {
+    function activeAdvancedOrders(address account) external view returns (uint32);
+}
+
 /// @notice Conservative proof of available fee backing for an entirely
 /// flat, fully-closed standalone book at the time of the call.
 /// @dev A read-only prerequisite, NOT payout authorization. This contract
@@ -36,9 +40,12 @@ contract StandaloneFeeSolvencyPreflight {
             (int80 position, int80 minPosition, int80 maxPosition) =
                 core.accountRisk(claimant);
 
+            address advanced = core.advancedModule();
             if (
                 position != 0 || minPosition != 0 || maxPosition != 0
                     || core.activeQuoteCount(claimant) != 0
+                    || (advanced != address(0)
+                        && IActiveFeeProofOrders(advanced).activeAdvancedOrders(claimant) != 0)
             ) revert UnsettledExposure();
 
             int256 cash = core.accountEquity(claimant);
