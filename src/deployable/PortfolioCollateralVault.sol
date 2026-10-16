@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import {IERC20Minimal} from "../interfaces/IERC20Minimal.sol";
 import {ClaimantRegistry} from "./ClaimantRegistry.sol";
+import {PortfolioFeeSolvencyPreflight} from "./PortfolioFeeSolvencyPreflight.sol";
+import {PortfolioAdmissionCoordinator} from "./PortfolioAdmissionCoordinator.sol";
 
 /// @title PortfolioCollateralVault
 /// @notice Shared ERC-20 custody for portfolio-margin deployments.
@@ -40,6 +42,7 @@ contract PortfolioCollateralVault {
     // Independently enumerable custody claimants, including accounts with
     // zero current balances following withdrawal or realized profit payment.
     ClaimantRegistry public immutable custodyClaimantRegistry;
+    PortfolioFeeSolvencyPreflight public immutable protocolFeeProof;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
     event ControllerConfigured(address indexed controller);
@@ -56,12 +59,14 @@ contract PortfolioCollateralVault {
         uint256 nextLocked
     );
     event ExcessSwept(address indexed recipient, uint256 amount);
+    event PortfolioProtocolFeesPaid(address indexed recipient, uint256 amount);
 
     constructor(address collateralToken_) {
         if (collateralToken_ == address(0)) revert TokenTransferFailed();
         collateralToken = IERC20Minimal(collateralToken_);
         owner = msg.sender;
         custodyClaimantRegistry = new ClaimantRegistry();
+        protocolFeeProof = new PortfolioFeeSolvencyPreflight();
     }
 
     modifier onlyOwner() {
@@ -154,6 +159,36 @@ contract PortfolioCollateralVault {
         _transferExact(recipient, amount);
 
         emit PortfolioWithdrawn(account, recipient, amount);
+    }
+
+    /// @notice Controller-authorized payout only after independent proof of
+    /// all portfolio claims and market-level fee debits.
+    function controllerPayProtocolFees(address recipient, uint256 amount)
+        external
+        onlyController
+        nonReentrantCustody
+    {
+        if (recipient == address(0) || amount == 0) revert ZeroAmount();
+        if (amount > totalAccountedCollateral) revert InsufficientFreeCollateral();
+
+        PortfolioAdmissionCoordinator coordinator = PortfolioAdmissionCoordinator(controller);
+        (,, uint256 protectedLiabilities) = protocolFeeProof.conservativeCapacity(coordinator);
+        uint256 beforeBalance = collateralToken.balanceOf(address(this));
+        if (beforeBalance < amount || beforeBalance - amount < protectedLiabilities) {
+            revert InsufficientFreeCollateral();
+        }
+
+        // This is a protocol fee ledger debit, not a user's portfolio withdrawal.
+        // The coordinator atomically debits the originating market fee ledgers
+        // before calling this function.
+        totalAccountedCollateral -= amount;
+        _transferExact(recipient, amount);
+
+        (,, protectedLiabilities) = protocolFeeProof.conservativeCapacity(coordinator);
+        if (collateralToken.balanceOf(address(this)) < protectedLiabilities) {
+            revert InsufficientFreeCollateral();
+        }
+        emit PortfolioProtocolFeesPaid(recipient, amount);
     }
 
     function collateralClaim(address account) public view returns (int256 claim) {
