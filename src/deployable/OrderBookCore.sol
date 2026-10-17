@@ -274,7 +274,10 @@ contract OrderBookCore is IOrderBookCore {
     function configurePortfolioController(address controller) external onlyOwner {
         if (controller == address(0)) revert Unauthorized();
         if (portfolioController != address(0)) revert ModuleAlreadyConfigured();
-        if (totalLocalCollateral != 0 || insuranceReserves != 0) {
+        // Standalone-earned fees are backed by Core custody, never the shared vault.
+        // Prevent a custody-domain switch from laundering this ledger into vault capacity.
+        if (totalLocalCollateral != 0 || insuranceReserves != 0
+            || uint128(_feeAccountingPacked) != 0) {
             revert InvalidRiskConfig();
         }
 
