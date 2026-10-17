@@ -67,7 +67,7 @@ contract PortfolioFeeSolvencyPreflight {
                 revert UnsettledExposure();
             }
             protectedLiabilities += core.insuranceReserves()
-                + core.pendingMakerRebateReserve();
+                + core.pendingMakerRebateReserve() + core.pendingMakerRoundingLiability();
             accrued += core.protocolFeesAccrued();
         }
 
