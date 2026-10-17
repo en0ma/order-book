@@ -113,7 +113,7 @@ contract ClaimantRegistry {
         }
 
         protectedLiabilities = positiveClaims + core.insuranceReserves()
-            + core.pendingMakerRebateReserve();
+            + core.pendingMakerRebateReserve() + core.pendingMakerRoundingLiability();
         uint256 balance = IERC20Minimal(core.collateralAsset()).balanceOf(registrar);
         if (balance <= protectedLiabilities) return (0, positiveClaims, protectedLiabilities);
         uint256 unencumbered = balance - protectedLiabilities;
