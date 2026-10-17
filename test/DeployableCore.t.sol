@@ -7,6 +7,18 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockMarkOracle} from "./mocks/MockMarkOracle.sol";
 import {TestBase} from "./TestBase.sol";
 
+// Exposes the protected accrued-fee ledger to test the custody transition
+// precondition independently of unrelated local-collateral state.
+contract PortfolioTransitionFeeHarness is OrderBookCore {
+    constructor(address asset, address mark)
+        OrderBookCore(asset, mark, 20, 1_000, 10, 5)
+    {}
+
+    function seedStandaloneAccruedFees(uint128 accrued) external {
+        _feeAccountingPacked = uint256(accrued);
+    }
+}
+
 contract DeployableCoreTest is TestBase {
     OrderBookCore internal core;
     MockERC20 internal token;
@@ -32,6 +44,26 @@ contract DeployableCoreTest is TestBase {
         token.approve(address(core), type(uint256).max);
         vm.prank(account);
         core.depositCollateral(amount);
+    }
+
+    function testPortfolioTransitionRejectsStandaloneFeeLedgerWithoutLocalCollateral() public {
+        PortfolioTransitionFeeHarness feeCore =
+            new PortfolioTransitionFeeHarness(address(token), address(oracle));
+        address controller = address(0xC011);
+
+        // This Core has no deposits or insurance; only the standalone fee ledger
+        // would otherwise be imported into an unrelated shared vault's capacity.
+        feeCore.seedStandaloneAccruedFees(100);
+        (bool accepted,) = address(feeCore).call(
+            abi.encodeCall(feeCore.configurePortfolioController, (controller))
+        );
+        assertTrue(!accepted, "standalone-earned fees entered portfolio custody");
+        assertTrue(feeCore.portfolioController() == address(0), "rejected transition changed controller");
+        assertEq(feeCore.protocolFeesAccrued(), 100, "rejected transition debited fees");
+
+        feeCore.seedStandaloneAccruedFees(0);
+        feeCore.configurePortfolioController(controller);
+        assertTrue(feeCore.portfolioController() == controller, "clean transition blocked");
     }
 
     function testDirectHotPathStillMatchesOnChain() public {

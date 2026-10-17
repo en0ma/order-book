@@ -1,5 +1,6 @@
 name: docs-site
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'docs/**'
@@ -8,13 +9,14 @@ on:
       - 'scripts/check-docs.mjs'
       - '.github/workflows/docs-site.yml'
   push:
-    branches: [main]
+    branches: [main, 'feature/issue-203-onchain-net-liability-solvency']
     paths:
       - 'docs/**'
       - 'docs.json'
       - 'README.md'
       - 'scripts/check-docs.mjs'
       - '.github/workflows/docs-site.yml'
+      - '.github/workflows/ci.yml'
 permissions:
   contents: read
 jobs:

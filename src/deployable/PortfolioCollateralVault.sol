@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IERC20Minimal} from "../interfaces/IERC20Minimal.sol";
+import {ClaimantRegistry} from "./ClaimantRegistry.sol";
 
 /// @title PortfolioCollateralVault
 /// @notice Shared ERC-20 custody for portfolio-margin deployments.
@@ -32,9 +33,14 @@ contract PortfolioCollateralVault {
     }
 
     uint256 public totalAccountedCollateral;
+    uint256 public totalProtocolFeesPaid;
     mapping(address => uint256) public balanceOf;
     mapping(address => uint256) public portfolioWithdrawn;
     mapping(address => uint256) public lockedCollateral;
+
+    // Independently enumerable custody claimants, including accounts with
+    // zero current balances following withdrawal or realized profit payment.
+    ClaimantRegistry public immutable custodyClaimantRegistry;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
     event ControllerConfigured(address indexed controller);
@@ -51,11 +57,13 @@ contract PortfolioCollateralVault {
         uint256 nextLocked
     );
     event ExcessSwept(address indexed recipient, uint256 amount);
+    event PortfolioProtocolFeesPaid(address indexed recipient, uint256 amount);
 
     constructor(address collateralToken_) {
         if (collateralToken_ == address(0)) revert TokenTransferFailed();
         collateralToken = IERC20Minimal(collateralToken_);
         owner = msg.sender;
+        custodyClaimantRegistry = new ClaimantRegistry();
     }
 
     modifier onlyOwner() {
@@ -82,6 +90,10 @@ contract PortfolioCollateralVault {
         emit ControllerConfigured(controller_);
     }
 
+    function _trackCustodyClaimant(address account) internal {
+        custodyClaimantRegistry.record(account);
+    }
+
     function deposit(uint256 amount) external nonReentrantCustody {
         if (amount == 0) revert ZeroAmount();
 
@@ -94,6 +106,7 @@ contract PortfolioCollateralVault {
         uint256 received = token.balanceOf(address(this)) - beforeBalance;
         if (received != amount) revert UnsupportedTokenBehavior();
 
+        _trackCustodyClaimant(msg.sender);
         balanceOf[msg.sender] += amount;
         totalAccountedCollateral += amount;
 
@@ -136,6 +149,7 @@ contract PortfolioCollateralVault {
             revert InsufficientFreeCollateral();
         }
 
+        _trackCustodyClaimant(account);
         portfolioWithdrawn[account] += amount;
         totalAccountedCollateral -= amount;
 
@@ -144,19 +158,34 @@ contract PortfolioCollateralVault {
         emit PortfolioWithdrawn(account, recipient, amount);
     }
 
+    /// @notice Controller-authorized payout only after independent proof of
+    /// all portfolio claims and market-level fee debits.
+    function controllerPayProtocolFees(address recipient, uint256 amount)
+        external
+        onlyController
+        nonReentrantCustody
+    {
+        if (recipient == address(0) || amount == 0) revert ZeroAmount();
+        if (amount > totalAccountedCollateral) revert InsufficientFreeCollateral();
+
+        // The immutable coordinator's fee module checks the complete custody
+        // domain before *and* after this call. Only that fixed controller may
+        // reach this entrypoint; every failure rolls back its market debits.
+        totalAccountedCollateral -= amount;
+        totalProtocolFeesPaid += amount;
+        _transferExact(recipient, amount);
+        emit PortfolioProtocolFeesPaid(recipient, amount);
+    }
+
     function collateralClaim(address account) public view returns (int256 claim) {
         uint256 balance = balanceOf[account];
         uint256 withdrawn = portfolioWithdrawn[account];
 
-        if (balance >= withdrawn) {
-            uint256 positive = balance - withdrawn;
-            if (positive > uint256(type(int256).max)) revert InsufficientFreeCollateral();
-            return int256(positive);
-        }
-
-        uint256 deficit = withdrawn - balance;
-        if (deficit > uint256(type(int256).max)) revert InsufficientFreeCollateral();
-        return -int256(deficit);
+        // Both unsigned inputs must be safely cast before a signed delta.
+        // Oversized unrepresentable claims fail closed instead of truncating.
+        uint256 maxSigned = uint256(type(int256).max);
+        if (balance > maxSigned || withdrawn > maxSigned) revert InsufficientFreeCollateral();
+        return int256(balance) - int256(withdrawn);
     }
 
     function setLockedCollateral(address account, uint256 nextLocked)
@@ -209,14 +238,13 @@ contract PortfolioCollateralVault {
         if (!token.transfer(recipient, amount)) revert TokenTransferFailed();
         uint256 afterBalance = token.balanceOf(address(this));
         uint256 recipientAfter = token.balanceOf(recipient);
-        if (afterBalance > beforeBalance || beforeBalance - afterBalance != amount) {
-            revert UnsupportedTokenBehavior();
-        }
-        // A burn/tax on receipt otherwise silently destroys the withdrawing
-        // user's claim despite an exact debit from vault custody.
-        if (recipientAfter < recipientBefore || recipientAfter - recipientBefore != amount) {
-            revert UnsupportedTokenBehavior();
-        }
-        if (afterBalance < totalAccountedCollateral) revert UnsupportedTokenBehavior();
+        // Exact sender debit, exact recipient credit and remaining real custody
+        // are one atomic requirement, including callback/fee-on-transfer tokens.
+        if (
+            beforeBalance < amount || afterBalance != beforeBalance - amount
+                || recipientAfter < recipientBefore
+                || recipientAfter - recipientBefore != amount
+                || afterBalance < totalAccountedCollateral
+        ) revert UnsupportedTokenBehavior();
     }
 }

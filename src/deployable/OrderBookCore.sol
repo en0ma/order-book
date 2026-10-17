@@ -6,6 +6,11 @@ import {IMarkOracle} from "../interfaces/IMarkOracle.sol";
 import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {OrderBookMath} from "./OrderBookMath.sol";
 import {FundingMath} from "./FundingMath.sol";
+import {ClaimantRegistry} from "./ClaimantRegistry.sol";
+import {StandaloneFeePayoutModule} from "./StandaloneFeePayoutModule.sol";
+import {AccountValuationModule} from "./AccountValuationModule.sol";
+import {LiquidationRewardPayoutModule} from "./LiquidationRewardPayoutModule.sol";
+import {ExactCollateralTransferModule} from "./ExactCollateralTransferModule.sol";
 
 /// @title OrderBookCore
 /// @notice Deployable hot-path CLOB/risk/funding core.
@@ -62,6 +67,10 @@ contract OrderBookCore is IOrderBookCore {
     error PositionOverflow();
 
     address public owner;
+    address public treasuryRecipient;
+    bool public feeDistributionEnabled;
+    // Packs with the treasury address and enabled flag; values are only 0 or 1.
+    uint8 private _treasuryPayoutEntered;
     bool public riskIncreasePaused;
 
     address public fundingUpdater;
@@ -81,6 +90,12 @@ contract OrderBookCore is IOrderBookCore {
     mapping(address => AccountMeta) internal _accountMeta;
     mapping(address => mapping(Side => mapping(uint16 => ModuleLock))) internal moduleLocks;
 
+    // Append-only on-chain claimant roster; never dependent on RPC event coverage.
+    ClaimantRegistry public immutable claimantRegistry;
+    StandaloneFeePayoutModule public immutable standaloneFeePayoutModule;
+    AccountValuationModule public immutable accountValuationModule;
+    LiquidationRewardPayoutModule public immutable liquidationRewardPayoutModule;
+    ExactCollateralTransferModule public immutable exactCollateralTransferModule;
     mapping(address => uint256) internal collateralBalance;
     uint256 internal totalLocalCollateral;
     mapping(address => uint256) internal reservedMargin;
@@ -153,6 +168,9 @@ contract OrderBookCore is IOrderBookCore {
     event FundingSettled(address indexed account, int256 cashflowDelta);
     event InsuranceFunded(address indexed funder, uint256 amount);
     event ProtocolFeesAllocatedToInsurance(uint256 amount);
+    event TreasuryRecipientConfigured(address indexed recipient);
+    event FeeDistributionStatusChanged(bool enabled);
+    event TreasuryFeeDistributed(address indexed recipient, uint256 amount);
     event BadDebtCovered(address indexed account, uint256 amount);
     event LiquidationRewardPaid(address indexed liquidator, uint256 amount);
     event AccountingUnitScaleConfigured(uint128 collateralUnitsPerLotTick);
@@ -174,6 +192,11 @@ contract OrderBookCore is IOrderBookCore {
         owner = msg.sender;
         fundingUpdater = msg.sender;
         collateralToken = IERC20Minimal(collateralToken_);
+        claimantRegistry = new ClaimantRegistry();
+        standaloneFeePayoutModule = new StandaloneFeePayoutModule();
+        accountValuationModule = new AccountValuationModule();
+        liquidationRewardPayoutModule = new LiquidationRewardPayoutModule();
+        exactCollateralTransferModule = new ExactCollateralTransferModule();
         markOracle = IMarkOracle(markOracle_);
         executionBandTicks = executionBandTicks_;
         initialMarginBps = initialMarginBps_;
@@ -251,7 +274,10 @@ contract OrderBookCore is IOrderBookCore {
     function configurePortfolioController(address controller) external onlyOwner {
         if (controller == address(0)) revert Unauthorized();
         if (portfolioController != address(0)) revert ModuleAlreadyConfigured();
-        if (totalLocalCollateral != 0 || insuranceReserves != 0) {
+        // Standalone-earned fees are backed by Core custody, never the shared vault.
+        // Prevent a custody-domain switch from laundering this ledger into vault capacity.
+        if (totalLocalCollateral != 0 || insuranceReserves != 0
+            || uint128(_feeAccountingPacked) != 0) {
             revert InvalidRiskConfig();
         }
 
@@ -300,8 +326,25 @@ contract OrderBookCore is IOrderBookCore {
             uint128(closedGenerationAccounting[side][tick][generation]);
     }
 
+    function _trackClaimant(address account) internal {
+        // The registry is a constructor-bound immutable. Use the minimal
+        // no-return ABI call instead of repeating compiler-generated call
+        // decoding/returndata logic at every economic mutation.
+        address roster = address(claimantRegistry);
+        bytes4 selector = ClaimantRegistry.record.selector;
+        assembly ("memory-safe") {
+            let ptr := mload(0x40)
+            mstore(ptr, selector)
+            mstore(add(ptr, 4), account)
+            if iszero(call(gas(), roster, 0, ptr, 36, 0, 0)) {
+                revert(0, 0)
+            }
+        }
+    }
+
     function depositCollateral(uint256 amount) external {
         _pullCollateralExact(amount);
+        _trackClaimant(msg.sender);
 
         collateralBalance[msg.sender] += amount;
         totalLocalCollateral += amount;
@@ -330,24 +373,93 @@ contract OrderBookCore is IOrderBookCore {
         }
     }
 
+    /// @notice Exact custody transfer, delegated to immutable verified runtime.
     function _transferCollateralOut(address recipient, uint256 amount) internal {
-        // Standalone withdrawals and liquidation rewards must never consume
-        // collateral for an ERC-20 transfer that short-credits the recipient
-        // or silently burns additional custody.
-        uint256 custodyBefore = collateralToken.balanceOf(address(this));
-        uint256 recipientBefore = collateralToken.balanceOf(recipient);
-        if (!collateralToken.transfer(recipient, amount)) revert TokenTransferFailed();
-        uint256 custodyAfter = collateralToken.balanceOf(address(this));
-        uint256 recipientAfter = collateralToken.balanceOf(recipient);
-        if (
-            custodyAfter > custodyBefore || custodyBefore - custodyAfter != amount
-                || recipientAfter < recipientBefore
-                || recipientAfter - recipientBefore != amount
-        ) revert UnsupportedTokenBehavior();
+        _delegatePayout(
+            address(exactCollateralTransferModule),
+            abi.encodeWithSelector(ExactCollateralTransferModule.transferExact.selector, recipient, amount)
+        );
+    }
+
+    /// @dev Share revert bubbling and return-data handling across isolated payout modules.
+    function _delegatePayout(address module, bytes memory input)
+        internal returns (bytes memory result)
+    {
+        (bool ok, bytes memory output) = module.delegatecall(input);
+        if (!ok) {
+            assembly ("memory-safe") {
+                revert(add(output, 32), mload(output))
+            }
+        }
+        return output;
+    }
+
+    /// @notice Canonical physical ERC20 domain for independent on-chain solvency checks.
+    function collateralAsset() external view returns (address) {
+        return address(collateralToken);
+    }
+
+    /// @notice Fees escrowed for maker rebates, not distributable protocol revenue.
+    /// @notice Absolute non-withdrawable funding rounding-dust exposure.
+    function pendingMakerRoundingLiability() external view returns (uint256) {
+        int256 dust = makerFundingRoundingDust;
+        return dust >= 0 ? uint256(dust) : uint256(-(dust + 1)) + 1;
+    }
+
+    function pendingMakerRebateReserve() external view returns (uint256) {
+        return _feeAccountingPacked >> 128;
     }
 
     function protocolFeesAccrued() external view returns (uint256) {
         return uint256(uint128(_feeAccountingPacked));
+    }
+
+    /// @notice Immutable treasury recipient, authorized before any distribution.
+    function configureTreasuryRecipient(address recipient) external onlyOwner {
+        if (recipient == address(0) || recipient == address(this)
+            || recipient == address(collateralToken) || treasuryRecipient != address(0)) revert Unauthorized();
+        treasuryRecipient = recipient;
+        emit TreasuryRecipientConfigured(recipient);
+    }
+
+    /// @notice Distribute only conservatively-backed, completely settled
+    /// standalone protocol fees; never spend portfolio/shared-vault tokens.
+    /// @dev Pre- and post-transfer proof prevents ERC20 callback mutations
+    /// from silently spending newly created liabilities.
+    /// @notice Explicit post-review activation; never enabled by deployment.
+    function setFeeDistributionEnabled(bool enabled) external onlyOwner {
+        if (enabled && treasuryRecipient == address(0)) revert Unauthorized();
+        feeDistributionEnabled = enabled;
+        emit FeeDistributionStatusChanged(enabled);
+    }
+
+    /// @notice Owner-only entry; immutable delegated verifier checks the
+    /// complete physical custody floor before and after ERC20 transfer.
+    function withdrawProtocolFees(uint256 amount) external onlyOwner {
+        _requireStandalone();
+        if (
+            !feeDistributionEnabled || treasuryRecipient == address(0)
+                || amount == 0 || _treasuryPayoutEntered != 0
+        ) revert Unauthorized();
+        _treasuryPayoutEntered = 1;
+
+        _delegatePayout(
+            address(standaloneFeePayoutModule),
+            abi.encodeWithSelector(StandaloneFeePayoutModule.execute.selector, amount)
+        );
+
+        _treasuryPayoutEntered = 0;
+    }
+
+    /// @notice Payout ledger/token debit callable exclusively by this Core
+    /// during its actively guarded, owner-authorized delegated verification.
+    function moduleExecuteTreasuryFeePayout(uint256 amount) external {
+        if (
+            msg.sender != address(this) || _treasuryPayoutEntered != 1
+                || !feeDistributionEnabled
+        ) revert Unauthorized();
+        _payAccruedProtocolFee(treasuryRecipient, amount);
+        emit TreasuryFeeDistributed(treasuryRecipient, amount);
     }
 
     function allocateProtocolFeesToInsurance(uint256 amount) external onlyOwner {
@@ -360,6 +472,21 @@ contract OrderBookCore is IOrderBookCore {
         _feeAccountingPacked = packed - amount;
         insuranceReserves += amount;
         emit ProtocolFeesAllocatedToInsurance(amount);
+    }
+
+    /// @notice Move earned fee accounting into a coordinator-controlled
+    /// portfolio distribution, never from a standalone market.
+    /// @dev The coordinator must first verify global portfolio custody.
+    function moduleDebitPortfolioFees(uint256 amount) external {
+        if (portfolioController == address(0) || msg.sender != portfolioController) {
+            revert Unauthorized();
+        }
+        uint256 packed = _feeAccountingPacked;
+        if (amount == 0 || amount > uint256(uint128(packed))) {
+            revert InsufficientCollateral();
+        }
+        // Only debit accrued low-half fees; never touch the maker rebate escrow.
+        _feeAccountingPacked = packed - amount;
     }
 
     function withdrawCollateral(uint256 amount) external {
@@ -595,6 +722,7 @@ contract OrderBookCore is IOrderBookCore {
         if (covered == 0) return 0;
 
         insuranceReserves = reserves - covered;
+        _trackClaimant(account);
         if (controller == address(0)) {
             collateralBalance[account] += covered;
             totalLocalCollateral += covered;
@@ -612,43 +740,54 @@ contract OrderBookCore is IOrderBookCore {
         onlyModule
         returns (uint256 paid)
     {
-        if (liquidator == address(0) || requested == 0) return 0;
+        if (liquidator == address(0) || requested == 0 || _treasuryPayoutEntered != 0) {
+            return 0;
+        }
+        _treasuryPayoutEntered = 1;
+        paid = abi.decode(
+            _delegatePayout(
+                address(liquidationRewardPayoutModule),
+                abi.encodeWithSelector(LiquidationRewardPayoutModule.execute.selector, liquidator, requested)
+            ), (uint256)
+        );
+        _treasuryPayoutEntered = 0;
+    }
 
-        uint256 packed = _feeAccountingPacked;
-        uint256 accrued = uint256(uint128(packed));
-        paid = requested < accrued ? requested : accrued;
-        if (paid == 0) return 0;
-
-        _feeAccountingPacked =
-            ((packed >> 128) << 128) | (accrued - paid);
-        _transferCollateralOut(liquidator, paid);
-
+    /// @notice Only this Core, during guarded reward proof, can move reward ERC20s.
+    function moduleExecuteLiquidationReward(address liquidator, uint256 paid) external {
+        if (msg.sender != address(this) || _treasuryPayoutEntered != 1) {
+            revert Unauthorized();
+        }
+        _payAccruedProtocolFee(liquidator, paid);
         emit LiquidationRewardPaid(liquidator, paid);
+    }
+
+    /// @dev One exact protocol-fee debit for treasury and liquidation, never
+    /// touching the high-half maker-rebate escrow or user collateral ledger.
+    function _payAccruedProtocolFee(address recipient, uint256 amount) internal {
+        uint256 packed = _feeAccountingPacked;
+        if (amount == 0 || amount > uint256(uint128(packed))) {
+            revert InsufficientCollateral();
+        }
+        _feeAccountingPacked = packed - amount;
+        _transferCollateralOut(recipient, amount);
     }
 
     function accountMarketValue(address account)
         public
         view
         override
-        returns (int256 value)
+        returns (int256)
     {
-        AccountRisk memory a = accountRisk[account];
-
-        int256 pendingFunding =
-            -(int256(a.settledPosition)
-                * (int256(fundingIndexX18)
-                    - int256(_accountMeta[account].fundingCheckpointX18))
-                / FUNDING_SCALE);
-
-        int256 markedPositionValue;
-        if (a.settledPosition != 0) {
-            uint96 absLots = uint96(uint80(OrderBookMath.absPosition(a.settledPosition)));
-            int256 marked = int256(notionalValue(absLots, currentMarkTick()));
-            markedPositionValue = a.settledPosition > 0 ? marked : -marked;
-        }
-
-        value = tradeCashflow[account] + fundingCashflow[account]
-            + pendingFunding + markedPositionValue;
+        return accountValuationModule.marketValue(
+            accountRisk[account].settledPosition,
+            fundingIndexX18,
+            _accountMeta[account].fundingCheckpointX18,
+            currentMarkTick(),
+            collateralUnitsPerLotTick,
+            tradeCashflow[account],
+            fundingCashflow[account]
+        );
     }
 
     function accountEquity(address account) public view override returns (int256 equity) {
@@ -766,6 +905,7 @@ contract OrderBookCore is IOrderBookCore {
         int256 fundingEntry = _currentFunding(makerSide, fill);
         generationMakerFundingEntryBudget[makerSide][tick][generation] += fundingEntry;
         pendingMakerFundingEntry += fundingEntry;
+        claimantRegistry.recordPendingMaker(makerSide == Side.Bid, tick, fill, fundingEntry);
         p.remainingLots -= fill;
 
         if (p.remainingLots != 0) return (fill, reservedMakerRebate);
@@ -811,6 +951,9 @@ contract OrderBookCore is IOrderBookCore {
         );
 
         mintedShares = _mintPoolShares(p, lots);
+        // Pre-reserved modules skip _adjustRisk, so their maker must still
+        // enter the immutable claimant universe before any quote can fill.
+        if (preReserved) _trackClaimant(maker);
         _creditMakerQuote(maker, side, tick, p.generation, mintedShares, lots);
 
         if (!preReserved) {
@@ -1070,6 +1213,8 @@ contract OrderBookCore is IOrderBookCore {
         uint128 mintedShares,
         uint96 lots
     ) internal {
+        // Never allow custody-scale repricing after the first live maker lot.
+        unitScaleLocked = true;
         MakerQuote storage q = quotes[maker][side][tick];
         bool isNewQuote = q.shares == 0;
 
@@ -1320,6 +1465,7 @@ contract OrderBookCore is IOrderBookCore {
         uint256 reservedMakerRebate,
         bool preReserved
     ) internal {
+        _trackClaimant(account);
         _settleExistingPositionFunding(account);
 
         AccountRisk storage a = accountRisk[account];
@@ -1344,19 +1490,20 @@ contract OrderBookCore is IOrderBookCore {
         _feeAccountingPacked =
             (nextRebateReserve << 128) | nextProtocol;
 
+        a.settledPosition += side == Side.Bid ? amount : -amount;
         if (side == Side.Bid) {
-            a.settledPosition += amount;
             a.minPosition += amount;
             if (!preReserved) a.maxPosition += amount;
-            tradeCashflow[account] -= int256(notional + takerFee);
-            totalRealizedCashflow -= int256(notional + takerFee);
         } else {
-            a.settledPosition -= amount;
             a.maxPosition -= amount;
             if (!preReserved) a.minPosition -= amount;
-            tradeCashflow[account] += int256(notional) - int256(takerFee);
-            totalRealizedCashflow += int256(notional - takerFee);
         }
+
+        int256 cashDelta = side == Side.Bid
+            ? -int256(notional + takerFee)
+            : int256(notional - takerFee);
+        tradeCashflow[account] += cashDelta;
+        totalRealizedCashflow += cashDelta;
 
         _refreshReservedMargin(account);
     }
@@ -1371,13 +1518,14 @@ contract OrderBookCore is IOrderBookCore {
     ) internal {
         if (filledLots == 0) return;
 
+        uint256 notional = notionalValue(filledLots, tick);
         generationMakerFillBudget[side][tick][generation] -= filledLots;
         pendingMakerTradeCashflow += side == Side.Bid
-            ? int256(notionalValue(filledLots, tick)) : -int256(notionalValue(filledLots, tick));
+            ? int256(notional) : -int256(notional);
         generationMakerFundingEntryBudget[side][tick][generation] -= entryFunding;
         pendingMakerFundingEntry -= entryFunding;
+        claimantRegistry.settlePendingMaker(side == Side.Bid, tick, filledLots);
 
-        uint256 notional = notionalValue(filledLots, tick);
         uint256 requestedMakerRebate =
             notional * uint256(uint16(feeSchedulePacked >> 16)) / 10_000;
         TickPool storage p = pools[side][tick];
@@ -1429,11 +1577,13 @@ contract OrderBookCore is IOrderBookCore {
             generationMakerFundingEntryBudget[side][tick][generation];
         if (tail == 0 && entryFunding == 0) return 0;
 
+        uint256 notional = notionalValue(tail, tick);
         generationMakerFillBudget[side][tick][generation] = 0;
         pendingMakerTradeCashflow += side == Side.Bid
-            ? int256(notionalValue(tail, tick)) : -int256(notionalValue(tail, tick));
+            ? int256(notional) : -int256(notional);
         generationMakerFundingEntryBudget[side][tick][generation] = 0;
         pendingMakerFundingEntry -= entryFunding;
+        if (tail != 0) claimantRegistry.settlePendingMaker(side == Side.Bid, tick, tail);
 
         _settleExistingPositionFunding(maker);
 
@@ -1442,7 +1592,7 @@ contract OrderBookCore is IOrderBookCore {
 
         if (tail != 0) {
             _applyMakerPositionCashflow(
-                maker, side, tail, notionalValue(tail, tick), 0, true
+                maker, side, tail, notional, 0, true
             );
             emit MakerSettled(maker, side, tick, tail, generation);
         }
@@ -1459,19 +1609,20 @@ contract OrderBookCore is IOrderBookCore {
         AccountRisk storage a = accountRisk[maker];
         int80 amount = _positionAmount(filledLots);
 
+        a.settledPosition += side == Side.Bid ? amount : -amount;
         if (side == Side.Bid) {
-            a.settledPosition += amount;
             a.minPosition += amount;
             if (widen) a.maxPosition += amount;
-            tradeCashflow[maker] += int256(makerRebate) - int256(notional);
-            totalRealizedCashflow += int256(makerRebate) - int256(notional);
         } else {
-            a.settledPosition -= amount;
             a.maxPosition -= amount;
             if (widen) a.minPosition -= amount;
-            tradeCashflow[maker] += int256(notional + makerRebate);
-            totalRealizedCashflow += int256(notional + makerRebate);
         }
+
+        int256 cashDelta = side == Side.Bid
+            ? int256(makerRebate) - int256(notional)
+            : int256(notional + makerRebate);
+        tradeCashflow[maker] += cashDelta;
+        totalRealizedCashflow += cashDelta;
     }
 
     function _reclaimMakerRebateDust(uint256 amount) internal {
@@ -1493,16 +1644,15 @@ contract OrderBookCore is IOrderBookCore {
         uint96 lots,
         bool expand
     ) internal {
+        // Reservations are live economic exposure even before an order fills.
+        unitScaleLocked = true;
+        _trackClaimant(account);
         AccountRisk storage a = accountRisk[account];
         int80 amount = _positionAmount(lots);
 
-        if (side == Side.Bid) {
-            if (expand) a.maxPosition += amount;
-            else a.maxPosition -= amount;
-        } else {
-            if (expand) a.minPosition -= amount;
-            else a.minPosition += amount;
-        }
+        int80 delta = expand ? amount : -amount;
+        if (side == Side.Bid) a.maxPosition += delta;
+        else a.minPosition -= delta;
     }
 
     function _refreshReservedMargin(address account) internal {
@@ -1552,15 +1702,11 @@ contract OrderBookCore is IOrderBookCore {
     {
         int80 position = accountRisk[account].settledPosition;
 
-        if (side == Side.Bid) {
-            if (position >= 0) return 0;
-            uint80 shortReducible = uint80(-position);
-            return requested < shortReducible ? requested : uint96(shortReducible);
-        }
-
-        if (position <= 0) return 0;
-        uint80 longReducible = uint80(position);
-        return requested < longReducible ? requested : uint96(longReducible);
+        int256 reducible = side == Side.Bid
+            ? -int256(position) : int256(position);
+        if (reducible <= 0) return 0;
+        uint96 bound = uint96(uint256(reducible));
+        return requested < bound ? requested : bound;
     }
 
     function _positionAmount(uint96 lots) internal pure returns (int80 amount) {
@@ -1583,13 +1729,10 @@ contract OrderBookCore is IOrderBookCore {
     }
 
     function _assertPostOnly(Side side, uint16 tick) internal view {
-        if (side == Side.Bid) {
-            (bool ok, uint16 ask) = _bestTick(Side.Ask);
-            if (ok && tick >= ask) revert CrossesBook();
-        } else {
-            (bool ok, uint16 bid) = _bestTick(Side.Bid);
-            if (ok && tick <= bid) revert CrossesBook();
-        }
+        bool isBid = side == Side.Bid;
+        Side opposite = isBid ? Side.Ask : Side.Bid;
+        (bool ok, uint16 best) = _bestTick(opposite);
+        if (ok && (isBid ? tick >= best : tick <= best)) revert CrossesBook();
     }
 
     function _bestExecutableTick(Side side) internal view returns (bool ok, uint16 tick) {
@@ -1648,38 +1791,24 @@ contract OrderBookCore is IOrderBookCore {
     {
         uint8 wi = uint8(current >> 8);
         uint8 bi = uint8(current);
+        bool ascending = side == Side.Ask;
+
         uint256 word = _tickWords[side][wi];
-
-        if (side == Side.Ask) {
-            uint256 sameWord =
-                word & (type(uint256).max << (uint256(bi) + 1));
-            if (sameWord != 0) {
-                return (true, _tickFromWord(side, wi, sameWord));
-            }
-
-            uint256 higherWords =
-                _occupiedWords[side]
-                    & (type(uint256).max << (uint256(wi) + 1));
-            if (higherWords == 0) return (false, 0);
-
-            wi = _edgeBit(side, higherWords);
-            return (true, _tickFromWord(side, wi, _tickWords[side][wi]));
-        }
-
-        uint256 sameWord = word & ((uint256(1) << bi) - 1);
+        uint256 sameWord = ascending
+            ? word & (type(uint256).max << (uint256(bi) + 1))
+            : word & ((uint256(1) << bi) - 1);
         if (sameWord != 0) {
-            return (true, (uint16(wi) << 8) | uint16(_edgeBit(side, sameWord)));
+            return (true, _tickFromWord(side, wi, sameWord));
         }
 
-        uint256 lowerWords =
-            _occupiedWords[side] & ((uint256(1) << wi) - 1);
-        if (lowerWords == 0) return (false, 0);
+        uint256 wordBits = _occupiedWords[side];
+        uint256 followingWords = ascending
+            ? wordBits & (type(uint256).max << (uint256(wi) + 1))
+            : wordBits & ((uint256(1) << wi) - 1);
+        if (followingWords == 0) return (false, 0);
 
-        wi = _edgeBit(side, lowerWords);
-        return (
-            true,
-            (uint16(wi) << 8) | uint16(_edgeBit(side, _tickWords[side][wi]))
-        );
+        wi = _edgeBit(side, followingWords);
+        return (true, _tickFromWord(side, wi, _tickWords[side][wi]));
     }
 
     function _tickFromWord(Side side, uint8 wordIndex, uint256 word)
