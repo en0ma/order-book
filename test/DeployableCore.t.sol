@@ -58,12 +58,12 @@ contract DeployableCoreTest is TestBase {
             abi.encodeCall(feeCore.configurePortfolioController, (controller))
         );
         assertTrue(!accepted, "standalone-earned fees entered portfolio custody");
-        assertEq(feeCore.portfolioController(), address(0), "rejected transition changed controller");
+        assertTrue(feeCore.portfolioController() == address(0), "rejected transition changed controller");
         assertEq(feeCore.protocolFeesAccrued(), 100, "rejected transition debited fees");
 
         feeCore.seedStandaloneAccruedFees(0);
         feeCore.configurePortfolioController(controller);
-        assertEq(feeCore.portfolioController(), controller, "clean transition blocked");
+        assertTrue(feeCore.portfolioController() == controller, "clean transition blocked");
     }
 
     function testDirectHotPathStillMatchesOnChain() public {
