@@ -1831,12 +1831,14 @@ contract OrderBookCore is IOrderBookCore {
 
     function _msb(uint256 x) internal pure returns (uint8 r) {
         if (x == 0) revert InsufficientLiquidity();
-        // At most eight shifts for a 256-bit word. Avoid eight separately
-        // unrolled blocks of deployment bytecode in the hot-path Core.
-        for (uint256 shift = 128; shift != 0; shift >>= 1) {
-            if (x >> shift != 0) {
-                x >>= shift;
-                r += uint8(shift);
+        // Eight iterations, with the branch and shift kept in one compact
+        // assembly loop. Preserve the zero-word custom error above.
+        assembly ("memory-safe") {
+            for { let shift := 128 } gt(shift, 0) { shift := shr(1, shift) } {
+                if shr(shift, x) {
+                    x := shr(shift, x)
+                    r := add(r, shift)
+                }
             }
         }
     }
