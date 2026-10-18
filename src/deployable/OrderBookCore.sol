@@ -1795,7 +1795,7 @@ contract OrderBookCore is IOrderBookCore {
 
         uint256 word = _tickWords[side][wi];
         uint256 sameWord = ascending
-            ? word & (type(uint256).max << (uint256(bi) + 1))
+            ? word & ~(type(uint256).max >> (255 - uint256(bi)))
             : word & ((uint256(1) << bi) - 1);
         if (sameWord != 0) {
             return (true, _tickFromWord(side, wi, sameWord));
@@ -1803,7 +1803,7 @@ contract OrderBookCore is IOrderBookCore {
 
         uint256 wordBits = _occupiedWords[side];
         uint256 followingWords = ascending
-            ? wordBits & (type(uint256).max << (uint256(wi) + 1))
+            ? wordBits & ~(type(uint256).max >> (255 - uint256(wi)))
             : wordBits & ((uint256(1) << wi) - 1);
         if (followingWords == 0) return (false, 0);
 
