@@ -1833,10 +1833,10 @@ contract OrderBookCore is IOrderBookCore {
         if (x == 0) revert InsufficientLiquidity();
         // At most eight shifts for a 256-bit word. Avoid eight separately
         // unrolled blocks of deployment bytecode in the hot-path Core.
-        while (x > 1) {
-            x >>= 1;
-            unchecked {
-                ++r;
+        for (uint256 shift = 128; shift != 0; shift >>= 1) {
+            if (x >> shift != 0) {
+                x >>= shift;
+                r += uint8(shift);
             }
         }
     }
