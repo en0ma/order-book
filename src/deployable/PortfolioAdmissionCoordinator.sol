@@ -5,6 +5,7 @@ import {IOrderBookCore} from "./IOrderBookCore.sol";
 import {PortfolioMarginPolicy} from "./PortfolioMarginPolicy.sol";
 import {PortfolioCollateralVault} from "./PortfolioCollateralVault.sol";
 import {ILiquidationGateway} from "./ILiquidationGateway.sol";
+import {PortfolioFeePayoutModule} from "./PortfolioFeePayoutModule.sol";
 
 interface IPortfolioInsuranceOrderInventory {
     function activeInsuranceBlockingOrders(address account) external view returns (bool);
@@ -33,7 +34,16 @@ contract PortfolioAdmissionCoordinator {
 
     PortfolioMarginPolicy public immutable policy;
     PortfolioCollateralVault public immutable vault;
+    PortfolioFeePayoutModule public immutable feePayoutModule;
     MarketConfig[] public markets;
+    address public treasuryRecipient;
+    bool public feeDistributionEnabled;
+    // Packs with the treasury address and enabled flag; only 0/1 values.
+    uint8 private _feePayoutEntered;
+
+    event PortfolioProtocolFeeDistributed(address indexed recipient, uint256 amount);
+    event TreasuryRecipientConfigured(address indexed recipient);
+    event FeeDistributionStatusChanged(bool enabled);
 
     event PortfolioLockSynchronized(
         address indexed account,
@@ -80,10 +90,53 @@ contract PortfolioAdmissionCoordinator {
 
         policy = policyRef;
         vault = PortfolioCollateralVault(vault_);
+        feePayoutModule = new PortfolioFeePayoutModule();
     }
 
     function marketCount() external view returns (uint256) {
         return markets.length;
+    }
+
+    /// @notice Bind treasury once to the same governance owner as portfolio policy.
+    function configureTreasuryRecipient(address recipient) external {
+        if (msg.sender != policy.owner() || recipient == address(0)
+            || recipient == address(this) || recipient == address(vault)
+            || recipient == address(vault.collateralToken())
+            || treasuryRecipient != address(0)) revert InvalidPortfolioAdmissionConfig();
+        treasuryRecipient = recipient;
+        emit TreasuryRecipientConfigured(recipient);
+    }
+
+    /// @notice Distribute only earned fees backed across the *entire* vault
+    /// and all configured markets. Individual market fee ledgers are debited
+    /// atomically with the exact underlying ERC20 transfer.
+    /// @notice Disabled by default pending deployment-specific solvency review.
+    function setFeeDistributionEnabled(bool enabled) external {
+        if (msg.sender != policy.owner()
+            || (enabled && treasuryRecipient == address(0))) {
+            revert InvalidPortfolioAdmissionConfig();
+        }
+        feeDistributionEnabled = enabled;
+        emit FeeDistributionStatusChanged(enabled);
+    }
+
+    function withdrawPortfolioProtocolFees(uint256[] calldata marketAmounts) external {
+        if (msg.sender != policy.owner() || treasuryRecipient == address(0)
+            || !feeDistributionEnabled || _feePayoutEntered != 0 || marketAmounts.length != markets.length) {
+            revert InvalidPortfolioAdmissionConfig();
+        }
+        _feePayoutEntered = 1;
+        (bool ok, bytes memory result) = address(feePayoutModule).delegatecall(
+            abi.encodeWithSelector(PortfolioFeePayoutModule.execute.selector, marketAmounts)
+        );
+        if (!ok) {
+            assembly ("memory-safe") {
+                revert(add(result, 32), mload(result))
+            }
+        }
+        uint256 amount = abi.decode(result, (uint256));
+        _feePayoutEntered = 0;
+        emit PortfolioProtocolFeeDistributed(treasuryRecipient, amount);
     }
 
     function settledCashEquity(address account) public view returns (int256 cashEquity) {

@@ -1,10 +1,11 @@
 name: ci
 
 on:
+  # Explicit feature-branch push allows exact-head validation without a PR event.
   workflow_dispatch:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'feature/issue-203-onchain-net-liability-solvency']
 
 permissions:
   contents: read
@@ -242,3 +243,4 @@ jobs:
               exit 1
             fi
           done
+
