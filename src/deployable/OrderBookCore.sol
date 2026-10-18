@@ -1816,7 +1816,7 @@ contract OrderBookCore is IOrderBookCore {
 
     function _tickFromWord(Side side, uint8 wordIndex, uint256 word)
         internal
-        pure
+        view
         returns (uint16)
     {
         return (uint16(wordIndex) << 8) | uint16(_edgeBit(side, word));
