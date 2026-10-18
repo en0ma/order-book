@@ -11,6 +11,7 @@ import {StandaloneFeePayoutModule} from "./StandaloneFeePayoutModule.sol";
 import {AccountValuationModule} from "./AccountValuationModule.sol";
 import {LiquidationRewardPayoutModule} from "./LiquidationRewardPayoutModule.sol";
 import {ExactCollateralTransferModule} from "./ExactCollateralTransferModule.sol";
+import {TickBitmapMathModule} from "./TickBitmapMathModule.sol";
 
 /// @title OrderBookCore
 /// @notice Deployable hot-path CLOB/risk/funding core.
@@ -96,6 +97,7 @@ contract OrderBookCore is IOrderBookCore {
     AccountValuationModule public immutable accountValuationModule;
     LiquidationRewardPayoutModule public immutable liquidationRewardPayoutModule;
     ExactCollateralTransferModule public immutable exactCollateralTransferModule;
+    TickBitmapMathModule public immutable tickBitmapMathModule;
     mapping(address => uint256) internal collateralBalance;
     uint256 internal totalLocalCollateral;
     mapping(address => uint256) internal reservedMargin;
@@ -197,6 +199,7 @@ contract OrderBookCore is IOrderBookCore {
         accountValuationModule = new AccountValuationModule();
         liquidationRewardPayoutModule = new LiquidationRewardPayoutModule();
         exactCollateralTransferModule = new ExactCollateralTransferModule();
+        tickBitmapMathModule = new TickBitmapMathModule();
         markOracle = IMarkOracle(markOracle_);
         executionBandTicks = executionBandTicks_;
         initialMarginBps = initialMarginBps_;
@@ -1819,50 +1822,8 @@ contract OrderBookCore is IOrderBookCore {
         return (uint16(wordIndex) << 8) | uint16(_edgeBit(side, word));
     }
 
-    function _edgeBit(Side side, uint256 x) internal pure returns (uint8) {
-        return side == Side.Ask ? _lsb(x) : _msb(x);
-    }
-
-    function _lsb(uint256 x) internal pure returns (uint8 r) {
-        unchecked {
-            r = _msb(x & (~x + 1));
-        }
-    }
-
-    function _msb(uint256 x) internal pure returns (uint8 r) {
-        if (x == 0) revert InsufficientLiquidity();
-
-        assembly {
-            let f := shl(7, iszero(iszero(shr(128, x))))
-            x := shr(f, x)
-            r := f
-
-            f := shl(6, iszero(iszero(shr(64, x))))
-            x := shr(f, x)
-            r := or(r, f)
-
-            f := shl(5, iszero(iszero(shr(32, x))))
-            x := shr(f, x)
-            r := or(r, f)
-
-            f := shl(4, iszero(iszero(shr(16, x))))
-            x := shr(f, x)
-            r := or(r, f)
-
-            f := shl(3, iszero(iszero(shr(8, x))))
-            x := shr(f, x)
-            r := or(r, f)
-
-            f := shl(2, iszero(iszero(shr(4, x))))
-            x := shr(f, x)
-            r := or(r, f)
-
-            f := shl(1, iszero(iszero(shr(2, x))))
-            x := shr(f, x)
-            r := or(r, f)
-
-            r := or(r, iszero(iszero(shr(1, x))))
-        }
+    function _edgeBit(Side side, uint256 x) internal view returns (uint8) {
+        return tickBitmapMathModule.edgeBit(side == Side.Ask, x);
     }
 
     function _currentFunding(Side side, uint96 lots)
