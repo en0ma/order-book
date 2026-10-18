@@ -74,6 +74,23 @@ contract Issue203PortfolioFeeSolvencyTest is PortfolioTwoMarketFeeIsolationTest 
         assertEq(core0.activeQuoteCount(MAKER), 0, "first market maker quote persists");
         assertEq(core1.activeQuoteCount(MAKER), 0, "second market maker quote persists");
 
+        // Pin down the precise fail-closed condition before invoking the
+        // global proof; never bypass risk, custody locks or pending maker claims.
+        assertEq(vault.lockedCollateral(MAKER), 0, "maker collateral lock persists");
+        assertEq(vault.lockedCollateral(TAKER), 0, "taker collateral lock persists");
+        assertEq(core0.claimantRegistry().pendingMakerUnattributedLots(), 0, "market zero maker unsettled");
+        assertEq(core1.claimantRegistry().pendingMakerUnattributedLots(), 0, "market one maker unsettled");
+        assertEq(core0.claimantRegistry().pendingPriceLevelCount(), 0, "market zero pending price bucket");
+        assertEq(core1.claimantRegistry().pendingPriceLevelCount(), 0, "market one pending price bucket");
+        (int80 settledT0, int80 lowT0, int80 highT0) = core0.accountRisk(TAKER);
+        (int80 settledT1, int80 lowT1, int80 highT1) = core1.accountRisk(TAKER);
+        assertEq(int256(settledT0), 0, "taker market zero position persists");
+        assertEq(int256(settledT1), 0, "taker market one position persists");
+        assertEq(int256(lowT0), 0, "taker market zero lower risk bound");
+        assertEq(int256(highT0), 0, "taker market zero upper risk bound");
+        assertEq(int256(lowT1), 0, "taker market one lower risk bound");
+        assertEq(int256(highT1), 0, "taker market one upper risk bound");
+
         PortfolioFeeSolvencyPreflight proof = new PortfolioFeeSolvencyPreflight();
         (uint256 capacity, uint256 claims, uint256 liabilities) =
             proof.conservativeCapacity(coordinator);
