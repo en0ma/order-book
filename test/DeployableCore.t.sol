@@ -314,6 +314,23 @@ contract DeployableCoreTest is TestBase {
         assertEq(feeCore.protocolFeesAccrued(), 2, "protocol fee setup mismatch");
 
         address liquidator = address(0x1A2B);
+        // A taker match initially leaves maker PnL/funding unattributed. That
+        // gross claimant obligation is not earned reward liquidity.
+        assertTrue(
+            feeCore.claimantRegistry().pendingMakerUnattributedLots() != 0,
+            "fee-cap fixture unexpectedly has no deferred maker claim"
+        );
+        uint256 pendingPaid = feeCore.modulePayLiquidationReward(liquidator, 10);
+        assertEq(pendingPaid, 0, "unattributed maker claims allowed premature reward");
+        assertEq(feeCore.protocolFeesAccrued(), 2, "denied reward changed fee ledger");
+
+        vm.prank(ALICE);
+        feeCore.settle(IOrderBookCore.Side.Ask, 100);
+        assertEq(
+            feeCore.claimantRegistry().pendingMakerUnattributedLots(),
+            0,
+            "maker settlement left deferred claims"
+        );
         uint256 paid = feeCore.modulePayLiquidationReward(liquidator, 10);
 
         assertEq(paid, 2, "reward not capped by protocol fees");
